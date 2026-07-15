@@ -174,7 +174,7 @@
   "channels": 1,
   "cue_count": 7,
   "generator": "tools/gen_sfx.py",
-  "generator_sha256": "18ccd7f4216735f930a7726cbf0d76092872f85297f44d3dc3c62149573b2716",
+  "generator_sha256": "ffac33ec6d765a0a472afc1919704f0309b7bc0f2cf5b3b537a65d2a7623c864",
   "method": "deterministic stdlib-only integer fixed-point synthesis",
   "reproducible": "No libm transcendentals in the sample path; integer fixed-point phase/envelope and fixed-seed xorshift noise only. `gen_sfx.py --check` byte-compares a fresh render against these artifacts.",
   "sample_rate": 44100,

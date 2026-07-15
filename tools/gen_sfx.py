@@ -459,6 +459,21 @@ def do_check(out_dir: Path, manifest_path: Path) -> int:
                 f"manifest '{key}' is {manifest[key]!r}, expected {expected[key]!r}{hint}"
             )
 
+    # Compare lengths BEFORE normalizing to a dict: keying by runtime_file
+    # collapses duplicates, so a manifest carrying an extra duplicate entry
+    # would otherwise reconcile cleanly while artifact_count still read 21.
+    if len(manifest["artifacts"]) != len(expected["artifacts"]):
+        failures.append(
+            f"manifest lists {len(manifest['artifacts'])} artifact records, "
+            f"expected {len(expected['artifacts'])}"
+        )
+    seen: set[str] = set()
+    for entry in manifest["artifacts"]:
+        path = entry.get("runtime_file")
+        if path in seen:
+            failures.append(f"manifest lists {path} more than once")
+        seen.add(path)
+
     exp_artifacts = {a["runtime_file"]: a for a in expected["artifacts"]}
     got_artifacts = {a["runtime_file"]: a for a in manifest["artifacts"]}
     for path in sorted(set(exp_artifacts) | set(got_artifacts)):
