@@ -111,7 +111,9 @@ typedef struct {
     bool     act_held[ACT_COUNT];
     uint64_t act_tick[ACT_COUNT];   /* tick of last press/repeat; legacy expiry */
 
-    int   serve_to;       /* SIDE_* that serves next */
+    /* SIDE_* receiving the next serve; serve_ball() aims toward this side.
+       After a point, this is the side that conceded. Not the server. */
+    int   serve_to;
     int   winner;         /* SIDE_* once GS_GAMEOVER, else -1 */
     int   rally;
     float state_timer, shake, flash;
