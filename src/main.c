@@ -245,13 +245,36 @@ static int rules_test(void)
     game_init(960, 540, 1234);
     G.headless = true;
     game_start(MODE_AI);
+    left = &G.paddles[SIDE_LEFT];
+    prepare_ball(left->x + left->w + BALL_RADIUS + .4f,
+                 left->y + .25f, -BALL_SPEED_MAX, 0);
+    game_tick();
+    EXPECT(G.ball.vx > 0 && G.rally == 1,
+           "an inbound ball at the paddle corner is deflected");
+
+    game_init(960, 540, 1234);
+    G.headless = true;
+    game_start(MODE_AI);
+    left = &G.paddles[SIDE_LEFT];
+    prepare_ball(left->x - BALL_RADIUS - .25f,
+                 left->y + left->h * .5f, -BALL_SPEED_MIN, 0);
+    game_tick();
+    EXPECT(G.ball.vx < 0 && G.rally == 0,
+           "a ball fully behind the paddle cannot hit its back face");
+
+    game_init(960, 540, 1234);
+    G.headless = true;
+    game_start(MODE_AI);
     int right_before = G.paddles[SIDE_RIGHT].score;
     prepare_ball(-BALL_RADIUS - 1, 90, -BALL_SPEED_MIN, 0);
     game_tick();
     EXPECT(G.paddles[SIDE_RIGHT].score == right_before + 1,
            "a left-side miss awards exactly one right-side point");
-    EXPECT(G.serve_to == SIDE_LEFT || G.serve_to == SIDE_RIGHT,
-           "scoring selects a valid next receiver");
+    EXPECT(G.serve_to == SIDE_LEFT,
+           "the side that conceded is selected as the next receiver");
+    for (int tick = 0; tick < 120 && G.state == GS_POINT; tick++) game_tick();
+    EXPECT(G.state == GS_SERVE && G.serve_to == SIDE_LEFT && G.ball.vx < 0,
+           "the post-point serve travels toward its named receiver");
 
     game_init(960, 540, 1234);
     G.headless = true;

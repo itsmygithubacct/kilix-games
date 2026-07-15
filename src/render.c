@@ -437,11 +437,22 @@ void render_init(int width, int height)
 void render_resize(int width, int height)
 {
     if (width <= 0 || height <= 0 ||
-        (size_t)width > SIZE_MAX / (size_t)height / 4)
+        (size_t)width > SIZE_MAX / (size_t)height / 4) {
+        free(framebuffer);
+        framebuffer = NULL;
+        output_width = output_height = 0;
+        logical_scale = 0.0f;
         return;
+    }
     size_t required = (size_t)width * (size_t)height * 4;
     uint8_t *resized = realloc(framebuffer, required);
-    if (!resized) return;
+    if (!resized) {
+        free(framebuffer);
+        framebuffer = NULL;
+        output_width = output_height = 0;
+        logical_scale = 0.0f;
+        return;
+    }
     framebuffer = resized;
     output_width = width;
     output_height = height;

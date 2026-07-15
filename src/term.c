@@ -15,7 +15,7 @@
 
 static volatile sig_atomic_t winch_pending;
 static struct termios original_termios;
-static bool raw_active;
+static volatile sig_atomic_t raw_active;
 static volatile int shutdown_claimed;
 static bool release_capability_seen;
 
