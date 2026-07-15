@@ -45,7 +45,13 @@ static pthread_t mixer_thread;
 static atomic_bool running = ATOMIC_VAR_INIT(false);
 static bool thread_started;
 static bool enabled = true;
-static bool bank_ok;
+/* Two distinct facts, deliberately not conflated: bank_complete means all
+   SFX_COUNT*SFX_VARIANTS production WAVs loaded, which is what --asset-check
+   must attest; bank_playable means at least one did, which is all playback
+   needs. Reporting a 1-of-21 bank as "loaded" would make the asset validator
+   weaker than its name. */
+static bool bank_complete;
+static bool bank_playable;
 static int sink_fd = -1;
 static pid_t sink_pid = -1;
 static const char *sink_label;
@@ -58,8 +64,9 @@ static const char *const CUE_NAMES[SFX_COUNT] = {
 };
 
 const char *sound_sink_name(void) { return sink_label; }
-bool sound_bank_loaded(void) { return bank_ok; }
-bool sound_is_enabled(void) { return enabled && bank_ok && sink_fd >= 0; }
+/* Attests a COMPLETE production bank; --asset-check relies on this. */
+bool sound_bank_loaded(void) { return bank_complete; }
+bool sound_is_enabled(void) { return enabled && bank_playable && sink_fd >= 0; }
 void sound_set_enabled(bool on) { enabled = on; }
 
 static uint32_t rotate_random(void)
@@ -124,9 +131,12 @@ static bool load_bank(void)
                 "  Or point KILIX_PONG_ASSETS at an install's assets directory.\n");
         return false;
     }
+    bank_playable = true;
+    bank_complete = (missing == 0);
     if (missing > 0)
-        fprintf(stderr, "kilix-pong: sfx: %d of %d variants missing; "
-                        "affected cues fall back to the variants present\n",
+        fprintf(stderr, "kilix-pong: sfx: INCOMPLETE bank -- %d of %d variants "
+                        "missing; affected cues fall back to the variants "
+                        "present. This is not a production bank.\n",
                 missing, SFX_COUNT * SFX_VARIANTS);
     return true;
 }
@@ -248,11 +258,7 @@ static void *mixer_main(void *arg)
 
 bool sound_init(void)
 {
-    if (!load_bank()) {
-        bank_ok = false;
-        return false;
-    }
-    bank_ok = true;
+    if (!load_bank()) return false;
 
     if (!open_sink()) {
         fprintf(stderr, "kilix-pong: no audio sink (tried pacat, pw-play, "
@@ -291,13 +297,14 @@ void sound_shutdown(void)
     }
     sink_label = NULL;
     free_bank();
-    bank_ok = false;
+    bank_complete = false;
+    bank_playable = false;
 }
 
 void sound_play(int id, float volume, float pitch)
 {
     if (id < 0 || id >= SFX_COUNT) return;
-    if (!enabled || !bank_ok || sink_fd < 0 || !atomic_load(&running)) return;
+    if (!enabled || !bank_playable || sink_fd < 0 || !atomic_load(&running)) return;
 
     int count = sample_counts[id];
     if (count <= 0) return;

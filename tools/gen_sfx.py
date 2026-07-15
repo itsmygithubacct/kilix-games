@@ -440,11 +440,38 @@ def do_check(out_dir: Path, manifest_path: Path) -> int:
     manifest = json.loads(manifest_path.read_text())
     by_file = {a["runtime_file"].rsplit("/", 1)[-1]: a for a in manifest["artifacts"]}
 
-    if manifest.get("artifact_count") != len(records):
-        failures.append(
-            f"manifest artifact_count={manifest.get('artifact_count')} "
-            f"but generator renders {len(records)}"
-        )
+    # Reconcile the WHOLE manifest against what this script would write, not
+    # just the hashes. Checking artifact_count and per-file SHA alone lets a
+    # stale generator_sha256, PCM metadata, frame count, duration, cue/variant
+    # or runtime path drift silently while the check still prints "reconciled".
+    expected = build_manifest(records, "assets/sfx")
+    for key in sorted(set(expected) | set(manifest)):
+        if key == "artifacts":
+            continue
+        if key not in manifest:
+            failures.append(f"manifest is missing top-level '{key}'")
+        elif key not in expected:
+            failures.append(f"manifest has unexpected top-level '{key}'")
+        elif manifest[key] != expected[key]:
+            hint = " (regenerate the manifest after editing this script)" \
+                   if key == "generator_sha256" else ""
+            failures.append(
+                f"manifest '{key}' is {manifest[key]!r}, expected {expected[key]!r}{hint}"
+            )
+
+    exp_artifacts = {a["runtime_file"]: a for a in expected["artifacts"]}
+    got_artifacts = {a["runtime_file"]: a for a in manifest["artifacts"]}
+    for path in sorted(set(exp_artifacts) | set(got_artifacts)):
+        if path not in got_artifacts:
+            failures.append(f"manifest is missing an entry for {path}")
+        elif path not in exp_artifacts:
+            failures.append(f"manifest has an entry for unknown {path}")
+        elif got_artifacts[path] != exp_artifacts[path]:
+            for field in sorted(set(exp_artifacts[path]) | set(got_artifacts[path])):
+                got = got_artifacts[path].get(field)
+                exp = exp_artifacts[path].get(field)
+                if got != exp:
+                    failures.append(f"{path}: '{field}' is {got!r}, expected {exp!r}")
 
     for r in records:
         name = r["filename"]
@@ -476,11 +503,8 @@ def do_check(out_dir: Path, manifest_path: Path) -> int:
             if w.getnframes() == 0:
                 failures.append(f"{name}: zero frames")
 
-        entry = by_file.get(name)
-        if entry is None:
+        if name not in by_file:
             failures.append(f"{name}: absent from manifest")
-        elif entry["sha256"] != r["sha256"]:
-            failures.append(f"{name}: manifest sha256 does not match render")
 
     stray = sorted(p.name for p in out_dir.glob("*.wav") if p.name not in
                    {r["filename"] for r in records})
@@ -492,7 +516,9 @@ def do_check(out_dir: Path, manifest_path: Path) -> int:
             print(f"FAIL {f}", file=sys.stderr)
         return 1
     print(f"ok: {len(records)} wavs byte-identical to a fresh render, "
-          f"PCM validated, manifest reconciled")
+          f"PCM validated, manifest fully reconciled "
+          f"({len(expected) - 1} provenance fields + "
+          f"{len(exp_artifacts)} artifact records)")
     return 0
 
 

@@ -60,6 +60,15 @@ static float rand_range(float lo, float hi)
     return lo + (hi - lo) * game_randf();
 }
 
+/* Re-rolls both aim errors from the seeded RNG. Called at every match and
+ * point boundary so neither opponent plays the same line twice, and so a fresh
+ * game_init(seed) never inherits the previous match's bias. */
+static void roll_biases(void)
+{
+    ai_bias = rand_range(-6.0f, 6.0f);
+    autopilot_bias = rand_range(-5.0f, 5.0f);
+}
+
 static void play(int id, float volume, float pitch)
 {
     if (!G.headless && G.sound_on) sound_play(id, volume, pitch);
@@ -130,7 +139,9 @@ static void reset_paddles(void)
     r->is_ai = (G.mode == MODE_AI);
 }
 
-/* Places the ball at center and aims it at serve_to's opponent. */
+/* Places the ball at center and aims it toward serve_to -- the receiver, per
+ * the header contract, i.e. the side that just conceded (or a random side on
+ * the opening serve). */
 static void serve_ball(void)
 {
     Ball *b = &G.ball;
@@ -170,6 +181,11 @@ void game_init(int w, int h, uint32_t seed)
     G.mode = MODE_AI;
     G.winner = -1;
     G.serve_to = SIDE_RIGHT;
+    /* Module statics are not covered by the memset of G: reset them here or a
+       second game_init(seed) in one process inherits the first match's aim. */
+    ai_bias = 0.0f;
+    autopilot_bias = 0.0f;
+    paused_from = GS_PLAYING;
     reset_paddles();
     serve_ball();
     G.ball.active = false;
@@ -188,6 +204,7 @@ void game_start(int mode)
     memset(G.particles, 0, sizeof G.particles);
     memset(G.act_held, 0, sizeof G.act_held);
     memset(G.act_tick, 0, sizeof G.act_tick);
+    roll_biases();
     reset_paddles();
     serve_ball();
     G.state = GS_SERVE;
@@ -552,7 +569,7 @@ void game_tick(void)
         else update_ai(TICK_DT);
         G.state_timer -= TICK_DT;
         if (G.state_timer <= 0.0f) {
-            ai_bias = rand_range(-6.0f, 6.0f);
+            roll_biases();
             serve_ball();
             G.state = GS_SERVE;
             G.state_timer = 0.7f;
@@ -617,8 +634,12 @@ void game_autopilot(void)
  * digest is a statement about the simulation, not about float formatting. */
 static void digest_add(uint64_t *h, int64_t v)
 {
+    /* Convert before shifting: right-shifting a negative signed value is
+       implementation-defined in C, which would undercut the whole point of a
+       digest meant to be comparable across toolchains. */
+    uint64_t u = (uint64_t)v;
     for (int i = 0; i < 8; i++) {
-        *h ^= (uint64_t)((v >> (i * 8)) & 0xFF);
+        *h ^= (u >> (i * 8)) & 0xFFu;
         *h *= 1099511628211ULL;
     }
 }
