@@ -107,10 +107,13 @@ tests the installed asset layout. It leaves no test output in the repository.
 |---|---|
 | `src/game.c` | deterministic rules, AI, held input, collisions, particles |
 | `src/render.c` | software rasterizer, arena, HUD, menus, render fixtures |
-| `src/term.c` | raw mode, Kitty keyboard parsing, resize, graphics presenter |
-| `src/sound.c` | WAV bank loader, voice mixer, command-line audio sinks |
+| `src/term.c` | Kitty keyboard parsing and resize around vendored `kitty-framebuffer` |
+| `src/sound.c` | WAV banks routed through vendored `pcm-mixer` |
 | `src/main.c` | interactive loop, asset discovery, CLI and headless checks |
 | `tools/gen_sfx.py` | canonical deterministic Python audio source |
+
+The shared runtime sources are kept under `third_party/`, so builds do not
+depend on separately installed copies.
 
 Research notes, rejected sound candidates, test renders, sanitizer logs, and
 collaboration state are intentionally kept outside this release tree.
