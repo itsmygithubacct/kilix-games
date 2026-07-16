@@ -35,6 +35,8 @@ bool term_init(int *out_width, int *out_height)
     options.min_height = 180;
     options.max_width = 1440;
     options.max_height = 900;
+    options.enter_sequence = "\x1b[>15u";
+    options.leave_sequence = "\x1b[<u";
     if (getenv("KILIX_PONG_SKIP_PROBE")) options.probe_graphics = false;
     if (kittyfb_start(&framebuffer, STDIN_FILENO, STDOUT_FILENO, &options) != 0)
         return false;
@@ -43,8 +45,6 @@ bool term_init(int *out_width, int *out_height)
     release_capability_seen = false;
     *out_width = kittyfb_width(&framebuffer);
     *out_height = kittyfb_height(&framebuffer);
-    /* disambiguate, event types, alternate keys, and all-key reporting */
-    (void)write(STDOUT_FILENO, "\x1b[>15u", 6);
     return true;
 }
 
@@ -277,15 +277,12 @@ static bool claim_shutdown(void)
 void term_shutdown(void)
 {
     if (!claim_shutdown()) return;
-    (void)write(STDOUT_FILENO, "\x1b[<u", 4);
     kittyfb_stop(&framebuffer);
     framebuffer_active = false;
 }
 
 void term_emergency_restore(void)
 {
-    static const char keyboard_pop[] = "\x1b\\\x1b[<u";
     if (!claim_shutdown()) return;
-    (void)write(STDOUT_FILENO, keyboard_pop, sizeof keyboard_pop - 1);
     kittyfb_emergency_restore(&framebuffer);
 }
