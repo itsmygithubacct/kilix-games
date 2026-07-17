@@ -1,6 +1,7 @@
 /* Software RGBA renderer for the luminous Kilix Pong arena. */
 #include "kilix_pong.h"
 #include "font8x16.h"
+#include "soft_raster.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -8,6 +9,7 @@
 #include <string.h>
 
 static uint8_t *framebuffer;
+static sr_canvas canvas;
 static int output_width;
 static int output_height;
 static float logical_scale;
@@ -16,77 +18,23 @@ static float logical_origin_y;
 static float camera_x;
 static float camera_y;
 
-static int red_of(uint32_t color) { return (int)((color >> 16) & 255U); }
-static int green_of(uint32_t color) { return (int)((color >> 8) & 255U); }
-static int blue_of(uint32_t color) { return (int)(color & 255U); }
-
-static void blend_pixel(int x, int y, uint32_t color, float alpha)
-{
-    if (!framebuffer || x < 0 || y < 0 || x >= output_width || y >= output_height ||
-        alpha <= 0.0f)
-        return;
-    if (alpha > 1.0f) alpha = 1.0f;
-    uint8_t *pixel = framebuffer + ((size_t)y * output_width + x) * 4;
-    float inverse = 1.0f - alpha;
-    pixel[0] = (uint8_t)(pixel[0] * inverse + red_of(color) * alpha + 0.5f);
-    pixel[1] = (uint8_t)(pixel[1] * inverse + green_of(color) * alpha + 0.5f);
-    pixel[2] = (uint8_t)(pixel[2] * inverse + blue_of(color) * alpha + 0.5f);
-    pixel[3] = 255;
-}
-
 static void rectangle_pixels(int x, int y, int width, int height,
                              uint32_t color, float alpha)
 {
-    if (width <= 0 || height <= 0 || alpha <= 0.0f) return;
-    int x0 = x < 0 ? 0 : x;
-    int y0 = y < 0 ? 0 : y;
-    int x1 = x + width > output_width ? output_width : x + width;
-    int y1 = y + height > output_height ? output_height : y + height;
-    for (int py = y0; py < y1; py++)
-        for (int px = x0; px < x1; px++)
-            blend_pixel(px, py, color, alpha);
+    sr_fill_rect(&canvas, (float)x, (float)y, (float)width, (float)height,
+                 color, alpha);
 }
 
 static void circle_pixels(float center_x, float center_y, float radius,
                           uint32_t color, float alpha)
 {
-    if (radius <= 0.0f || alpha <= 0.0f) return;
-    int x0 = (int)floorf(center_x - radius - 1.0f);
-    int x1 = (int)ceilf(center_x + radius + 1.0f);
-    int y0 = (int)floorf(center_y - radius - 1.0f);
-    int y1 = (int)ceilf(center_y + radius + 1.0f);
-    float outer = radius + 0.65f;
-    float inner = radius - 0.65f;
-    if (inner < 0.0f) inner = 0.0f;
-    float outer_squared = outer * outer;
-    float inner_squared = inner * inner;
-    for (int y = y0; y <= y1; y++) {
-        for (int x = x0; x <= x1; x++) {
-            float dx = x + 0.5f - center_x;
-            float dy = y + 0.5f - center_y;
-            float distance_squared = dx * dx + dy * dy;
-            if (distance_squared > outer_squared) continue;
-            float coverage = 1.0f;
-            if (distance_squared > inner_squared && outer_squared > inner_squared)
-                coverage = (outer_squared - distance_squared) /
-                           (outer_squared - inner_squared);
-            blend_pixel(x, y, color, alpha * clampf(coverage, 0.0f, 1.0f));
-        }
-    }
+    sr_fill_circle(&canvas, center_x, center_y, radius, color, alpha);
 }
 
 static void line_pixels(float x0, float y0, float x1, float y1, float width,
                         uint32_t color, float alpha)
 {
-    float dx = x1 - x0;
-    float dy = y1 - y0;
-    int steps = (int)ceilf(fmaxf(fabsf(dx), fabsf(dy)));
-    if (steps < 1) steps = 1;
-    for (int step = 0; step <= steps; step++) {
-        float amount = (float)step / steps;
-        circle_pixels(x0 + dx * amount, y0 + dy * amount, width * 0.5f,
-                      color, alpha);
-    }
+    sr_line(&canvas, x0, y0, x1, y1, width, color, alpha, 0, 0);
 }
 
 static float screen_x(float logical_x)
@@ -198,14 +146,13 @@ static void clear_background(void)
             float vignette = sqrtf(dx * dx + dy * dy) / maximum_distance;
             float glow = clampf(1.0f - vignette, 0.0f, 1.0f);
             int scanline = (y & 3) == 0 ? 2 : 0;
-            uint8_t *pixel = framebuffer + ((size_t)y * output_width + x) * 4;
-            pixel[0] = (uint8_t)clampf(3.0f + glow * 6.0f + scanline,
-                                      0.0f, 255.0f);
-            pixel[1] = (uint8_t)clampf(7.0f + glow * 11.0f + vertical * 3.0f,
-                                      0.0f, 255.0f);
-            pixel[2] = (uint8_t)clampf(19.0f + glow * 20.0f + vertical * 5.0f,
-                                      0.0f, 255.0f);
-            pixel[3] = 255;
+            uint8_t red = (uint8_t)clampf(3.0f + glow * 6.0f + scanline,
+                                          0.0f, 255.0f);
+            uint8_t green = (uint8_t)clampf(
+                7.0f + glow * 11.0f + vertical * 3.0f, 0.0f, 255.0f);
+            uint8_t blue = (uint8_t)clampf(
+                19.0f + glow * 20.0f + vertical * 5.0f, 0.0f, 255.0f);
+            sr_px(&canvas, x, y, sr_rgb(red, green, blue));
         }
     }
 }
@@ -430,6 +377,7 @@ void render_init(int width, int height)
 {
     free(framebuffer);
     framebuffer = NULL;
+    sr_canvas_free(&canvas);
     output_width = output_height = 0;
     render_resize(width, height);
 }
@@ -454,6 +402,14 @@ void render_resize(int width, int height)
         return;
     }
     framebuffer = resized;
+    sr_canvas_free(&canvas);
+    if (!sr_canvas_init(&canvas, width, height)) {
+        free(framebuffer);
+        framebuffer = NULL;
+        output_width = output_height = 0;
+        logical_scale = 0.0f;
+        return;
+    }
     output_width = width;
     output_height = height;
     logical_scale = fminf(width / LOGICAL_W, height / LOGICAL_H);
@@ -465,12 +421,16 @@ void render_shutdown(void)
 {
     free(framebuffer);
     framebuffer = NULL;
+    sr_canvas_free(&canvas);
     output_width = output_height = 0;
     logical_scale = 0.0f;
 }
 
 uint8_t *render_fb(void)
 {
+    if (framebuffer != NULL)
+        (void)sr_pack_rgba(&canvas, framebuffer,
+                           (size_t)output_width * (size_t)output_height * 4u);
     return framebuffer;
 }
 
@@ -511,25 +471,5 @@ void render_frame(void)
 
 bool render_dump_ppm(const char *path)
 {
-    if (!framebuffer || !path || !*path || output_width <= 0 || output_height <= 0)
-        return false;
-    FILE *file = fopen(path, "wb");
-    if (!file) return false;
-    bool okay = fprintf(file, "P6\n%d %d\n255\n", output_width, output_height) > 0;
-    size_t row_size = (size_t)output_width * 3;
-    uint8_t *row = malloc(row_size);
-    if (!row) okay = false;
-    for (int y = 0; okay && y < output_height; y++) {
-        for (int x = 0; x < output_width; x++) {
-            const uint8_t *source = framebuffer +
-                ((size_t)y * output_width + x) * 4;
-            row[x * 3] = source[0];
-            row[x * 3 + 1] = source[1];
-            row[x * 3 + 2] = source[2];
-        }
-        okay = fwrite(row, 1, row_size, file) == row_size;
-    }
-    free(row);
-    if (fclose(file) != 0) okay = false;
-    return okay;
+    return path != NULL && *path != '\0' && sr_write_ppm(&canvas, path);
 }
