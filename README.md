@@ -13,7 +13,7 @@ directional english, and the first side to 11 wins.
 
 ## Features
 
-- luminous 320×180 logical arena scaled cleanly to the terminal's pixel grid
+- Luminous 320×180 logical arena scaled cleanly to the terminal's pixel grid
 - Fixed 60 Hz deterministic simulation with a 30 fps asynchronous presenter
 - Bounded-substep ball collision, contact separation, and anti-tunneling tests
 - Human-vs-CPU and local two-player modes
