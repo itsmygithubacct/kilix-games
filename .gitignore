@@ -1,0 +1,6 @@
+kilix-jpak
+src/*.o
+src/*.d
+render_*.ppm
+render_*.png
+*.core
