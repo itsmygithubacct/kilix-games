@@ -1,6 +1,6 @@
 /* Deterministic procedural audio; there are no runtime sound assets. */
 #include "kilix_jpak.h"
-#include "pcm_mixer.h"
+#include "pcmmix_bank.h"
 
 #include <math.h>
 #include <stdint.h>
@@ -10,12 +10,7 @@
 #define SAMPLE_RATE 44100
 #define TAU 6.2831853071795864769f
 
-typedef struct {
-    int16_t *data;
-    size_t length;
-} OwnedSample;
-
-static OwnedSample samples[SFX_COUNT];
+static pcmmix_bank sound_bank;
 static pcmmix mixer;
 static bool started;
 static bool enabled = true;
@@ -48,8 +43,10 @@ static void bake(int id, const float *input, size_t count, float peak, bool fade
         value = clampf(value, -1.0f, 1.0f);
         data[i] = (int16_t)lrintf(value * 32767.0f);
     }
-    samples[id].data = data;
-    samples[id].length = count;
+    pcmmix_bank_clear_cue(&sound_bank, (uint32_t)id);
+    if (!pcmmix_bank_take(&sound_bank, (uint32_t)id, 0u, data, count,
+                          1.0f, 1.0f))
+        free(data);
 }
 
 static void synth_tone(int id, float duration, float f0, float f1,
@@ -163,7 +160,10 @@ static void synth_all(void)
 
 bool sound_init(void)
 {
-    if (!samples[0].data) synth_all();
+    if (pcmmix_bank_variant_count(&sound_bank, 0u) == 0u) {
+        (void)pcmmix_bank_init(&sound_bank, SFX_COUNT, 0x5eedc0deu);
+        synth_all();
+    }
     pcmmix_options options;
     pcmmix_options_init(&options);
     options.sample_rate = SAMPLE_RATE;
@@ -179,11 +179,7 @@ void sound_shutdown(void)
     if (started) pcmmix_stop(&mixer);
     started = false;
     jet_voice = -1;
-    for (int i = 0; i < SFX_COUNT; i++) {
-        free(samples[i].data);
-        samples[i].data = NULL;
-        samples[i].length = 0;
-    }
+    pcmmix_bank_clear(&sound_bank);
 }
 
 void sound_set_enabled(bool on)
@@ -202,15 +198,15 @@ bool sound_is_enabled(void)
 
 void sound_play(int id, float volume, float pitch)
 {
-    if (!started || !enabled || id < 0 || id >= SFX_COUNT || id == SFX_JET ||
-        !samples[id].data) return;
-    pcmmix_sample sample = {samples[id].data, samples[id].length};
-    (void)pcmmix_play(&mixer, &sample, volume, pitch);
+    if (!started || !enabled || id < 0 || id >= SFX_COUNT || id == SFX_JET)
+        return;
+    (void)pcmmix_bank_play(&mixer, &sound_bank, (uint32_t)id,
+                           volume, pitch);
 }
 
 void sound_jet(bool active, float intensity)
 {
-    if (!started || !enabled || !samples[SFX_JET].data) return;
+    if (!started || !enabled) return;
     if (!active) {
         if (jet_voice > 0) pcmmix_voice_stop(&mixer, jet_voice);
         jet_voice = -1;
@@ -221,6 +217,6 @@ void sound_jet(bool active, float intensity)
         pcmmix_voice_set(&mixer, jet_voice, volume, .94f + intensity * .16f);
         return;
     }
-    pcmmix_sample sample = {samples[SFX_JET].data, samples[SFX_JET].length};
-    jet_voice = pcmmix_loop(&mixer, &sample, volume, .98f);
+    jet_voice = pcmmix_bank_loop(&mixer, &sound_bank, SFX_JET,
+                                 volume, .98f);
 }

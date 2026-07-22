@@ -1,57 +1,24 @@
 CC      ?= cc
-KITTY_TERMINAL_SESSION_DIR ?= third_party/kitty-terminal-session
-KITTY_KEYBOARD_DIR ?= $(KITTY_TERMINAL_SESSION_DIR)/third_party/kitty_keyboard
-KITTY_FRAMEBUFFER_DIR ?= $(KITTY_TERMINAL_SESSION_DIR)/third_party/kitty-framebuffer
-SOFT_RASTER_DIR ?= third_party/soft-raster
-PCM_MIXER_DIR ?= third_party/pcm-mixer
+KILIX_GAME_KIT_DIR ?= third_party/kilix-game-kit
+include $(KILIX_GAME_KIT_DIR)/mk/game-kit.mk
 override CPPFLAGS += -D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L \
-	-I$(KITTY_KEYBOARD_DIR)/include \
-	-I$(KITTY_FRAMEBUFFER_DIR)/include \
-	-I$(KITTY_TERMINAL_SESSION_DIR)/include \
-	-I$(SOFT_RASTER_DIR)/include \
-	-I$(PCM_MIXER_DIR)/include
+	$(KILIX_GAME_KIT_CPPFLAGS)
 CFLAGS  ?= -O2 -Wall -Wextra -Wpedantic -std=c11
 LDFLAGS ?=
-LDLIBS  ?= -lz -lm -pthread
+LDLIBS  ?= $(KILIX_GAME_KIT_LDLIBS)
 PREFIX  ?= /usr/local
 DESTDIR ?=
 
 SRC = src/main.c src/game.c src/data.c src/render.c src/term.c src/sound.c
-VENDOR_OBJ = src/vendor_kitty_terminal_session.o src/vendor_kitty_keyboard.o \
-	src/vendor_kitty_keyboard_posix.o src/vendor_kitty_framebuffer.o \
-	src/vendor_soft_raster.o src/vendor_pcm_mixer.o src/vendor_pcm_wav.o
-OBJ = $(SRC:.c=.o) $(VENDOR_OBJ)
+OBJ = $(SRC:.c=.o)
 BIN = kilix-jpak
 
 all: $(BIN)
 
-$(BIN): $(OBJ)
-	$(CC) $(LDFLAGS) -o $@ $(OBJ) $(LDLIBS)
+$(BIN): $(OBJ) $(KILIX_GAME_KIT_LIB)
+	$(CC) $(LDFLAGS) -o $@ $(OBJ) $(KILIX_GAME_KIT_LIB) $(LDLIBS)
 
 src/%.o: src/%.c src/kilix_jpak.h
-	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c -o $@ $<
-
-src/vendor_kitty_terminal_session.o: \
-	$(KITTY_TERMINAL_SESSION_DIR)/src/kitty_terminal_session.c \
-	$(KITTY_TERMINAL_SESSION_DIR)/include/kitty_terminal_session.h
-	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c -o $@ $<
-
-src/vendor_kitty_keyboard.o: $(KITTY_KEYBOARD_DIR)/src/kitty_keyboard.c
-	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c -o $@ $<
-
-src/vendor_kitty_keyboard_posix.o: $(KITTY_KEYBOARD_DIR)/src/kitty_keyboard_posix.c
-	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c -o $@ $<
-
-src/vendor_kitty_framebuffer.o: $(KITTY_FRAMEBUFFER_DIR)/src/kitty_framebuffer.c
-	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c -o $@ $<
-
-src/vendor_soft_raster.o: $(SOFT_RASTER_DIR)/src/soft_raster.c
-	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c -o $@ $<
-
-src/vendor_pcm_mixer.o: $(PCM_MIXER_DIR)/src/pcm_mixer.c
-	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c -o $@ $<
-
-src/vendor_pcm_wav.o: $(PCM_MIXER_DIR)/src/pcm_wav.c
 	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c -o $@ $<
 
 test: $(BIN) clean-room-check test-cli

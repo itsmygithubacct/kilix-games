@@ -1,21 +1,16 @@
 /* Simulation, collision, campaign flow, input, and user profile. */
 #include "kilix_jpak.h"
+#include "kilix_state.h"
 
-#include <errno.h>
-#include <fcntl.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <unistd.h>
 
 #define PLAYER_W 11.0f
 #define PLAYER_H 15.0f
 #define ENEMY_W 12.0f
 #define ENEMY_H 12.0f
-#define PROFILE_PATH_MAX 4096
 
 GameState G;
 
@@ -126,54 +121,35 @@ static uint32_t checksum(const uint8_t *bytes, size_t count)
     return h;
 }
 
-static bool join_path(char *out, size_t out_len, const char *a, const char *b)
+static bool profile_store_init(kilixstate_store *store)
 {
-    size_t na = strlen(a), nb = strlen(b);
-    if (na + nb + 1 > out_len) return false;
-    memcpy(out, a, na);
-    memcpy(out + na, b, nb + 1);
-    return true;
-}
-
-static bool profile_paths(char *directory, size_t directory_len,
-                          char *path, size_t path_len, bool create)
-{
+    kilixstate_options options;
     const char *override = getenv("KILIX_JPAK_DATA_HOME");
-    if (override && *override) {
-        if (!join_path(directory, directory_len, override, "/kilix-jpak")) return false;
-        if (create) mkdir(override, 0700);
-    } else {
-        const char *xdg = getenv("XDG_DATA_HOME");
-        if (xdg && *xdg) {
-            if (!join_path(directory, directory_len, xdg, "/kilix-jpak")) return false;
-            if (create) mkdir(xdg, 0700);
-        } else {
-            const char *home = getenv("HOME");
-            char local[PROFILE_PATH_MAX], share[PROFILE_PATH_MAX];
-            if (!home || !*home ||
-                !join_path(local, sizeof local, home, "/.local") ||
-                !join_path(share, sizeof share, local, "/share") ||
-                !join_path(directory, directory_len, share, "/kilix-jpak")) return false;
-            if (create) { mkdir(local, 0700); mkdir(share, 0700); }
-        }
-    }
-    if (create && mkdir(directory, 0700) != 0 && errno != EEXIST) return false;
-    return join_path(path, path_len, directory, "/profile.v1");
+
+    kilixstate_options_init(&options);
+    options.app_id = "kilix-jpak";
+    options.filename = "profile.v1";
+    options.base_directory = override && *override ? override : NULL;
+    options.max_payload = 24u;
+    /* The KJPAK01 payload already has a public version and checksum. */
+    options.format = KILIXSTATE_FORMAT_RAW;
+    return kilixstate_store_init(store, &options) == KILIXSTATE_OK;
 }
 
 static void profile_load(void)
 {
     if (getenv("KILIX_JPAK_NO_PROFILE")) return;
-    char directory[PROFILE_PATH_MAX], path[PROFILE_PATH_MAX];
-    if (!profile_paths(directory, sizeof directory, path, sizeof path, false)) return;
-    int fd = open(path, O_RDONLY);
-    if (fd < 0) return;
-    uint8_t bytes[24], trailing;
-    ssize_t n = read(fd, bytes, sizeof bytes);
-    ssize_t extra = read(fd, &trailing, 1);
-    close(fd);
+    kilixstate_store store;
+    uint8_t bytes[24];
+    size_t size = 0u;
+
+    if (!profile_store_init(&store)) return;
+    kilixstate_result result = kilixstate_load(&store, bytes, sizeof bytes,
+                                               &size);
+    kilixstate_store_close(&store);
     static const uint8_t magic[8] = {'K','J','P','A','K','0','1','\0'};
-    if (n != (ssize_t)sizeof bytes || extra != 0 || memcmp(bytes, magic, 8) != 0 ||
+    if (result != KILIXSTATE_OK || size != sizeof bytes ||
+        memcmp(bytes, magic, 8) != 0 ||
         read_le32(bytes + 8) != 1u ||
         read_le32(bytes + 20) != checksum(bytes, 20)) return;
     uint32_t high = read_le32(bytes + 12);
@@ -190,10 +166,7 @@ static void profile_load(void)
 static void profile_save(void)
 {
     if (G.headless || getenv("KILIX_JPAK_NO_PROFILE")) return;
-    char directory[PROFILE_PATH_MAX], path[PROFILE_PATH_MAX], temp[PROFILE_PATH_MAX];
-    if (!profile_paths(directory, sizeof directory, path, sizeof path, true)) return;
-    int written = snprintf(temp, sizeof temp, "%s/.profile.%ld.tmp", directory, (long)getpid());
-    if (written < 0 || (size_t)written >= sizeof temp) return;
+    kilixstate_store store;
     uint8_t bytes[24] = {'K','J','P','A','K','0','1','\0'};
     write_le32(bytes + 8, 1u);
     write_le32(bytes + 12, (uint32_t)G.high_score);
@@ -201,21 +174,10 @@ static void profile_save(void)
     bytes[17] = G.sound_on ? 1u : 0u;
     write_le32(bytes + 20, checksum(bytes, 20));
 
-    int fd = open(temp, O_WRONLY | O_CREAT | O_TRUNC, 0600);
-    if (fd < 0) return;
-    size_t offset = 0;
-    while (offset < sizeof bytes) {
-        ssize_t n = write(fd, bytes + offset, sizeof bytes - offset);
-        if (n <= 0) { close(fd); unlink(temp); return; }
-        offset += (size_t)n;
-    }
-    if (fsync(fd) != 0 || close(fd) != 0 || rename(temp, path) != 0) {
-        unlink(temp);
-        return;
-    }
-    int directory_fd = open(directory, O_RDONLY | O_DIRECTORY);
-    if (directory_fd >= 0) { fsync(directory_fd); close(directory_fd); }
-    G.saved_high_score = G.high_score;
+    if (!profile_store_init(&store)) return;
+    if (kilixstate_save(&store, bytes, sizeof bytes) == KILIXSTATE_OK)
+        G.saved_high_score = G.high_score;
+    kilixstate_store_close(&store);
 }
 
 static void update_high_score(void)
