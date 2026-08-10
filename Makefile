@@ -1,3 +1,7 @@
+# Shared build fragments define internal archive targets; bare `make` must
+# still build the runnable game.
+.DEFAULT_GOAL := all
+
 CC       ?= cc
 PYTHON   ?= python3
 KILIX_GAME_KIT_DIR ?= third_party/kilix-game-kit
