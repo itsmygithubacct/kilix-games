@@ -9,3 +9,6 @@ battle_*.png
 *.gcda
 *.gcno
 *.profraw
+
+# per-game kit build (kilix-games shared SDK)
+/build/

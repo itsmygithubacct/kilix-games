@@ -12,6 +12,9 @@ INSTALL ?= install
 VERSION ?= 1.0.0
 SOURCE_DATE_EPOCH ?= 1784678400
 KILIX_GAME_KIT_DIR ?= third_party/kilix-game-kit
+# In the kilix-games monorepo the SDK is shared; build the kit per game so
+# games never share objects built with different flags.
+KILIX_GAME_KIT_BUILD_DIR ?= $(CURDIR)/build/kilix-game-kit
 include $(KILIX_GAME_KIT_DIR)/mk/game-kit.mk
 
 CFLAGS  ?= -O2 -Wall -Wextra -Wpedantic -std=c11
@@ -100,13 +103,13 @@ test: test-code check-headers validate-assets test-render
 
 sanitize:
 	$(MAKE) clean
-	$(MAKE) -C $(KILIX_GAME_KIT_DIR) clean
+	$(MAKE) -C $(KILIX_GAME_KIT_DIR) BUILD_DIR=$(KILIX_GAME_KIT_BUILD_DIR) clean
 	$(MAKE) O=obj-san BINDIR=bin-san CFLAGS="$(SANITIZE_CFLAGS)" test
-	$(MAKE) -C $(KILIX_GAME_KIT_DIR) clean
+	$(MAKE) -C $(KILIX_GAME_KIT_DIR) BUILD_DIR=$(KILIX_GAME_KIT_BUILD_DIR) clean
 
 release-binary:
 	$(MAKE) clean
-	$(MAKE) -C $(KILIX_GAME_KIT_DIR) clean
+	$(MAKE) -C $(KILIX_GAME_KIT_DIR) BUILD_DIR=$(KILIX_GAME_KIT_BUILD_DIR) clean
 	$(MAKE) CFLAGS="$(RELEASE_CFLAGS)" all
 	$(STRIP) -s $(BIN)
 	@if strings $(BIN) | grep -Eq '/home/[^/]+|$(CURDIR)'; then \
@@ -154,12 +157,12 @@ verify-dist: dist
 
 release-check:
 	$(MAKE) clean
-	$(MAKE) -C $(KILIX_GAME_KIT_DIR) clean
+	$(MAKE) -C $(KILIX_GAME_KIT_DIR) BUILD_DIR=$(KILIX_GAME_KIT_BUILD_DIR) clean
 	$(MAKE) all
 	$(MAKE) test
 	$(MAKE) sanitize
 	$(MAKE) clean
-	$(MAKE) -C $(KILIX_GAME_KIT_DIR) clean
+	$(MAKE) -C $(KILIX_GAME_KIT_DIR) BUILD_DIR=$(KILIX_GAME_KIT_BUILD_DIR) clean
 	$(MAKE) all
 	python3 tests/pty_smoke.py --binary ./$(BIN)
 	$(MAKE) verify-dist

@@ -7,3 +7,6 @@ render_*.ppm
 *.dat
 *.save
 images/
+
+# per-game kit build (kilix-games shared SDK)
+/build/

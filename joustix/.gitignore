@@ -2,3 +2,6 @@ joustix
 src/*.o
 render_*.ppm
 *.core
+
+# per-game kit build (kilix-games shared SDK)
+/build/

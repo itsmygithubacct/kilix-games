@@ -5,6 +5,9 @@
 CC       ?= cc
 PYTHON   ?= python3
 KILIX_GAME_KIT_DIR ?= third_party/kilix-game-kit
+# In the kilix-games monorepo the SDK is shared; build the kit per game so
+# games never share objects built with different flags.
+KILIX_GAME_KIT_BUILD_DIR ?= $(CURDIR)/build/kilix-game-kit
 include $(KILIX_GAME_KIT_DIR)/mk/game-kit.mk
 override CPPFLAGS += -D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L \
 	$(KILIX_GAME_KIT_CPPFLAGS)

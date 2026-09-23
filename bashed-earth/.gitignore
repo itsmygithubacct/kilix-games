@@ -4,3 +4,6 @@ bashed-earth
 *.png
 !docs/*.png
 gmon.out
+
+# per-game kit build (kilix-games shared SDK)
+/build/

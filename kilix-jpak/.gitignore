@@ -4,3 +4,6 @@ src/*.d
 render_*.ppm
 render_*.png
 *.core
+
+# per-game kit build (kilix-games shared SDK)
+/build/

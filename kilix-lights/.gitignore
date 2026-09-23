@@ -8,3 +8,6 @@
 __pycache__/
 *.py[cod]
 .DS_Store
+
+# per-game kit build (kilix-games shared SDK)
+/build/

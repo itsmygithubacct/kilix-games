@@ -7,3 +7,6 @@
 /images/last_image.png
 
 /assets/audio/strudel/
+
+# per-game kit build (kilix-games shared SDK)
+/build/
