@@ -1,0 +1,125 @@
+.TH CHESS-BASH 6 "July 2026" "chess-bash 0.2.0" "Games"
+.SH NAME
+chess-bash \- animated Battle-Chess-style chess for kitty-graphics terminals
+.SH SYNOPSIS
+.B chess-bash
+.RI [ option ]
+.SH DESCRIPTION
+.B chess-bash
+is a full chess game rendered as pixel-art armies on an isometric
+battlefield, streamed to the terminal over the kitty graphics protocol.
+Pieces march to their squares and captures play out as small battles,
+in the spirit of the classic Battle Chess.
+.PP
+It supports Human vs Human, Human vs Computer and Computer vs Computer play.
+Stockfish is used when available, with its skill adjusted for the selected
+difficulty; otherwise a built-in AI searches one, two or three plies.
+In Human vs Computer play as Blue, the board rotates to place the human army
+nearest the player.
+The full rules are enforced: castling, en passant, underpromotion with a
+piece chooser, checkmate, stalemate, the fifty-move rule, threefold
+repetition and insufficient material.
+.PP
+Legal quiet moves use dots and captures use outlines, check remains indicated
+until answered, and status feedback remains visible in compact terminals.
+.SH OPTIONS
+.TP
+.B \-\-selftest " [seed] [plies]"
+Run a headless random-move rules exercise and exit.
+.TP
+.B \-\-rules-test
+Run deterministic rule and interaction regressions and exit.
+.TP
+.B \-\-perft-test
+Run standard start-position and Kiwipete move-generator counts and exit.
+.TP
+.B \-\-perft " depth [fen]"
+Count legal move-tree nodes from the initial position or an optional quoted
+FEN.  Intended for rule development and verification.
+.TP
+.B \-\-fallback-test
+Run a deterministic smoke test of the built-in AI without an external engine.
+.TP
+.B \-\-render-test " [seed]"
+Write PPM screenshots of gameplay and UI states to
+.B CHESS_BASH_RENDER_DIR
+or the current directory, including every theme, selected targets, the compact
+HUD and the rotated Blue-side view.  Missing assets and write failures produce
+a nonzero exit status.
+.TP
+.B \-\-sound-test
+Play every sound cue and exit.
+.TP
+.B \-\-version
+Print the version.
+.TP
+.B \-\-help
+Print usage.
+.SH KEYS
+.TP
+.B Arrows / WASD
+Move the cursor (menu: choose entry / change value).
+.TP
+.B Enter / Space
+Select a piece or destination; confirm; skip the active battle animation.
+.TP
+.B Esc
+Clear the selection; cancel the promotion chooser.
+.TP
+.B R
+Resign (press twice); on the victory screen: rematch.
+.TP
+.B M
+Toggle music.
+.TP
+.B F
+Toggle fast battles.
+.TP
+.B S
+Skip the current battle animation.
+.TP
+.B N
+Return to the menu; press twice during a live game.
+.TP
+.B Q
+Quit.
+.SH ENVIRONMENT
+.TP
+.B STOCKFISH
+Path to a UCI engine binary (default: "stockfish" on PATH).
+.TP
+.B CHESS_BASH_ASSETS
+Override the asset directory.
+.TP
+.B CHESS_BASH_SKIP_PROBE
+Skip the kitty-graphics capability probe.
+.TP
+.B CHESS_BASH_RENDER_DIR
+Directory used by
+.B \-\-render-test
+for generated snapshots (default: the current directory).
+.SH AUDIO
+Audio is optional.  Chess Bash streams PCM to the first available command from
+.BR pacat (1),
+.BR pw-play (1),
+.BR aplay (1)
+or SoX
+.BR play (1).
+If none is installed, the game continues silently.  Use
+.B \-\-sound-test
+to diagnose playback.
+.SH FILES
+.TP
+.I PREFIX/share/chess-bash/assets
+Installed image and audio assets.  The default prefix is
+.IR /usr/local .
+.TP
+.I PREFIX/share/man/man6/chess-bash.6
+Installed manual page.
+.SH TERMINALS
+Kilix is the primary tested terminal.  Kitty and other terminals implementing
+the Kitty graphics protocol may also work.  SSH and terminal multiplexers must
+pass the graphics escape sequences through unchanged.
+.SH SEE ALSO
+.BR kitty (1),
+.BR stockfish (6)

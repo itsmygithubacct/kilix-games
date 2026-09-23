@@ -1,0 +1,780 @@
+{
+ "schema": 1,
+ "provider": "local generators (python_sound_assets)",
+ "licence": "CC0-derived",
+ "licence_basis": "Every runtime asset is generated locally. SFX are procedural DSP (combat_generators, ui_game_state_generator; CC0 by construction) or Strudel pure-synth patterns (music_sound_generator; synthesised waveforms only). Music is locally-generated Strudel (see music). No ElevenLabs or other restricted assets remain.",
+ "pack": "chess-bash",
+ "promoted": true,
+ "reproducibility": "Procedural cues: re-running the recorded command at its seed reproduces final_sha256. Strudel cues: real-time captures are not byte-deterministic; the reproducible pin is the pattern text (pattern_sha256).",
+ "standalone_distribution": "intended only as bundled chess-bash game assets.",
+ "generated_at": "2026-07-16",
+ "mastering": {
+  "description": "onset trim, exact duration fit, equal-power mono downmix, DC removal, 24 Hz high-pass, short edge fades, and 4x reconstructed-peak gain staging",
+  "procedural_layer": null,
+  "runtime_format": "mono 44100 Hz signed 16-bit PCM WAV",
+  "saturation_drive": 0.0
+ },
+ "generators": [
+  {
+   "package": "combat_generators",
+   "cues": [
+    "move_step",
+    "capture_clank",
+    "fall_thud"
+   ]
+  },
+  {
+   "package": "ui_game_state_generator",
+   "cues": [
+    "select",
+    "check"
+   ]
+  },
+  {
+   "package": "music_sound_generator",
+   "cues": [
+    "start_trumpet",
+    "win_trumpet"
+   ],
+   "note": "also the three assets/music tracks"
+  }
+ ],
+ "cues": [
+  {
+   "id": "select",
+   "generator_package": "ui_game_state_generator",
+   "generator_cue": "menu_accept",
+   "options": {
+    "style": "acoustic"
+   },
+   "command": "python -m ui_game_state_generator render menu_accept --style acoustic --count 3 --seed 20260716",
+   "requested_variants": 3,
+   "source_recordings": [
+    {
+     "license": "CC0 1.0",
+     "note": "pure procedural DSP synthesis; no source recordings; CC0 by construction"
+    }
+   ],
+   "artifacts": [
+    {
+     "runtime_file": "assets/sfx/select.wav",
+     "variant": 1,
+     "renderer": "procedural",
+     "final_sha256": "8ef31cb2ae3717f1a1d24234869f7efb67c4edc34007902c220d368f07b92b1a",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.195,
+     "seed": 20260716
+    },
+    {
+     "runtime_file": "assets/sfx/select_v02.wav",
+     "variant": 2,
+     "renderer": "procedural",
+     "final_sha256": "eee1095d459a744822972f604296fdf40fbac80cb18b795a3e903c349d131f89",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.201,
+     "seed": 20260716
+    },
+    {
+     "runtime_file": "assets/sfx/select_v03.wav",
+     "variant": 3,
+     "renderer": "procedural",
+     "final_sha256": "1e3e0c3c465c0f70be646231e3ac9b1be5a8862afa5317683d4432cf9486902f",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.2,
+     "seed": 20260716
+    }
+   ]
+  },
+  {
+   "id": "move_step",
+   "generator_package": "combat_generators",
+   "generator_cue": "footstep",
+   "options": {
+    "pack": "chess-bash"
+   },
+   "command": "python combat_generators/combat_sfx.py pack chess-bash --seed 20260716",
+   "requested_variants": 6,
+   "source_recordings": [
+    {
+     "license": "CC0 1.0",
+     "note": "pure procedural DSP synthesis; no source recordings; CC0 by construction"
+    }
+   ],
+   "artifacts": [
+    {
+     "runtime_file": "assets/sfx/move_step.wav",
+     "variant": 1,
+     "renderer": "procedural",
+     "final_sha256": "3a4398600fd04a6300ff5094bb2df5cace79f3a3a54e748fbb9708e96de8658a",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.26,
+     "seed": 20260716
+    },
+    {
+     "runtime_file": "assets/sfx/move_step_v02.wav",
+     "variant": 2,
+     "renderer": "procedural",
+     "final_sha256": "71946bce6922647077161d33cc8cd105b5d6ba11295a41f868c622f42fb5a9c4",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.26,
+     "seed": 20260716
+    },
+    {
+     "runtime_file": "assets/sfx/move_step_v03.wav",
+     "variant": 3,
+     "renderer": "procedural",
+     "final_sha256": "185c6fd86ca70b1f22c12af04562da87f1c1dabe2f70addd67a6747a69b06710",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.26,
+     "seed": 20260716
+    },
+    {
+     "runtime_file": "assets/sfx/move_step_v04.wav",
+     "variant": 4,
+     "renderer": "procedural",
+     "final_sha256": "fae63e50213fb222a17fb41e91a23e33c0dd06e52027775e621e1c4091090072",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.26,
+     "seed": 20260716
+    },
+    {
+     "runtime_file": "assets/sfx/move_step_v05.wav",
+     "variant": 5,
+     "renderer": "procedural",
+     "final_sha256": "018f6db64c9768b5955d9705ff077a52363bd58a7cc051fb82aeccbee06656cc",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.26,
+     "seed": 20260716
+    },
+    {
+     "runtime_file": "assets/sfx/move_step_v06.wav",
+     "variant": 6,
+     "renderer": "procedural",
+     "final_sha256": "aefd27cc51b6a9d42d83eb947955775a307f99bae8b4a597823a28bf24715a0b",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.26,
+     "seed": 20260716
+    }
+   ]
+  },
+  {
+   "id": "capture_clank",
+   "generator_package": "combat_generators",
+   "generator_cue": "strike",
+   "options": {
+    "pack": "chess-bash",
+    "weapon": "sword",
+    "target": "blade"
+   },
+   "command": "python combat_generators/combat_sfx.py pack chess-bash --seed 20260716",
+   "requested_variants": 5,
+   "source_recordings": [
+    {
+     "license": "CC0 1.0",
+     "note": "pure procedural DSP synthesis; no source recordings; CC0 by construction"
+    }
+   ],
+   "artifacts": [
+    {
+     "runtime_file": "assets/sfx/capture_clank.wav",
+     "variant": 1,
+     "renderer": "procedural",
+     "final_sha256": "fabe966d6849d295b85164c8e62ab6508f9ccf3e625640f89684be7382c9e788",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.44,
+     "seed": 20260716
+    },
+    {
+     "runtime_file": "assets/sfx/capture_clank_v02.wav",
+     "variant": 2,
+     "renderer": "procedural",
+     "final_sha256": "236d4e720bdd4d71e3141b9d37d4ce6a6d8f3b8a0229f6ad9e04eee9e8d367dc",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.44,
+     "seed": 20260716
+    },
+    {
+     "runtime_file": "assets/sfx/capture_clank_v03.wav",
+     "variant": 3,
+     "renderer": "procedural",
+     "final_sha256": "2ab601800d85d5665d6d98d5227278c918e0639b65967fa863b7fef69d80b9ef",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.44,
+     "seed": 20260716
+    },
+    {
+     "runtime_file": "assets/sfx/capture_clank_v04.wav",
+     "variant": 4,
+     "renderer": "procedural",
+     "final_sha256": "74f6f00fb482a855a30a84451be7882981c0582bd35e92ae933eb3ad7307762c",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.44,
+     "seed": 20260716
+    },
+    {
+     "runtime_file": "assets/sfx/capture_clank_v05.wav",
+     "variant": 5,
+     "renderer": "procedural",
+     "final_sha256": "f0ffadcbd7104b56bd7841d643b96c09e542c15f36ec0e70574f13312d633d00",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.44,
+     "seed": 20260716
+    }
+   ]
+  },
+  {
+   "id": "fall_thud",
+   "generator_package": "combat_generators",
+   "generator_cue": "body_fall",
+   "options": {
+    "pack": "chess-bash"
+   },
+   "command": "python combat_generators/combat_sfx.py pack chess-bash --seed 20260716",
+   "requested_variants": 4,
+   "source_recordings": [
+    {
+     "license": "CC0 1.0",
+     "note": "pure procedural DSP synthesis; no source recordings; CC0 by construction"
+    }
+   ],
+   "artifacts": [
+    {
+     "runtime_file": "assets/sfx/fall_thud.wav",
+     "variant": 1,
+     "renderer": "procedural",
+     "final_sha256": "e3304a96f7f189a916695e62092c88b92497211544fb8293397fdc92bbe14c6b",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.85,
+     "seed": 20260716
+    },
+    {
+     "runtime_file": "assets/sfx/fall_thud_v02.wav",
+     "variant": 2,
+     "renderer": "procedural",
+     "final_sha256": "78d1fc9364775aa5b12b9aeae9c76c21c5d7e36fd176ae7c668f4c01fc2fbb40",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.85,
+     "seed": 20260716
+    },
+    {
+     "runtime_file": "assets/sfx/fall_thud_v03.wav",
+     "variant": 3,
+     "renderer": "procedural",
+     "final_sha256": "6385148ffe45439fd9edeb3a01ff664f48041ee51818c046a54e866d8e382351",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.85,
+     "seed": 20260716
+    },
+    {
+     "runtime_file": "assets/sfx/fall_thud_v04.wav",
+     "variant": 4,
+     "renderer": "procedural",
+     "final_sha256": "667fa6c7f4c275af353b85db346fda0dc70200ce4872d6861af0c75a16ae4d12",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.85,
+     "seed": 20260716
+    }
+   ]
+  },
+  {
+   "id": "check",
+   "generator_package": "ui_game_state_generator",
+   "generator_cue": "warning",
+   "options": {
+    "style": "acoustic"
+   },
+   "command": "python -m ui_game_state_generator render warning --style acoustic --count 3 --seed 20260716",
+   "requested_variants": 3,
+   "source_recordings": [
+    {
+     "license": "CC0 1.0",
+     "note": "pure procedural DSP synthesis; no source recordings; CC0 by construction"
+    }
+   ],
+   "artifacts": [
+    {
+     "runtime_file": "assets/sfx/check.wav",
+     "variant": 1,
+     "renderer": "procedural",
+     "final_sha256": "e64d4bd8d652250a7c1307b181213004824f48d7f6eb1e01f1256330297fbda5",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.557,
+     "seed": 20260716
+    },
+    {
+     "runtime_file": "assets/sfx/check_v02.wav",
+     "variant": 2,
+     "renderer": "procedural",
+     "final_sha256": "0262ac30081a72f3f9b7c20460013b701122c24b0f00f68f7cf03b1305979e17",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.557,
+     "seed": 20260716
+    },
+    {
+     "runtime_file": "assets/sfx/check_v03.wav",
+     "variant": 3,
+     "renderer": "procedural",
+     "final_sha256": "f3a909b2080010b3848d6f8b35cf5d8e66a0f5b24d57c12b4f7b27608a0250e5",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.557,
+     "seed": 20260716
+    }
+   ]
+  },
+  {
+   "id": "start_trumpet",
+   "generator_package": "music_sound_generator",
+   "generator_cue": "start_fanfare",
+   "options": {},
+   "command": "python -m music_sound_generator render start_fanfare --count 2",
+   "requested_variants": 2,
+   "pattern_sha256": "cee54a6c70596bc7a74abf98c6c9ef40ae1faffc16e9ec5a0514f9f880292aaa",
+   "source_recordings": [
+    {
+     "license": "CC0 1.0",
+     "note": "Strudel pure-synth pattern 'start_fanfare' (synthesised waveforms only, no sample banks); reproducibility pinned by pattern_sha256, not final bytes (real-time capture)"
+    }
+   ],
+   "artifacts": [
+    {
+     "runtime_file": "assets/sfx/start_trumpet.wav",
+     "variant": 1,
+     "renderer": "strudel-capture",
+     "final_sha256": "b16c3efa6d05de943b3ce762f22c43349ff798b18ac89dd9e7c71cdd30eab4c5",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 2.58,
+     "seed": null,
+     "note": "real-time capture, not byte-deterministic; pinned by pattern_sha256"
+    },
+    {
+     "runtime_file": "assets/sfx/start_trumpet_v02.wav",
+     "variant": 2,
+     "renderer": "strudel-capture",
+     "final_sha256": "208384505f9521daff215405b27e0cf669def945cfd79d7d0342cfb08045bd35",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 2.58,
+     "seed": null,
+     "note": "real-time capture, not byte-deterministic; pinned by pattern_sha256"
+    }
+   ]
+  },
+  {
+   "id": "win_trumpet",
+   "generator_package": "music_sound_generator",
+   "generator_cue": "win_fanfare",
+   "options": {},
+   "command": "python -m music_sound_generator render win_fanfare --count 2",
+   "requested_variants": 2,
+   "pattern_sha256": "ddbea5a43e605383c48f463d0238001152833d93dc4d74a6fc78be101bd06c63",
+   "source_recordings": [
+    {
+     "license": "CC0 1.0",
+     "note": "Strudel pure-synth pattern 'win_fanfare' (synthesised waveforms only, no sample banks); reproducibility pinned by pattern_sha256, not final bytes (real-time capture)"
+    }
+   ],
+   "artifacts": [
+    {
+     "runtime_file": "assets/sfx/win_trumpet.wav",
+     "variant": 1,
+     "renderer": "strudel-capture",
+     "final_sha256": "ccc94f97d518dbc72362b65b805e16b33a3774302e269153f602ab7941b6f534",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 2.7,
+     "seed": null,
+     "note": "real-time capture, not byte-deterministic; pinned by pattern_sha256"
+    },
+    {
+     "runtime_file": "assets/sfx/win_trumpet_v02.wav",
+     "variant": 2,
+     "renderer": "strudel-capture",
+     "final_sha256": "19d3611c06b8dcad4545287b9a727972958b8fc27978a63725bdcbaf9f3e1537",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 2.64,
+     "seed": null,
+     "note": "real-time capture, not byte-deterministic; pinned by pattern_sha256"
+    }
+   ]
+  }
+ ],
+ "promoted_artifacts": [
+  {
+   "runtime_file": "assets/sfx/select.wav",
+   "variant": 1,
+   "renderer": "procedural",
+   "final_sha256": "8ef31cb2ae3717f1a1d24234869f7efb67c4edc34007902c220d368f07b92b1a",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.195,
+   "seed": 20260716,
+   "game_asset": "assets/sfx/select.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/select_v02.wav",
+   "variant": 2,
+   "renderer": "procedural",
+   "final_sha256": "eee1095d459a744822972f604296fdf40fbac80cb18b795a3e903c349d131f89",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.201,
+   "seed": 20260716,
+   "game_asset": "assets/sfx/select_v02.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/select_v03.wav",
+   "variant": 3,
+   "renderer": "procedural",
+   "final_sha256": "1e3e0c3c465c0f70be646231e3ac9b1be5a8862afa5317683d4432cf9486902f",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.2,
+   "seed": 20260716,
+   "game_asset": "assets/sfx/select_v03.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/move_step.wav",
+   "variant": 1,
+   "renderer": "procedural",
+   "final_sha256": "3a4398600fd04a6300ff5094bb2df5cace79f3a3a54e748fbb9708e96de8658a",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.26,
+   "seed": 20260716,
+   "game_asset": "assets/sfx/move_step.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/move_step_v02.wav",
+   "variant": 2,
+   "renderer": "procedural",
+   "final_sha256": "71946bce6922647077161d33cc8cd105b5d6ba11295a41f868c622f42fb5a9c4",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.26,
+   "seed": 20260716,
+   "game_asset": "assets/sfx/move_step_v02.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/move_step_v03.wav",
+   "variant": 3,
+   "renderer": "procedural",
+   "final_sha256": "185c6fd86ca70b1f22c12af04562da87f1c1dabe2f70addd67a6747a69b06710",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.26,
+   "seed": 20260716,
+   "game_asset": "assets/sfx/move_step_v03.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/move_step_v04.wav",
+   "variant": 4,
+   "renderer": "procedural",
+   "final_sha256": "fae63e50213fb222a17fb41e91a23e33c0dd06e52027775e621e1c4091090072",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.26,
+   "seed": 20260716,
+   "game_asset": "assets/sfx/move_step_v04.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/move_step_v05.wav",
+   "variant": 5,
+   "renderer": "procedural",
+   "final_sha256": "018f6db64c9768b5955d9705ff077a52363bd58a7cc051fb82aeccbee06656cc",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.26,
+   "seed": 20260716,
+   "game_asset": "assets/sfx/move_step_v05.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/move_step_v06.wav",
+   "variant": 6,
+   "renderer": "procedural",
+   "final_sha256": "aefd27cc51b6a9d42d83eb947955775a307f99bae8b4a597823a28bf24715a0b",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.26,
+   "seed": 20260716,
+   "game_asset": "assets/sfx/move_step_v06.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/capture_clank.wav",
+   "variant": 1,
+   "renderer": "procedural",
+   "final_sha256": "fabe966d6849d295b85164c8e62ab6508f9ccf3e625640f89684be7382c9e788",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.44,
+   "seed": 20260716,
+   "game_asset": "assets/sfx/capture_clank.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/capture_clank_v02.wav",
+   "variant": 2,
+   "renderer": "procedural",
+   "final_sha256": "236d4e720bdd4d71e3141b9d37d4ce6a6d8f3b8a0229f6ad9e04eee9e8d367dc",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.44,
+   "seed": 20260716,
+   "game_asset": "assets/sfx/capture_clank_v02.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/capture_clank_v03.wav",
+   "variant": 3,
+   "renderer": "procedural",
+   "final_sha256": "2ab601800d85d5665d6d98d5227278c918e0639b65967fa863b7fef69d80b9ef",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.44,
+   "seed": 20260716,
+   "game_asset": "assets/sfx/capture_clank_v03.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/capture_clank_v04.wav",
+   "variant": 4,
+   "renderer": "procedural",
+   "final_sha256": "74f6f00fb482a855a30a84451be7882981c0582bd35e92ae933eb3ad7307762c",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.44,
+   "seed": 20260716,
+   "game_asset": "assets/sfx/capture_clank_v04.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/capture_clank_v05.wav",
+   "variant": 5,
+   "renderer": "procedural",
+   "final_sha256": "f0ffadcbd7104b56bd7841d643b96c09e542c15f36ec0e70574f13312d633d00",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.44,
+   "seed": 20260716,
+   "game_asset": "assets/sfx/capture_clank_v05.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/fall_thud.wav",
+   "variant": 1,
+   "renderer": "procedural",
+   "final_sha256": "e3304a96f7f189a916695e62092c88b92497211544fb8293397fdc92bbe14c6b",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.85,
+   "seed": 20260716,
+   "game_asset": "assets/sfx/fall_thud.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/fall_thud_v02.wav",
+   "variant": 2,
+   "renderer": "procedural",
+   "final_sha256": "78d1fc9364775aa5b12b9aeae9c76c21c5d7e36fd176ae7c668f4c01fc2fbb40",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.85,
+   "seed": 20260716,
+   "game_asset": "assets/sfx/fall_thud_v02.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/fall_thud_v03.wav",
+   "variant": 3,
+   "renderer": "procedural",
+   "final_sha256": "6385148ffe45439fd9edeb3a01ff664f48041ee51818c046a54e866d8e382351",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.85,
+   "seed": 20260716,
+   "game_asset": "assets/sfx/fall_thud_v03.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/fall_thud_v04.wav",
+   "variant": 4,
+   "renderer": "procedural",
+   "final_sha256": "667fa6c7f4c275af353b85db346fda0dc70200ce4872d6861af0c75a16ae4d12",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.85,
+   "seed": 20260716,
+   "game_asset": "assets/sfx/fall_thud_v04.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/check.wav",
+   "variant": 1,
+   "renderer": "procedural",
+   "final_sha256": "e64d4bd8d652250a7c1307b181213004824f48d7f6eb1e01f1256330297fbda5",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.557,
+   "seed": 20260716,
+   "game_asset": "assets/sfx/check.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/check_v02.wav",
+   "variant": 2,
+   "renderer": "procedural",
+   "final_sha256": "0262ac30081a72f3f9b7c20460013b701122c24b0f00f68f7cf03b1305979e17",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.557,
+   "seed": 20260716,
+   "game_asset": "assets/sfx/check_v02.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/check_v03.wav",
+   "variant": 3,
+   "renderer": "procedural",
+   "final_sha256": "f3a909b2080010b3848d6f8b35cf5d8e66a0f5b24d57c12b4f7b27608a0250e5",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.557,
+   "seed": 20260716,
+   "game_asset": "assets/sfx/check_v03.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/start_trumpet.wav",
+   "variant": 1,
+   "renderer": "strudel-capture",
+   "final_sha256": "b16c3efa6d05de943b3ce762f22c43349ff798b18ac89dd9e7c71cdd30eab4c5",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 2.58,
+   "seed": null,
+   "note": "real-time capture, not byte-deterministic; pinned by pattern_sha256",
+   "game_asset": "assets/sfx/start_trumpet.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/start_trumpet_v02.wav",
+   "variant": 2,
+   "renderer": "strudel-capture",
+   "final_sha256": "208384505f9521daff215405b27e0cf669def945cfd79d7d0342cfb08045bd35",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 2.58,
+   "seed": null,
+   "note": "real-time capture, not byte-deterministic; pinned by pattern_sha256",
+   "game_asset": "assets/sfx/start_trumpet_v02.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/win_trumpet.wav",
+   "variant": 1,
+   "renderer": "strudel-capture",
+   "final_sha256": "ccc94f97d518dbc72362b65b805e16b33a3774302e269153f602ab7941b6f534",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 2.7,
+   "seed": null,
+   "note": "real-time capture, not byte-deterministic; pinned by pattern_sha256",
+   "game_asset": "assets/sfx/win_trumpet.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/win_trumpet_v02.wav",
+   "variant": 2,
+   "renderer": "strudel-capture",
+   "final_sha256": "19d3611c06b8dcad4545287b9a727972958b8fc27978a63725bdcbaf9f3e1537",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 2.64,
+   "seed": null,
+   "note": "real-time capture, not byte-deterministic; pinned by pattern_sha256",
+   "game_asset": "assets/sfx/win_trumpet_v02.wav"
+  }
+ ],
+ "music": {
+  "note": "The three music tracks are locally generated by music_sound_generator, which drives Strudel (AGPL-3.0) headlessly and captures pure-synth patterns. The AUDIO is the output of running the tool, not Strudel source, and the patterns use only synthesised waveforms so no sample-bank licence applies. Output is NOT byte-deterministic (real-time capture); final_sha256 is as-rendered and the reproducible pin is pattern + pattern_sha256. Previous music archived in a local store outside the repository. The 25 SFX cues are separate and, as of 2026-07-16, are also locally generated and CC0-derived (see the cues array).",
+  "tracks": [
+   {
+    "runtime_file": "assets/music/thinking_loop.wav",
+    "cue": "thinking_loop",
+    "origin": "locally_generated",
+    "generator": "music_sound_generator",
+    "tool": "Strudel (https://strudel.cc), AGPL-3.0 \u2014 invoked as an external renderer",
+    "synthesis": "pure synthesised waveforms (sine/sawtooth/triangle/square + noise); NO sample banks, so no sample licence applies",
+    "seed": 20260716,
+    "cps": 0.28,
+    "cycles": 6,
+    "duration_seconds": 21.42,
+    "loop": true,
+    "integer_cycles": true,
+    "final_sha256": "391a307ca7a76a6e38bcca47a1f57e699d162ac19621f0606dc8cda9f7f48820",
+    "pattern_sha256": "dd7c6f405dbfe4d436591c1e19f800ea3a607feef8da2d367645e69b5750f241",
+    "pattern": {
+     "id": "thinking_loop",
+     "sha256": "64a110f8488df75f354f9d318ac632907890b7d4998225f8c290755bc7085d8e",
+     "source": "chess_bash_record.html (accepted 2026-07-07 by ear for chess-bash)",
+     "synthesis": "synthesised only: s(\"sine\"/\"sawtooth\"/\"triangle\"/\"square\") + noise (\"white\"/\"pink\"/\"brown\"); no sample banks"
+    },
+    "auditioned": "2026-07-16 by ear \u2014 accepted"
+   },
+   {
+    "runtime_file": "assets/music/battle_loop.wav",
+    "cue": "battle_loop",
+    "origin": "locally_generated",
+    "generator": "music_sound_generator",
+    "tool": "Strudel (https://strudel.cc), AGPL-3.0 \u2014 invoked as an external renderer",
+    "synthesis": "pure synthesised waveforms (sine/sawtooth/triangle/square + noise); NO sample banks, so no sample licence applies",
+    "seed": 20260716,
+    "cps": 0.5,
+    "cycles": 12,
+    "duration_seconds": 24.0,
+    "loop": true,
+    "integer_cycles": true,
+    "final_sha256": "74d05c01a035530e5396503b562ad3b03164984c9251cda9da361cfce47be415",
+    "pattern_sha256": "e0f73fecf774bb66dff532cdca701605d22f2ae0874c07039f8045014ac9ced5",
+    "pattern": {
+     "id": "battle_loop",
+     "sha256": "addceafeb1d4152d072cde6e2001cf285029933b76189bf565ec361f67230533",
+     "source": "chess_bash_record.html (accepted 2026-07-07 by ear for chess-bash)",
+     "synthesis": "synthesised only: s(\"sine\"/\"sawtooth\"/\"triangle\"/\"square\") + noise (\"white\"/\"pink\"/\"brown\"); no sample banks"
+    },
+    "auditioned": "2026-07-16 by ear \u2014 accepted"
+   },
+   {
+    "runtime_file": "assets/music/victory_fanfare.wav",
+    "cue": "victory_fanfare",
+    "origin": "locally_generated",
+    "generator": "music_sound_generator",
+    "tool": "Strudel (https://strudel.cc), AGPL-3.0 \u2014 invoked as an external renderer",
+    "synthesis": "pure synthesised waveforms (sine/sawtooth/triangle/square + noise); NO sample banks, so no sample licence applies",
+    "seed": 20260716,
+    "cps": 0.72,
+    "cycles": null,
+    "duration_seconds": 6.96,
+    "loop": false,
+    "integer_cycles": null,
+    "final_sha256": "8e2fff97256425a14ee0e9cc3725efc20474d9129a17bc0ca39f9d3d59c923b2",
+    "pattern_sha256": "26142698dab84e82413d1516600c3d10e7836bca5bbd863cf4cd725111b68077",
+    "pattern": {
+     "id": "victory_fanfare",
+     "sha256": "4d9abbf1a0b062adc4dd7f103dc85e45a79d152ea790a87aedea80178afa45b4",
+     "source": "chess_bash_record.html (accepted 2026-07-07 by ear for chess-bash)",
+     "synthesis": "synthesised only: s(\"sine\"/\"sawtooth\"/\"triangle\"/\"square\") + noise (\"white\"/\"pink\"/\"brown\"); no sample banks"
+    },
+    "auditioned": "2026-07-16 by ear \u2014 accepted"
+   }
+  ]
+ },
+ "supersedes": "ElevenLabs Text-to-Sound-Effects v2 SFX bank (removed 2026-07-16); prior blobs remain in git history. The three music tracks were already locally generated."
+}

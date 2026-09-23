@@ -1,0 +1,43 @@
+MIT License
+
+Copyright (c) 2026 itsmygithubacct
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+Unless an asset is identified below as third-party material or as an exception,
+the MIT License above also applies to the project-specific visual assets and
+the deterministic music in assets/music/, to the extent copyright or related
+rights exist. See docs/asset-sources.md for provenance.
+
+Sound-effect assets
+
+The WAV files in assets/sfx/ are generated locally and CC0-derived: procedural
+cues are pure DSP synthesis (combat_generators, ui_game_state_generator), and
+the two trumpet cues are Strudel pure-synth patterns (music_sound_generator) —
+synthesised waveforms only, no sample banks. They carry no standalone-use
+restriction and may be freely used, modified, and redistributed. Per-file
+provenance is in docs/asset-sources.md and docs/audio-provenance.json.
+
+The terminal font supplied by soft-raster (third_party/soft-raster/src/font8x16.h)
+is extracted from Debian
+console-setup's Lat15-Fixed16 console font, which Debian declares public
+domain ("All console fonts are public domain by nature"). Its X11-lineage
+permissive notice is preserved in that dependency's header.

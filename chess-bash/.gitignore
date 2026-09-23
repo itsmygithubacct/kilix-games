@@ -1,0 +1,11 @@
+*.o
+chess-bash
+/tests/engine-lifecycle
+render_*.ppm
+render_*.png
+battle_*.ppm
+battle_*.png
+.test-render/
+*.gcda
+*.gcno
+*.profraw

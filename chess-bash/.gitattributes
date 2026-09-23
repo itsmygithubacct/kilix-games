@@ -1,0 +1,16 @@
+*.ppm binary
+*.png binary
+*.gif binary
+*.wav binary
+*.ogg binary
+*.webm binary
+*.mp3 binary
+*.flac binary
+*.tar binary
+*.tar.gz binary
+*.tar.bz2 binary
+*.tgz binary
+*.gz binary
+*.bz2 binary
+*.xz binary
+*.zip binary
