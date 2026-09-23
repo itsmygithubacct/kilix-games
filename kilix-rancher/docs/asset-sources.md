@@ -21,6 +21,13 @@ assets from *Monster Rancher* or another commercial game are included.
 | `assets/font.ppm` | Hand-lettered display font — a 76-glyph monospace atlas (`A-Z a-z 0-9 . , ! ? : ' - / % + & ; ( )`) | Three generated glyph sheets (uppercase, lowercase, digits+punctuation) on flat magenta, sliced into cells by connected components with `font_atlas.py` and packed as GRAYSCALE-on-magenta; the renderer keys the magenta and multiplies each glyph's luminance by the requested text colour, so one atlas serves every UI colour. Used for text at scale ≥ 2; a built-in 5×7 bitmap covers tiny text and any glyph the atlas lacks |
 | `assets/rent.ppm` | The monthly rent collector, an original cozy landlord character generated with the local Gemini image tool (`gemini-3-pro-image`) | Rendered on flat green `#00ff00`, chroma-keyed to alpha, trimmed, centre-anchored into a 320×320 canvas and flattened over runtime magenta into binary P6; shown on the rent/eviction event, with a procedural coin-purse fallback when absent |
 
+Two atlases were adjusted by one byte each on moving into the kilix-games
+monorepo (2026-09-23). Raw pixel data happened to spell a credential-token
+prefix (in `opponents/mossnub_atlas.ppm`) and a reserved host name (in
+`kilix_atlas.ppm`), which the publication scanner rejects. In each file, one
+colour channel of one pixel moved by one level (byte offsets 950888 and
+2482072). Nothing visible changed.
+
 This repository ships **only runtime assets**. Lossless generation sources,
 intermediates, and preprocessing scripts are not part of the distribution.
 The tables and prompts in this document are the published provenance record
