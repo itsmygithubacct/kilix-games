@@ -1,0 +1,7 @@
+*.o
+/kitty-brokeout
+/render_*.ppm
+/render_*.png
+/gmon.out
+/core
+/core.*
