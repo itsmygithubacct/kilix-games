@@ -1,0 +1,118 @@
+.TH KILIX-JPAK 6 "July 2026" "kilix-jpak 0.1.0" "Games"
+.SH NAME
+kilix-jpak \- clean-room Kitty-protocol starvault action game
+.SH SYNOPSIS
+.B kilix-jpak
+.RI [ --level " N" ]
+.br
+.B kilix-jpak
+.RI --selftest " [seed] [ticks]"
+.br
+.B kilix-jpak
+.RI { --rules-test | --input-test | --render-test " [seed]" | --sound-test | --dump-campaign }
+.br
+.B kilix-jpak
+.BI --dump-level " N"
+.SH DESCRIPTION
+.B Kilix JPAK: Deep Salvage
+is a native terminal action-puzzle game with a 100-level campaign. Recover
+every star mote, manage the micro-thruster, phase through quantum foam, operate
+shape-coded gates and shutters, avoid eight machine families, and enter the
+open starvault iris.
+.PP
+Vault pressure grows from one safely placed machine in the opening level to
+as many as fifteen in the deepest chambers. Machines activate locally with a
+visible, nonlethal warning tell instead of converging from the whole vault.
+.PP
+The title continues from the highest unlocked vault. Empty thruster fuel
+slowly recovers to an eighteen-percent emergency reserve while Kilix is safely
+grounded or on a rail. Retry attempts roll back unbanked score while preserving
+elapsed vault time.
+.PP
+The campaign derives 100 unique structural signatures from ten named macro
+families and uses more than 30 entry-to-iris routes. Chapter mutation changes
+the macro layouts, while mandatory phase, shutter, and ring-gate side vaults
+make featured mechanics meaningful. Reservation-aware generation protects
+route anchors, required cells, objectives, and safe paths before placing
+hazards and machines.
+.PP
+The game renders a code-native RGBA scene through the Kitty graphics protocol.
+Each chapter has its own procedural background motif. The level selector uses
+a layered semantic mini-map with entry and iris direction, pressure pips, and
+present-system tags. The game has no external asset files and no dependency on
+an original game installation.
+.SH CONTROLS
+.TP
+.B Left, A / Right, D
+Walk.
+.TP
+.B Up, W / Down, S
+Climb or descend magnetic rails.
+.TP
+.B Space, Z
+Fire the fuel-limited micro-thruster.
+.TP
+.B X, E
+Erode adjacent phase foam.
+.TP
+.B P, Escape
+Pause or resume.
+.TP
+.B R
+Spend one life and restart the current vault.
+.TP
+.B M
+Toggle sound.
+.TP
+.B H
+Open or close the field manual.
+.TP
+.B Q
+Back or return to the title from pause.
+.SH OPTIONS
+.TP
+.BI --level " N"
+Start level 1 through 100 in practice mode. Practice does not change campaign
+unlocks or high score.
+.TP
+.BI --selftest " [seed] [ticks]"
+Run deterministic headless simulation and every campaign level.
+.TP
+.B --rules-test
+Run focused mechanics and campaign validation fixtures.
+.TP
+.B --input-test
+Test held-key and press-only input paths.
+.TP
+.BI --render-test " [seed]"
+Write twenty-two deterministic PPM scenes, including macro-family, mandatory
+mechanic, chapter-variant, walking-stride, selector, and state fixtures.
+.TP
+.B --sound-test
+Play every generated sound, or validate silent fallback.
+.TP
+.B --dump-campaign
+Print the exact 100-row generated campaign manifest.
+.TP
+.BI --dump-level " N"
+Print level 1 through 100 as an annotated semantic grid with entry, iris,
+objectives, rails, hazards, and featured systems.
+.TP
+.B --version
+Print the version.
+.SH ENVIRONMENT
+.TP
+.B KILIX_JPAK_DATA_HOME
+Override the parent directory used for the versioned profile.
+.TP
+.B KILIX_JPAK_RENDER_DIR
+Output directory for render-test images.
+.TP
+.B KILIX_JPAK_SKIP_PROBE
+Skip the Kitty graphics capability probe for controlled integration tests.
+.SH FILES
+.TP
+.I ${XDG_DATA_HOME:-$HOME/.local/share}/kilix-jpak/profile.v1
+Versioned high score, highest unlocked level, and sound preference.
+.SH SEE ALSO
+.BR kitty (1)
