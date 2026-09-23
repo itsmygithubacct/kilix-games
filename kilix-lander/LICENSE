@@ -1,0 +1,39 @@
+MIT License
+
+Copyright (c) 2026 itsmygithubacct
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+Audio provenance
+
+The 21 WAV files under assets/sfx/ are included in the MIT grant above. They are
+deterministic local renders whose recorded inputs are limited to CC0 1.0 or
+public-domain sources; other layers are procedural synthesis. The superseded
+ElevenLabs bank is not present. See docs/asset-sources.md for the readable
+provenance and docs/audio-provenance.json for the per-file source and SHA-256
+record.
+
+---
+
+The embedded terminal font (third_party/soft-raster/src/font8x16.h) is extracted from Debian
+console-setup's Lat15-Fixed16 console font, which Debian declares public
+domain ("All console fonts are public domain by nature"). Its X11-lineage
+permissive notice is preserved in that file's header.

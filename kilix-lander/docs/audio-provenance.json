@@ -1,0 +1,772 @@
+{
+  "cues": [
+    {
+      "artifacts": [
+        {
+          "channels": 1,
+          "duration_seconds": 1.0,
+          "final_sha256": "d5ec9e03b5319d9869e68264dbf42466c4919dc2555bdcdbf879953c6793ca90",
+          "renderer": "procedural",
+          "runtime_file": "assets/sfx/thrust_main.wav",
+          "sample_rate": 44100,
+          "seed": 20260726,
+          "variant": 1
+        },
+        {
+          "channels": 1,
+          "duration_seconds": 1.0,
+          "final_sha256": "7b260d07fe099e54afc7817dd88595481f296810b92798ab819a983e1c04e069",
+          "renderer": "procedural",
+          "runtime_file": "assets/sfx/thrust_main_v02.wav",
+          "sample_rate": 44100,
+          "seed": 20261735,
+          "variant": 2
+        },
+        {
+          "channels": 1,
+          "duration_seconds": 1.0,
+          "final_sha256": "0618a82a2cba699e3ee03bbf05634b9d36321f52863ad14d5ca17115c4ef896a",
+          "renderer": "procedural",
+          "runtime_file": "assets/sfx/thrust_main_v03.wav",
+          "sample_rate": 44100,
+          "seed": 20262744,
+          "variant": 3
+        }
+      ],
+      "command": "python -m aircraft_spacecraft_generator pack terminal-lander",
+      "generator_cue": "engine",
+      "generator_package": "aircraft_spacecraft_generator",
+      "id": "thrust_main",
+      "options": {
+        "craft": "lander",
+        "duration": 1.0,
+        "intensity": 0.85,
+        "power": 1.0,
+        "powerplant": "rocket"
+      },
+      "pack": "terminal-lander",
+      "requested_variants": 3,
+      "source_recordings": [],
+      "source_recordings_note": "none: this cue is pure procedural DSP synthesis, rendered from no recorded material",
+      "target_duration_seconds": 1.0
+    },
+    {
+      "artifacts": [
+        {
+          "channels": 1,
+          "duration_seconds": 0.75,
+          "final_sha256": "1c55d9196ed24765d4e566aa6ea4169f049513ef6b8c85d77d7e9ed1a6b18158",
+          "renderer": "procedural",
+          "runtime_file": "assets/sfx/thrust_side.wav",
+          "sample_rate": 44100,
+          "seed": 20263753,
+          "variant": 1
+        },
+        {
+          "channels": 1,
+          "duration_seconds": 0.75,
+          "final_sha256": "5b466f4e2933f5df90388d5bf6fdd31908805fff37e4164b7086dbc3cebf84ea",
+          "renderer": "procedural",
+          "runtime_file": "assets/sfx/thrust_side_v02.wav",
+          "sample_rate": 44100,
+          "seed": 20264762,
+          "variant": 2
+        },
+        {
+          "channels": 1,
+          "duration_seconds": 0.75,
+          "final_sha256": "7b9cbab8f200c91d48c8fbe925935d0b4ec5155571f61df9cb184ae06bd731cb",
+          "renderer": "procedural",
+          "runtime_file": "assets/sfx/thrust_side_v03.wav",
+          "sample_rate": 44100,
+          "seed": 20265771,
+          "variant": 3
+        }
+      ],
+      "command": "python -m aircraft_spacecraft_generator pack terminal-lander",
+      "generator_cue": "engine",
+      "generator_package": "aircraft_spacecraft_generator",
+      "id": "thrust_side",
+      "options": {
+        "craft": "lander",
+        "duration": 0.75,
+        "intensity": 0.85,
+        "power": 0.8,
+        "powerplant": "rcs"
+      },
+      "pack": "terminal-lander",
+      "requested_variants": 3,
+      "source_recordings": [],
+      "source_recordings_note": "none: this cue is pure procedural DSP synthesis, rendered from no recorded material",
+      "target_duration_seconds": 0.75
+    },
+    {
+      "artifacts": [
+        {
+          "channels": 1,
+          "duration_seconds": 3.599977,
+          "final_sha256": "e8f77aaab9462abe6fe5f18ad94e82c8a928bb6c5e344569c2231731826a9089",
+          "renderer": "foley",
+          "runtime_file": "assets/sfx/crash.wav",
+          "sample_rate": 44100,
+          "seed": 20269801,
+          "variant": 1
+        },
+        {
+          "channels": 1,
+          "duration_seconds": 3.599977,
+          "final_sha256": "3de4f06c9ef39807b6ca3d1d17e68044dcf7c96149f056e66619363de9df3fde",
+          "renderer": "foley",
+          "runtime_file": "assets/sfx/crash_v02.wav",
+          "sample_rate": 44100,
+          "seed": 20270810,
+          "variant": 2
+        },
+        {
+          "channels": 1,
+          "duration_seconds": 3.599977,
+          "final_sha256": "48f41a05fde8dd105277cf84767d5fd3eb523b66c8d7b439a54ce052bd77120c",
+          "renderer": "foley",
+          "runtime_file": "assets/sfx/crash_v03.wav",
+          "sample_rate": 44100,
+          "seed": 20271819,
+          "variant": 3
+        },
+        {
+          "channels": 1,
+          "duration_seconds": 3.599977,
+          "final_sha256": "c0a9e13103b00458fdba1cfbe77e5e706f4472d3b30a2d48f08de8030a5d9852",
+          "renderer": "foley",
+          "runtime_file": "assets/sfx/crash_v04.wav",
+          "sample_rate": 44100,
+          "seed": 20272828,
+          "variant": 4
+        }
+      ],
+      "command": "python -m aircraft_spacecraft_generator pack terminal-lander",
+      "generator_cue": "crash",
+      "generator_package": "aircraft_spacecraft_generator",
+      "id": "crash",
+      "options": {
+        "craft": "lander",
+        "intensity": 1.0
+      },
+      "pack": "terminal-lander",
+      "requested_variants": 4,
+      "source_recordings": [
+        {
+          "author": "Kenney",
+          "collection": "Impact Sounds",
+          "license": "CC0 1.0",
+          "original_archive": "kenney_impact-sounds.zip",
+          "original_archive_sha256": "029d734af1582474edf3a694d1b0cebc97c1c152f2f39fa34d4c2bafc5de77f8",
+          "recording_pool": [
+            "kenney_impact_metal_heavy_000.wav",
+            "kenney_impact_metal_heavy_001.wav",
+            "kenney_impact_metal_heavy_002.wav",
+            "kenney_impact_metal_heavy_003.wav",
+            "kenney_impact_metal_heavy_004.wav",
+            "kenney_impact_metal_medium_000.wav",
+            "kenney_impact_metal_medium_001.wav",
+            "kenney_impact_metal_medium_002.wav",
+            "kenney_impact_metal_medium_003.wav",
+            "kenney_impact_metal_medium_004.wav",
+            "kenney_impact_plate_heavy_000.wav",
+            "kenney_impact_plate_heavy_001.wav",
+            "kenney_impact_plate_heavy_002.wav",
+            "kenney_impact_plate_heavy_003.wav",
+            "kenney_impact_plate_heavy_004.wav",
+            "kenney_impact_plate_medium_000.wav",
+            "kenney_impact_plate_medium_001.wav",
+            "kenney_impact_plate_medium_002.wav",
+            "kenney_impact_plate_medium_003.wav",
+            "kenney_impact_plate_medium_004.wav"
+          ],
+          "source_page": "https://kenney.nl/assets/impact-sounds"
+        },
+        {
+          "author": "rubberduck",
+          "collection": "100 CC0 metal and wood SFX",
+          "license": "CC0 1.0",
+          "original_archive": "100-CC0-wood-metal-SFX.zip",
+          "original_archive_sha256": "be6eba63b03409ac0c77787a956b1503a7c186403d04aef9725c52644a4b7878",
+          "recording_pool": [
+            "rubberduck_metal_hit_01.wav",
+            "rubberduck_metal_hit_02.wav",
+            "rubberduck_metal_hit_03.wav",
+            "rubberduck_metal_hit_04.wav",
+            "rubberduck_metal_hit_05.wav",
+            "rubberduck_metal_sheet_01.wav",
+            "rubberduck_metal_sheet_02.wav",
+            "rubberduck_metal_sheet_03.wav",
+            "rubberduck_metal_sheet_04.wav",
+            "rubberduck_metal_sheet_05.wav",
+            "rubberduck_metal_sheet_06.wav"
+          ],
+          "source_page": "https://opengameart.org/content/100-cc0-metal-and-wood-sfx"
+        },
+        {
+          "author": "rubberduck",
+          "collection": "100 CC0 SFX #2",
+          "license": "CC0 1.0",
+          "original_archive": "sfx_100_v2.zip",
+          "original_archive_sha256": "0fc61b4494e2e893c0c015ced4877b3f689c7d84a48cb61daecd7ddb52db797b",
+          "recording_pool": [
+            "rubberduck_sfx2_metal_01.wav",
+            "rubberduck_sfx2_metal_02.wav",
+            "rubberduck_sfx2_metal_03.wav",
+            "rubberduck_sfx2_metal_04.wav",
+            "rubberduck_sfx2_metal_05.wav",
+            "rubberduck_sfx2_metal_06.wav",
+            "rubberduck_sfx2_metal_hit_01.wav",
+            "rubberduck_sfx2_metal_hit_02.wav"
+          ],
+          "source_page": "https://opengameart.org/content/100-cc0-sfx-2"
+        },
+        {
+          "author": "rubberduck",
+          "collection": "75 CC0 breaking / falling / hit SFX",
+          "license": "CC0 1.0",
+          "original_archive": "sfx_breaking_and_falling.zip",
+          "original_archive_sha256": "e6ee04d91c5f4d30cfda1260d2c9d1faf96fda36319287215fbd07bcb1a80451",
+          "recording_pool": [
+            "rubberduck_break_metal_falling_01.wav",
+            "rubberduck_break_metal_falling_02.wav",
+            "rubberduck_break_metal_falling_03.wav",
+            "rubberduck_break_metal_falling_04.wav",
+            "rubberduck_break_metal_falling_05.wav",
+            "rubberduck_break_metal_hit_01.wav",
+            "rubberduck_break_metal_hit_02.wav",
+            "rubberduck_break_metal_hit_03.wav",
+            "rubberduck_break_metal_hit_04.wav",
+            "rubberduck_break_metal_hit_05.wav",
+            "rubberduck_break_metal_hit_06.wav",
+            "rubberduck_break_rock_falling_01.wav",
+            "rubberduck_break_rock_falling_02.wav",
+            "rubberduck_break_rock_falling_03.wav",
+            "rubberduck_break_rock_falling_04.wav",
+            "rubberduck_break_rock_falling_05.wav"
+          ],
+          "source_page": "https://opengameart.org/content/75-cc0-breaking-falling-hit-sfx"
+        }
+      ],
+      "target_duration_seconds": 3.599977
+    },
+    {
+      "artifacts": [
+        {
+          "channels": 1,
+          "duration_seconds": 1.65,
+          "final_sha256": "60bfa12340baf32dba4e7e8b7cb8a748077e3e9efec4560801095010a851f9d6",
+          "renderer": "foley",
+          "runtime_file": "assets/sfx/landing.wav",
+          "sample_rate": 44100,
+          "seed": 20266776,
+          "variant": 1
+        },
+        {
+          "channels": 1,
+          "duration_seconds": 1.65,
+          "final_sha256": "64b93f0ca4cfb8f2f7f24af5b6caf8a72e486ae18eec5c398c888879b29adc5f",
+          "renderer": "foley",
+          "runtime_file": "assets/sfx/landing_v02.wav",
+          "sample_rate": 44100,
+          "seed": 20267785,
+          "variant": 2
+        },
+        {
+          "channels": 1,
+          "duration_seconds": 1.65,
+          "final_sha256": "1e671c665a1b2353efe0e403379e7962b96e5e1c45c19e9d549117591942f538",
+          "renderer": "foley",
+          "runtime_file": "assets/sfx/landing_v03.wav",
+          "sample_rate": 44100,
+          "seed": 20268794,
+          "variant": 3
+        }
+      ],
+      "command": "python -m aircraft_spacecraft_generator pack terminal-lander",
+      "generator_cue": "touchdown",
+      "generator_package": "aircraft_spacecraft_generator",
+      "id": "landing",
+      "options": {
+        "craft": "lander",
+        "intensity": 0.5,
+        "speed": 0.2
+      },
+      "pack": "terminal-lander",
+      "requested_variants": 3,
+      "source_recordings": [
+        {
+          "author": "Kenney",
+          "collection": "Impact Sounds",
+          "license": "CC0 1.0",
+          "original_archive": "kenney_impact-sounds.zip",
+          "original_archive_sha256": "029d734af1582474edf3a694d1b0cebc97c1c152f2f39fa34d4c2bafc5de77f8",
+          "recording_pool": [
+            "kenney_impact_metal_heavy_000.wav",
+            "kenney_impact_metal_heavy_001.wav",
+            "kenney_impact_metal_heavy_002.wav",
+            "kenney_impact_metal_heavy_003.wav",
+            "kenney_impact_metal_heavy_004.wav",
+            "kenney_impact_metal_light_000.wav",
+            "kenney_impact_metal_light_001.wav",
+            "kenney_impact_metal_light_002.wav",
+            "kenney_impact_metal_light_003.wav",
+            "kenney_impact_metal_light_004.wav",
+            "kenney_impact_plate_heavy_000.wav",
+            "kenney_impact_plate_heavy_001.wav",
+            "kenney_impact_plate_heavy_002.wav",
+            "kenney_impact_plate_heavy_003.wav",
+            "kenney_impact_plate_heavy_004.wav"
+          ],
+          "source_page": "https://kenney.nl/assets/impact-sounds"
+        },
+        {
+          "author": "rubberduck",
+          "collection": "100 CC0 SFX #2",
+          "license": "CC0 1.0",
+          "original_archive": "sfx_100_v2.zip",
+          "original_archive_sha256": "0fc61b4494e2e893c0c015ced4877b3f689c7d84a48cb61daecd7ddb52db797b",
+          "recording_pool": [
+            "rubberduck_sfx2_stones_01.wav",
+            "rubberduck_sfx2_stones_02.wav",
+            "rubberduck_sfx2_stones_03.wav"
+          ],
+          "source_page": "https://opengameart.org/content/100-cc0-sfx-2"
+        },
+        {
+          "author": "rubberduck",
+          "collection": "75 CC0 breaking / falling / hit SFX",
+          "license": "CC0 1.0",
+          "original_archive": "sfx_breaking_and_falling.zip",
+          "original_archive_sha256": "e6ee04d91c5f4d30cfda1260d2c9d1faf96fda36319287215fbd07bcb1a80451",
+          "recording_pool": [
+            "rubberduck_break_rock_falling_01.wav",
+            "rubberduck_break_rock_falling_02.wav",
+            "rubberduck_break_rock_falling_03.wav",
+            "rubberduck_break_rock_falling_04.wav",
+            "rubberduck_break_rock_falling_05.wav"
+          ],
+          "source_page": "https://opengameart.org/content/75-cc0-breaking-falling-hit-sfx"
+        }
+      ],
+      "target_duration_seconds": 1.65
+    },
+    {
+      "artifacts": [
+        {
+          "channels": 1,
+          "duration_seconds": 0.075011,
+          "final_sha256": "4bb384cca6a0d12f1a73e032866e1cfaa48f928b3027a3f7341e069bffeac4ab",
+          "renderer": "procedural",
+          "runtime_file": "assets/sfx/beep.wav",
+          "sample_rate": 44100,
+          "seed": 20260715,
+          "variant": 1
+        },
+        {
+          "channels": 1,
+          "duration_seconds": 0.075011,
+          "final_sha256": "26762efa2e26f537e95ef18738a70e3e92d612497df7bb6b6e603a889da153e4",
+          "renderer": "procedural",
+          "runtime_file": "assets/sfx/beep_v02.wav",
+          "sample_rate": 44100,
+          "seed": 20260716,
+          "variant": 2
+        },
+        {
+          "channels": 1,
+          "duration_seconds": 0.075011,
+          "final_sha256": "b816dd9a5e70776f9e16c6a87d5845dcb312b5133e156c938fd3229f4f437d76",
+          "renderer": "procedural",
+          "runtime_file": "assets/sfx/beep_v03.wav",
+          "sample_rate": 44100,
+          "seed": 20260717,
+          "variant": 3
+        }
+      ],
+      "command": "python -m ui_game_state_generator pack terminal-lander",
+      "generator_cue": "countdown_tick",
+      "generator_package": "ui_game_state_generator",
+      "id": "beep",
+      "options": {
+        "base_seed": 20260715,
+        "style": "scifi"
+      },
+      "pack": "terminal-lander",
+      "requested_variants": 3,
+      "source_recordings": [],
+      "source_recordings_note": "none: ui_game_state_generator is pure procedural DSP synthesis and bundles no recorded material",
+      "target_duration_seconds": 0.075011
+    },
+    {
+      "artifacts": [
+        {
+          "channels": 1,
+          "duration_seconds": 0.500998,
+          "final_sha256": "1704c68832cc1f6a379fc983f00c36043d0600ad493081b3ab87e89ec5d08b5e",
+          "renderer": "procedural",
+          "runtime_file": "assets/sfx/warning.wav",
+          "sample_rate": 44100,
+          "seed": 20260715,
+          "variant": 1
+        },
+        {
+          "channels": 1,
+          "duration_seconds": 0.500998,
+          "final_sha256": "71af372dacfa403d336470f77819b4b66c71dedd9dc9e8c65d7a576ee354c545",
+          "renderer": "procedural",
+          "runtime_file": "assets/sfx/warning_v02.wav",
+          "sample_rate": 44100,
+          "seed": 20260716,
+          "variant": 2
+        }
+      ],
+      "command": "python -m ui_game_state_generator pack terminal-lander",
+      "generator_cue": "warning",
+      "generator_package": "ui_game_state_generator",
+      "id": "warning",
+      "options": {
+        "base_seed": 20260715,
+        "style": "scifi"
+      },
+      "pack": "terminal-lander",
+      "requested_variants": 2,
+      "source_recordings": [],
+      "source_recordings_note": "none: ui_game_state_generator is pure procedural DSP synthesis and bundles no recorded material",
+      "target_duration_seconds": 0.500998
+    },
+    {
+      "artifacts": [
+        {
+          "channels": 1,
+          "duration_seconds": 0.031995,
+          "final_sha256": "2751e6f11adc5256ba05031e3c7811e1fa23dc76771f584a2be95c7ae241178d",
+          "renderer": "procedural",
+          "runtime_file": "assets/sfx/menu.wav",
+          "sample_rate": 44100,
+          "seed": 20260715,
+          "variant": 1
+        },
+        {
+          "channels": 1,
+          "duration_seconds": 0.031995,
+          "final_sha256": "bdafb88c4fbbb0f62a5853a53757e2f70c272da14de7f13c4bd85f8422c3e639",
+          "renderer": "procedural",
+          "runtime_file": "assets/sfx/menu_v02.wav",
+          "sample_rate": 44100,
+          "seed": 20260716,
+          "variant": 2
+        },
+        {
+          "channels": 1,
+          "duration_seconds": 0.031995,
+          "final_sha256": "e5e3541ac8aa9c4f86ba6a050d55acb3629be37f29a7a5f71a00346a28953aea",
+          "renderer": "procedural",
+          "runtime_file": "assets/sfx/menu_v03.wav",
+          "sample_rate": 44100,
+          "seed": 20260717,
+          "variant": 3
+        }
+      ],
+      "command": "python -m ui_game_state_generator pack terminal-lander",
+      "generator_cue": "menu_move",
+      "generator_package": "ui_game_state_generator",
+      "id": "menu",
+      "options": {
+        "base_seed": 20260715,
+        "style": "scifi"
+      },
+      "pack": "terminal-lander",
+      "requested_variants": 3,
+      "source_recordings": [],
+      "source_recordings_note": "none: ui_game_state_generator is pure procedural DSP synthesis and bundles no recorded material",
+      "target_duration_seconds": 0.031995
+    }
+  ],
+  "generated_at": "2026-07-16T07:41:47.437968+00:00",
+  "generators": [
+    {
+      "cues": [
+        "thrust_main",
+        "thrust_side",
+        "crash",
+        "landing"
+      ],
+      "pack": "terminal-lander",
+      "package": "aircraft_spacecraft_generator"
+    },
+    {
+      "cues": [
+        "beep",
+        "warning",
+        "menu"
+      ],
+      "pack": "terminal-lander",
+      "package": "ui_game_state_generator",
+      "style": "scifi"
+    }
+  ],
+  "licence": "MIT as distributed in this repository; locally rendered from procedural synthesis and CC0 1.0 / public-domain source recordings",
+  "licence_basis": "Every artifact is rendered locally by the python_sound_assets generators. Procedural cues are synthesised DSP with no recorded input. Foley cues (crash, landing) are rendered from bundled source recordings that are CC0 1.0 / public domain only; each recording's collection, licence and source page is recorded per cue below. This bank replaces the previous ElevenLabs assets, which carried provider-terms restrictions; no ElevenLabs material remains.",
+  "mastering": {
+    "description": "Each generator masters its own cue to that cue's target peak; the packs are written directly at runtime format with no further post-processing applied when installing into the game.",
+    "procedural_layer": null,
+    "runtime_format": "mono 44100 Hz signed 16-bit PCM WAV",
+    "saturation_drive": 0.0
+  },
+  "pack": "terminal-lander",
+  "promoted": true,
+  "promoted_artifacts": [
+    {
+      "channels": 1,
+      "duration_seconds": 1.0,
+      "final_sha256": "d5ec9e03b5319d9869e68264dbf42466c4919dc2555bdcdbf879953c6793ca90",
+      "game_asset": "assets/sfx/thrust_main.wav",
+      "renderer": "procedural",
+      "runtime_file": "assets/sfx/thrust_main.wav",
+      "sample_rate": 44100,
+      "seed": 20260726,
+      "variant": 1
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 1.0,
+      "final_sha256": "7b260d07fe099e54afc7817dd88595481f296810b92798ab819a983e1c04e069",
+      "game_asset": "assets/sfx/thrust_main_v02.wav",
+      "renderer": "procedural",
+      "runtime_file": "assets/sfx/thrust_main_v02.wav",
+      "sample_rate": 44100,
+      "seed": 20261735,
+      "variant": 2
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 1.0,
+      "final_sha256": "0618a82a2cba699e3ee03bbf05634b9d36321f52863ad14d5ca17115c4ef896a",
+      "game_asset": "assets/sfx/thrust_main_v03.wav",
+      "renderer": "procedural",
+      "runtime_file": "assets/sfx/thrust_main_v03.wav",
+      "sample_rate": 44100,
+      "seed": 20262744,
+      "variant": 3
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 0.75,
+      "final_sha256": "1c55d9196ed24765d4e566aa6ea4169f049513ef6b8c85d77d7e9ed1a6b18158",
+      "game_asset": "assets/sfx/thrust_side.wav",
+      "renderer": "procedural",
+      "runtime_file": "assets/sfx/thrust_side.wav",
+      "sample_rate": 44100,
+      "seed": 20263753,
+      "variant": 1
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 0.75,
+      "final_sha256": "5b466f4e2933f5df90388d5bf6fdd31908805fff37e4164b7086dbc3cebf84ea",
+      "game_asset": "assets/sfx/thrust_side_v02.wav",
+      "renderer": "procedural",
+      "runtime_file": "assets/sfx/thrust_side_v02.wav",
+      "sample_rate": 44100,
+      "seed": 20264762,
+      "variant": 2
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 0.75,
+      "final_sha256": "7b9cbab8f200c91d48c8fbe925935d0b4ec5155571f61df9cb184ae06bd731cb",
+      "game_asset": "assets/sfx/thrust_side_v03.wav",
+      "renderer": "procedural",
+      "runtime_file": "assets/sfx/thrust_side_v03.wav",
+      "sample_rate": 44100,
+      "seed": 20265771,
+      "variant": 3
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 3.599977,
+      "final_sha256": "e8f77aaab9462abe6fe5f18ad94e82c8a928bb6c5e344569c2231731826a9089",
+      "game_asset": "assets/sfx/crash.wav",
+      "renderer": "foley",
+      "runtime_file": "assets/sfx/crash.wav",
+      "sample_rate": 44100,
+      "seed": 20269801,
+      "variant": 1
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 3.599977,
+      "final_sha256": "3de4f06c9ef39807b6ca3d1d17e68044dcf7c96149f056e66619363de9df3fde",
+      "game_asset": "assets/sfx/crash_v02.wav",
+      "renderer": "foley",
+      "runtime_file": "assets/sfx/crash_v02.wav",
+      "sample_rate": 44100,
+      "seed": 20270810,
+      "variant": 2
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 3.599977,
+      "final_sha256": "48f41a05fde8dd105277cf84767d5fd3eb523b66c8d7b439a54ce052bd77120c",
+      "game_asset": "assets/sfx/crash_v03.wav",
+      "renderer": "foley",
+      "runtime_file": "assets/sfx/crash_v03.wav",
+      "sample_rate": 44100,
+      "seed": 20271819,
+      "variant": 3
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 3.599977,
+      "final_sha256": "c0a9e13103b00458fdba1cfbe77e5e706f4472d3b30a2d48f08de8030a5d9852",
+      "game_asset": "assets/sfx/crash_v04.wav",
+      "renderer": "foley",
+      "runtime_file": "assets/sfx/crash_v04.wav",
+      "sample_rate": 44100,
+      "seed": 20272828,
+      "variant": 4
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 1.65,
+      "final_sha256": "60bfa12340baf32dba4e7e8b7cb8a748077e3e9efec4560801095010a851f9d6",
+      "game_asset": "assets/sfx/landing.wav",
+      "renderer": "foley",
+      "runtime_file": "assets/sfx/landing.wav",
+      "sample_rate": 44100,
+      "seed": 20266776,
+      "variant": 1
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 1.65,
+      "final_sha256": "64b93f0ca4cfb8f2f7f24af5b6caf8a72e486ae18eec5c398c888879b29adc5f",
+      "game_asset": "assets/sfx/landing_v02.wav",
+      "renderer": "foley",
+      "runtime_file": "assets/sfx/landing_v02.wav",
+      "sample_rate": 44100,
+      "seed": 20267785,
+      "variant": 2
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 1.65,
+      "final_sha256": "1e671c665a1b2353efe0e403379e7962b96e5e1c45c19e9d549117591942f538",
+      "game_asset": "assets/sfx/landing_v03.wav",
+      "renderer": "foley",
+      "runtime_file": "assets/sfx/landing_v03.wav",
+      "sample_rate": 44100,
+      "seed": 20268794,
+      "variant": 3
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 0.075011,
+      "final_sha256": "4bb384cca6a0d12f1a73e032866e1cfaa48f928b3027a3f7341e069bffeac4ab",
+      "game_asset": "assets/sfx/beep.wav",
+      "renderer": "procedural",
+      "runtime_file": "assets/sfx/beep.wav",
+      "sample_rate": 44100,
+      "seed": 20260715,
+      "variant": 1
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 0.075011,
+      "final_sha256": "26762efa2e26f537e95ef18738a70e3e92d612497df7bb6b6e603a889da153e4",
+      "game_asset": "assets/sfx/beep_v02.wav",
+      "renderer": "procedural",
+      "runtime_file": "assets/sfx/beep_v02.wav",
+      "sample_rate": 44100,
+      "seed": 20260716,
+      "variant": 2
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 0.075011,
+      "final_sha256": "b816dd9a5e70776f9e16c6a87d5845dcb312b5133e156c938fd3229f4f437d76",
+      "game_asset": "assets/sfx/beep_v03.wav",
+      "renderer": "procedural",
+      "runtime_file": "assets/sfx/beep_v03.wav",
+      "sample_rate": 44100,
+      "seed": 20260717,
+      "variant": 3
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 0.500998,
+      "final_sha256": "1704c68832cc1f6a379fc983f00c36043d0600ad493081b3ab87e89ec5d08b5e",
+      "game_asset": "assets/sfx/warning.wav",
+      "renderer": "procedural",
+      "runtime_file": "assets/sfx/warning.wav",
+      "sample_rate": 44100,
+      "seed": 20260715,
+      "variant": 1
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 0.500998,
+      "final_sha256": "71af372dacfa403d336470f77819b4b66c71dedd9dc9e8c65d7a576ee354c545",
+      "game_asset": "assets/sfx/warning_v02.wav",
+      "renderer": "procedural",
+      "runtime_file": "assets/sfx/warning_v02.wav",
+      "sample_rate": 44100,
+      "seed": 20260716,
+      "variant": 2
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 0.031995,
+      "final_sha256": "2751e6f11adc5256ba05031e3c7811e1fa23dc76771f584a2be95c7ae241178d",
+      "game_asset": "assets/sfx/menu.wav",
+      "renderer": "procedural",
+      "runtime_file": "assets/sfx/menu.wav",
+      "sample_rate": 44100,
+      "seed": 20260715,
+      "variant": 1
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 0.031995,
+      "final_sha256": "bdafb88c4fbbb0f62a5853a53757e2f70c272da14de7f13c4bd85f8422c3e639",
+      "game_asset": "assets/sfx/menu_v02.wav",
+      "renderer": "procedural",
+      "runtime_file": "assets/sfx/menu_v02.wav",
+      "sample_rate": 44100,
+      "seed": 20260716,
+      "variant": 2
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 0.031995,
+      "final_sha256": "e5e3541ac8aa9c4f86ba6a050d55acb3629be37f29a7a5f71a00346a28953aea",
+      "game_asset": "assets/sfx/menu_v03.wav",
+      "renderer": "procedural",
+      "runtime_file": "assets/sfx/menu_v03.wav",
+      "sample_rate": 44100,
+      "seed": 20260717,
+      "variant": 3
+    }
+  ],
+  "bank_only_sources": [
+    {
+      "name": "Tire.ogg",
+      "author": "egomassive",
+      "license": "CC0 1.0",
+      "source_page": "https://freesound.org/people/egomassive/sounds/536769/",
+      "original_file": "536769__egomassive__tire.ogg",
+      "original_sha256": "6a6ddbb1b27059bc661aed73f0fbc1bed1ae1828427470cb692a8298805a029e",
+      "generator_source_bank_file": "aircraft_spacecraft_generator/sources/egomassive_tire.wav",
+      "generator_source_bank_sha256": "533d71d95260192b8cf36486bf6ba559a585bdea056abe46871d6fe3d7643837",
+      "source_note": "Rubber losing grip on tarmac; derived by its author from RutgerMuller's CC0 Tires Squeaking and released under CC0 1.0 in turn.",
+      "artifact_use": "none: the recording is admissible for wheeled aircraft, but the terminal-lander pack uses the lander craft profile with pad gear; its touchdown branch never loads the tire source, and no promoted runtime artifact contains it"
+    }
+  ],
+  "provider": "local procedural generators (python_sound_assets)",
+  "reproducibility": "Deterministic: re-running each cue's recorded command at its recorded seed reproduces the byte-identical WAV listed in final_sha256.",
+  "schema": 1,
+  "standalone_distribution": "included in the repository's MIT grant; no upstream provider terms restrict standalone redistribution"
+}
