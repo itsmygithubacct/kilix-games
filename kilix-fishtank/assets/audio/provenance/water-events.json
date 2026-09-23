@@ -1,0 +1,51 @@
+{
+  "generator": "water_sounds_generator",
+  "command": "pack",
+  "format": "mono 44100 Hz signed 16-bit PCM WAV",
+  "source_audio": "CC0 recordings; see sources/provenance.json",
+  "artifacts": [
+    {
+      "file": "feed_splash.wav",
+      "cue": "splash",
+      "seed": 20260726,
+      "variation": 1,
+      "duration_seconds": 0.64,
+      "peak_dbfs": -8.5,
+      "rms_dbfs": -35.02,
+      "sha256": "5f68c2bbda793e6b5b27161585191b287a17b5cc241c756273b0f0bb0b233c67",
+      "sources": [
+        "rubberduck_splash_06.wav",
+        "rubberduck_loop_water_03.wav"
+      ],
+      "options": {
+        "mass": "droplet",
+        "intensity": 0.35
+      }
+    },
+    {
+      "file": "catch_splash.wav",
+      "cue": "splash",
+      "seed": 20261736,
+      "variation": 1,
+      "duration_seconds": 1.15,
+      "peak_dbfs": -8.5,
+      "rms_dbfs": -35.306,
+      "sha256": "269573c739a97f0b8f2fef856eb78da6a820b1250f9fec2653b2537edd31be2b",
+      "sources": [
+        "rubberduck_splash_11.wav",
+        "rubberduck_loop_water_03.wav",
+        "rubberduck_splash_01.wav",
+        "rubberduck_splash_15.wav",
+        "rubberduck_splash_08.wav",
+        "rubberduck_splash_13.wav",
+        "rubberduck_splash_14.wav",
+        "rubberduck_splash_06.wav"
+      ],
+      "options": {
+        "mass": "fish",
+        "intensity": 0.75
+      }
+    }
+  ],
+  "pack": "kilix-fishtank-events"
+}

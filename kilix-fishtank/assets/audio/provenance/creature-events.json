@@ -1,0 +1,50 @@
+{
+  "generator": "creature_foley_generator",
+  "command": "pack",
+  "format": "mono 44100 Hz signed 16-bit PCM WAV",
+  "source_audio": "CC0 recordings; see sources/provenance.json",
+  "artifacts": [
+    {
+      "file": "fish_bite.wav",
+      "cue": "bite",
+      "seed": 20260724,
+      "variation": 1,
+      "options": {
+        "size": "tiny",
+        "character": "beast",
+        "intensity": 0.55,
+        "room": 0.02
+      },
+      "duration_seconds": 0.247506,
+      "peak_dbfs": -4.26,
+      "rms_dbfs": -24.178,
+      "sha256": "55c116395eb98e2aacc1b4d4266f84f4b724267e83946d8d6d9c4f2b07d2ff25",
+      "sources": [
+        "rubberduck_creature_attack_02.wav",
+        "rubberduck_creature_eat_01.wav"
+      ]
+    },
+    {
+      "file": "shark_bite.wav",
+      "cue": "bite",
+      "seed": 20261734,
+      "variation": 1,
+      "options": {
+        "size": "large",
+        "character": "beast",
+        "intensity": 1.0,
+        "room": 0.03
+      },
+      "duration_seconds": 0.593991,
+      "peak_dbfs": -3.0,
+      "rms_dbfs": -21.491,
+      "sha256": "5c8be10eaeab87f30b7ba70592b2f3a9f15f77025a182aa8db83577dc0b74815",
+      "sources": [
+        "rubberduck_creature_attack_02.wav",
+        "rubberduck_creature_eat_03.wav",
+        "rubberduck_break_wood_hit_02.wav"
+      ]
+    }
+  ],
+  "pack": "kilix-fishtank"
+}

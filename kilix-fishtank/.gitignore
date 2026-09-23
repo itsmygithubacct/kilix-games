@@ -1,0 +1,9 @@
+/kilix-fishtank
+/src/*.o
+
+/render_*.ppm
+/render_*.png
+/debug_*.png
+/images/last_image.png
+
+/assets/audio/strudel/
