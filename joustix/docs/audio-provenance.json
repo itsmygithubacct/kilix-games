@@ -1,0 +1,1120 @@
+{
+ "schema": 1,
+ "provider": "local procedural generators (python_sound_assets)",
+ "licence": "CC0-derived",
+ "licence_basis": "Every runtime SFX is rendered locally by the python_sound_assets generators. Procedural cues are pure DSP (CC0 by construction); hybrid cues layer only CC0 or public-domain source recordings, each traced in source_recordings. No ElevenLabs or other restricted assets remain in the runtime bank.",
+ "pack": "joustix",
+ "promoted": true,
+ "reproducibility": "Deterministic: re-running each cue's recorded command at its recorded seed reproduces the bytes hashed in final_sha256. Files are rendered by each generator then written to the game's exact filenames (base + _vNN) as mono 44100 Hz 16-bit PCM.",
+ "standalone_distribution": "intended only as bundled joustix game assets, not a standalone SFX library.",
+ "generated_at": "2026-07-16",
+ "mastering": {
+  "description": "one-shots use onset trim, exact duration fit, equal-power mono downmix, DC removal, 24 Hz high-pass, short edge fades, and 4x reconstructed-peak gain staging; loops use stable-window selection, equal-value smoothstep boundary preparation, exact duration fit, and reconstructed-peak gain staging",
+  "procedural_layer": null,
+  "runtime_format": "mono 44100 Hz signed 16-bit PCM WAV",
+  "saturation_drive": 0.0
+ },
+ "generators": [
+  {
+   "package": "creature_foley_generator",
+   "cues": [
+    "flap",
+    "hurt",
+    "egg",
+    "hatch"
+   ]
+  },
+  {
+   "package": "combat_generators",
+   "cues": [
+    "step",
+    "joust"
+   ]
+  },
+  {
+   "package": "footstep_generator",
+   "cues": [
+    "land"
+   ]
+  },
+  {
+   "package": "ui_game_state_generator",
+   "cues": [
+    "wave",
+    "menu"
+   ]
+  },
+  {
+   "package": "lava_sound_generator",
+   "cues": [
+    "lava"
+   ]
+  }
+ ],
+ "cues": [
+  {
+   "id": "flap",
+   "generator_package": "creature_foley_generator",
+   "generator_cue": "wing",
+   "options": {
+    "size": "small"
+   },
+   "command": "python -m creature_foley_generator render wing --size small --count 5 --stem flap --seed 20260716",
+   "requested_variants": 5,
+   "source_recordings": [
+    {
+     "collection": "creature_foley_generator bundled CC0 recordings (rubberduck 80 CC0 creature SFX / 75 CC0 breaking; AntumDeluge Large Wings Flap)",
+     "license": "CC0 1.0",
+     "provenance": "python_sound_assets/creature_foley_generator/sources/provenance.json",
+     "recording_pool": [
+      "antum_wings_flap_large.wav"
+     ]
+    }
+   ],
+   "artifacts": [
+    {
+     "runtime_file": "assets/sfx/flap.wav",
+     "variant": 1,
+     "final_sha256": "6d02e533792f107f153ff1438da50925eda1f73e4441ebaab07fe60698838e8f",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 1.028,
+     "seed": 20260716,
+     "renderer": "hybrid"
+    },
+    {
+     "runtime_file": "assets/sfx/flap_v02.wav",
+     "variant": 2,
+     "final_sha256": "3be5bacd88132380be42b703381b70928b70b2e547972a5d15ea7e7f037aae23",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 1.028,
+     "seed": 20260716,
+     "renderer": "hybrid"
+    },
+    {
+     "runtime_file": "assets/sfx/flap_v03.wav",
+     "variant": 3,
+     "final_sha256": "83674956ee3a63f9cd12f021f3c2b78624565e778617be85ae977e5aabe6dd6a",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 1.028,
+     "seed": 20260716,
+     "renderer": "hybrid"
+    },
+    {
+     "runtime_file": "assets/sfx/flap_v04.wav",
+     "variant": 4,
+     "final_sha256": "706e1297ba1fead30ce6b6c426112695db83a06a2aa18d7d866f8ebf7f4c4735",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 1.028,
+     "seed": 20260716,
+     "renderer": "hybrid"
+    },
+    {
+     "runtime_file": "assets/sfx/flap_v05.wav",
+     "variant": 5,
+     "final_sha256": "5442018bf5e30ad5bbc896913fb3e7ef1e0929c85b8bc93abdf249dc6f784823",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 1.028,
+     "seed": 20260716,
+     "renderer": "hybrid"
+    }
+   ]
+  },
+  {
+   "id": "hurt",
+   "generator_package": "creature_foley_generator",
+   "generator_cue": "pain",
+   "options": {
+    "size": "small"
+   },
+   "command": "python -m creature_foley_generator render pain --size small --count 4 --stem hurt --seed 20260716",
+   "requested_variants": 4,
+   "source_recordings": [
+    {
+     "collection": "creature_foley_generator bundled CC0 recordings (rubberduck 80 CC0 creature SFX / 75 CC0 breaking; AntumDeluge Large Wings Flap)",
+     "license": "CC0 1.0",
+     "provenance": "python_sound_assets/creature_foley_generator/sources/provenance.json",
+     "recording_pool": [
+      "rubberduck_creature_hurt_01.wav",
+      "rubberduck_creature_hurt_02.wav",
+      "rubberduck_creature_hurt_03.wav",
+      "rubberduck_creature_snore.wav",
+      "rubberduck_creature_snore_02.wav"
+     ]
+    }
+   ],
+   "artifacts": [
+    {
+     "runtime_file": "assets/sfx/hurt.wav",
+     "variant": 1,
+     "final_sha256": "a7ff23458d9f76edac9b954dfba658c4520df150c39551d942ba44f6931f672b",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.608,
+     "seed": 20260716,
+     "renderer": "hybrid"
+    },
+    {
+     "runtime_file": "assets/sfx/hurt_v02.wav",
+     "variant": 2,
+     "final_sha256": "c2d72cd50d228db9a7435aefe306a321aad238279b00eb696e1cf1ba1c33f7e7",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.608,
+     "seed": 20260716,
+     "renderer": "hybrid"
+    },
+    {
+     "runtime_file": "assets/sfx/hurt_v03.wav",
+     "variant": 3,
+     "final_sha256": "8b0bd4f9f54ddf5d2bce8597810402b3d0bf1c12c7f30e5dcbc6495b11655a55",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.608,
+     "seed": 20260716,
+     "renderer": "hybrid"
+    },
+    {
+     "runtime_file": "assets/sfx/hurt_v04.wav",
+     "variant": 4,
+     "final_sha256": "34d9b552f047774236664bf234085a6be340b9aa9130baf4cc948cc8ad3a870e",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.608,
+     "seed": 20260716,
+     "renderer": "hybrid"
+    }
+   ]
+  },
+  {
+   "id": "egg",
+   "generator_package": "creature_foley_generator",
+   "generator_cue": "egg_crack",
+   "options": {
+    "size": "small"
+   },
+   "command": "python -m creature_foley_generator render egg_crack --size small --count 4 --stem egg --seed 20260716",
+   "requested_variants": 4,
+   "source_recordings": [
+    {
+     "collection": "creature_foley_generator bundled CC0 recordings (rubberduck 80 CC0 creature SFX / 75 CC0 breaking; AntumDeluge Large Wings Flap)",
+     "license": "CC0 1.0",
+     "provenance": "python_sound_assets/creature_foley_generator/sources/provenance.json",
+     "recording_pool": [
+      "rubberduck_break_glass_breaking_01.wav",
+      "rubberduck_break_glass_breaking_03.wav",
+      "rubberduck_break_rock_breaking_02.wav",
+      "rubberduck_break_rock_falling_03.wav",
+      "rubberduck_break_wood_breaking_02.wav",
+      "rubberduck_break_wood_breaking_03.wav",
+      "rubberduck_break_wood_falling_01.wav"
+     ]
+    }
+   ],
+   "artifacts": [
+    {
+     "runtime_file": "assets/sfx/egg.wav",
+     "variant": 1,
+     "final_sha256": "46ef8e8af2d899d8a8abf7d5a1039cc7d2ce4622d20feec879fca22984264459",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.684,
+     "seed": 20260716,
+     "renderer": "hybrid"
+    },
+    {
+     "runtime_file": "assets/sfx/egg_v02.wav",
+     "variant": 2,
+     "final_sha256": "1b24a20afd3f7a1148ea506c5d0388f13974a9f1f4b643d509c869a7d62eb01b",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.684,
+     "seed": 20260716,
+     "renderer": "hybrid"
+    },
+    {
+     "runtime_file": "assets/sfx/egg_v03.wav",
+     "variant": 3,
+     "final_sha256": "8398b9d2eaa4222753f2b1949a08ee1db089ef77359520edb64b19b0604bdb40",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.684,
+     "seed": 20260716,
+     "renderer": "hybrid"
+    },
+    {
+     "runtime_file": "assets/sfx/egg_v04.wav",
+     "variant": 4,
+     "final_sha256": "2f61b1a6c780dee86d489f7bb7e3e9edc8f39f830d95cc2cbb8527cf31a3b42d",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.684,
+     "seed": 20260716,
+     "renderer": "hybrid"
+    }
+   ]
+  },
+  {
+   "id": "hatch",
+   "generator_package": "creature_foley_generator",
+   "generator_cue": "hatch",
+   "options": {
+    "size": "small"
+   },
+   "command": "python -m creature_foley_generator render hatch --size small --count 4 --stem hatch --seed 20260716",
+   "requested_variants": 4,
+   "source_recordings": [
+    {
+     "collection": "creature_foley_generator bundled CC0 recordings (rubberduck 80 CC0 creature SFX / 75 CC0 breaking; AntumDeluge Large Wings Flap)",
+     "license": "CC0 1.0",
+     "provenance": "python_sound_assets/creature_foley_generator/sources/provenance.json",
+     "recording_pool": [
+      "rubberduck_break_glass_breaking_01.wav",
+      "rubberduck_break_rock_breaking_01.wav",
+      "rubberduck_break_rock_breaking_02.wav",
+      "rubberduck_break_rock_falling_01.wav",
+      "rubberduck_break_rock_falling_03.wav",
+      "rubberduck_break_wood_breaking_01.wav",
+      "rubberduck_break_wood_breaking_02.wav",
+      "rubberduck_break_wood_breaking_03.wav",
+      "rubberduck_break_wood_falling_01.wav",
+      "rubberduck_creature_breath.wav",
+      "rubberduck_creature_cute_03.wav",
+      "rubberduck_creature_cute_05.wav",
+      "rubberduck_creature_cute_08.wav",
+      "rubberduck_creature_snore.wav",
+      "rubberduck_creature_snore_02.wav"
+     ]
+    }
+   ],
+   "artifacts": [
+    {
+     "runtime_file": "assets/sfx/hatch.wav",
+     "variant": 1,
+     "final_sha256": "8219edbd25060376f6803ec1c73cdd7a2d957310eedc318356a2fe3adcca45a3",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 1.52,
+     "seed": 20260716,
+     "renderer": "hybrid"
+    },
+    {
+     "runtime_file": "assets/sfx/hatch_v02.wav",
+     "variant": 2,
+     "final_sha256": "513cd6a4e15ea05639ebccae83197213ae36cc8befcc12dac1f87be2f80294d6",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 1.52,
+     "seed": 20260716,
+     "renderer": "hybrid"
+    },
+    {
+     "runtime_file": "assets/sfx/hatch_v03.wav",
+     "variant": 3,
+     "final_sha256": "400e1d68e824e2b9754b249fdcd661e96c50bbd20cc1004823a885104c2060a8",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 1.52,
+     "seed": 20260716,
+     "renderer": "hybrid"
+    },
+    {
+     "runtime_file": "assets/sfx/hatch_v04.wav",
+     "variant": 4,
+     "final_sha256": "ac8a86430652fedf59dd67c2f9b5bec9223664047711a2bb7c517415db73eb2e",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 1.52,
+     "seed": 20260716,
+     "renderer": "hybrid"
+    }
+   ]
+  },
+  {
+   "id": "step",
+   "generator_package": "combat_generators",
+   "generator_cue": "footstep",
+   "options": {
+    "weapon_default": true,
+    "target": "stone",
+    "armored": true
+   },
+   "command": "python combat_generators/combat_sfx.py render footstep --count 5 --seed 20260716",
+   "requested_variants": 5,
+   "source_recordings": [
+    {
+     "license": "CC0 1.0",
+     "note": "pure procedural DSP synthesis; no source recordings; CC0 by construction"
+    }
+   ],
+   "artifacts": [
+    {
+     "runtime_file": "assets/sfx/step.wav",
+     "variant": 1,
+     "final_sha256": "12efaf86bc7b721aded362fdd7ca9e0c35457922751b35e218d3c4a06bb8aaae",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.26,
+     "seed": 20260716,
+     "renderer": "procedural"
+    },
+    {
+     "runtime_file": "assets/sfx/step_v02.wav",
+     "variant": 2,
+     "final_sha256": "7c5f3accaadd99af979fb99179ca7ad083a026d0e9376893925ff954b54c2ebb",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.26,
+     "seed": 20260716,
+     "renderer": "procedural"
+    },
+    {
+     "runtime_file": "assets/sfx/step_v03.wav",
+     "variant": 3,
+     "final_sha256": "77c5cff1d34f3f4efd7d48a4ac839327c9ed16f4fe915f9d7934f69d67475e28",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.26,
+     "seed": 20260716,
+     "renderer": "procedural"
+    },
+    {
+     "runtime_file": "assets/sfx/step_v04.wav",
+     "variant": 4,
+     "final_sha256": "14f984e78edf29b4c673099c053b66ee298659db781c4e0dec1dbbb3e2d4de7a",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.26,
+     "seed": 20260716,
+     "renderer": "procedural"
+    },
+    {
+     "runtime_file": "assets/sfx/step_v05.wav",
+     "variant": 5,
+     "final_sha256": "79ebeffb2d11aa36c302cd861b2ee6fe0cc37a81cbb8fb8e7fbcff1b06333ce2",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.26,
+     "seed": 20260716,
+     "renderer": "procedural"
+    }
+   ]
+  },
+  {
+   "id": "joust",
+   "generator_package": "combat_generators",
+   "generator_cue": "strike",
+   "options": {
+    "defaults": true
+   },
+   "command": "python combat_generators/combat_sfx.py render strike --count 5 --seed 20260716",
+   "requested_variants": 5,
+   "source_recordings": [
+    {
+     "license": "CC0 1.0",
+     "note": "pure procedural DSP synthesis; no source recordings; CC0 by construction"
+    }
+   ],
+   "artifacts": [
+    {
+     "runtime_file": "assets/sfx/joust.wav",
+     "variant": 1,
+     "final_sha256": "e5897ace6184097f4b43f2d9375cdc2b14937409be807e326cae4242f42a7d37",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.44,
+     "seed": 20260716,
+     "renderer": "procedural"
+    },
+    {
+     "runtime_file": "assets/sfx/joust_v02.wav",
+     "variant": 2,
+     "final_sha256": "0c6aef443edbbdc6dcce117e3393d555015c2396e095a6a9fefe6cde68a60c4e",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.44,
+     "seed": 20260716,
+     "renderer": "procedural"
+    },
+    {
+     "runtime_file": "assets/sfx/joust_v03.wav",
+     "variant": 3,
+     "final_sha256": "d592ea7661d00275e8359b6b0c2bff2dc274c0fab38afecd10f66ea7c09f23f4",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.44,
+     "seed": 20260716,
+     "renderer": "procedural"
+    },
+    {
+     "runtime_file": "assets/sfx/joust_v04.wav",
+     "variant": 4,
+     "final_sha256": "b91ac22d9fceb7dd14255d910e7bc40781c2fcb50add8be721371b643e97c3b9",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.44,
+     "seed": 20260716,
+     "renderer": "procedural"
+    },
+    {
+     "runtime_file": "assets/sfx/joust_v05.wav",
+     "variant": 5,
+     "final_sha256": "354a5928737f435bf4acc45adb6edbd5085be0e0c9f7e73df11794a85c34f993",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.44,
+     "seed": 20260716,
+     "renderer": "procedural"
+    }
+   ]
+  },
+  {
+   "id": "land",
+   "generator_package": "footstep_generator",
+   "generator_cue": "(boot on dirt, one step)",
+   "options": {
+    "surface": "dirt",
+    "footwear": "boot",
+    "steps": 1,
+    "intensity": 1.0
+   },
+   "command": "python -m footstep_generator --surface dirt --footwear boot --steps 1 --intensity 1.0 --seed 20260716+{13*i}  (4 variants)",
+   "requested_variants": 4,
+   "source_recordings": [
+    {
+     "license": "CC0 1.0",
+     "note": "pure procedural DSP synthesis; no source recordings; CC0 by construction"
+    }
+   ],
+   "artifacts": [
+    {
+     "runtime_file": "assets/sfx/land.wav",
+     "variant": 1,
+     "final_sha256": "4aeee24ec2261d689ecafefd9595e5d85ae98d011a1e07009757e484a373844f",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.59,
+     "seed": 20260716,
+     "renderer": "procedural"
+    },
+    {
+     "runtime_file": "assets/sfx/land_v02.wav",
+     "variant": 2,
+     "final_sha256": "0bb9115a912ca32fec43d2844d425775bab0c9da2582def9c62ed2dd1a91bf0a",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.59,
+     "seed": 20260716,
+     "renderer": "procedural"
+    },
+    {
+     "runtime_file": "assets/sfx/land_v03.wav",
+     "variant": 3,
+     "final_sha256": "659a202458674b4db6a39425bf8a7823092a839f01ec1915e224a542ec52fb1d",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.59,
+     "seed": 20260716,
+     "renderer": "procedural"
+    },
+    {
+     "runtime_file": "assets/sfx/land_v04.wav",
+     "variant": 4,
+     "final_sha256": "68725b2a5b2b86506da99db42ae1fbd67a30462db63dc1539e3843475b282367",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.59,
+     "seed": 20260716,
+     "renderer": "procedural"
+    }
+   ]
+  },
+  {
+   "id": "wave",
+   "generator_package": "ui_game_state_generator",
+   "generator_cue": "round_start",
+   "options": {
+    "style": "arcade"
+   },
+   "command": "python -m ui_game_state_generator render round_start --style arcade --count 2 --seed 20260716",
+   "requested_variants": 2,
+   "source_recordings": [
+    {
+     "license": "CC0 1.0",
+     "note": "pure procedural DSP synthesis; no source recordings; CC0 by construction"
+    }
+   ],
+   "artifacts": [
+    {
+     "runtime_file": "assets/sfx/wave.wav",
+     "variant": 1,
+     "final_sha256": "875fc8ddc8b515ae23fab01f8f1346c96f3aa1fa0a6d4a798beb188f13f3db8b",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.238,
+     "seed": 20260716,
+     "renderer": "procedural"
+    },
+    {
+     "runtime_file": "assets/sfx/wave_v02.wav",
+     "variant": 2,
+     "final_sha256": "3d35a3258eb34a8190ec55553ba4684ee847d77b44644db7a4ad449cacc90860",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.239,
+     "seed": 20260716,
+     "renderer": "procedural"
+    }
+   ]
+  },
+  {
+   "id": "menu",
+   "generator_package": "ui_game_state_generator",
+   "generator_cue": "menu_accept",
+   "options": {
+    "style": "arcade"
+   },
+   "command": "python -m ui_game_state_generator render menu_accept --style arcade --count 3 --seed 20260716",
+   "requested_variants": 3,
+   "source_recordings": [
+    {
+     "license": "CC0 1.0",
+     "note": "pure procedural DSP synthesis; no source recordings; CC0 by construction"
+    }
+   ],
+   "artifacts": [
+    {
+     "runtime_file": "assets/sfx/menu.wav",
+     "variant": 1,
+     "final_sha256": "74a6b66a2f637ddcb515d535968fc35373348377b2c894d4bbcab827e36af3cc",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.088,
+     "seed": 20260716,
+     "renderer": "procedural"
+    },
+    {
+     "runtime_file": "assets/sfx/menu_v02.wav",
+     "variant": 2,
+     "final_sha256": "1d925924a5f5edf73870baaa36e1bc1dcdc1081be61060c3dcf7a2de42f89b20",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.09,
+     "seed": 20260716,
+     "renderer": "procedural"
+    },
+    {
+     "runtime_file": "assets/sfx/menu_v03.wav",
+     "variant": 3,
+     "final_sha256": "51915945e9cfdd157f9e6c485a7a85968fb63913e5f1818059e59be2cc6c23ef",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.09,
+     "seed": 20260716,
+     "renderer": "procedural"
+    }
+   ]
+  },
+  {
+   "id": "lava",
+   "generator_package": "lava_sound_generator",
+   "generator_cue": "lava",
+   "options": {
+    "scale": "lake",
+    "intensity": 0.9
+   },
+   "command": "python -m lava_sound_generator pack joustix",
+   "requested_variants": 4,
+   "source_recordings": [],
+   "artifacts": [
+    {
+     "runtime_file": "assets/sfx/lava.wav",
+     "variant": 1,
+     "final_sha256": "498806c37433b1f5fa9a634ab0268b98f4ee6439b2d6c08aedb59232bc6cc93e",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.85,
+     "seed": 20260720,
+     "renderer": "hybrid"
+    },
+    {
+     "runtime_file": "assets/sfx/lava_v02.wav",
+     "variant": 2,
+     "final_sha256": "fbe248b60b023e679d4baceb32dcd1ed4873670a02aeee5eeecfd2917198c5cc",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.85,
+     "seed": 20260720,
+     "renderer": "hybrid"
+    },
+    {
+     "runtime_file": "assets/sfx/lava_v03.wav",
+     "variant": 3,
+     "final_sha256": "1edf6fbed7dc4caf167f0d0e29cedd73a1ae5d906b6a3aac04c5eb30134406f8",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.85,
+     "seed": 20260720,
+     "renderer": "hybrid"
+    },
+    {
+     "runtime_file": "assets/sfx/lava_v04.wav",
+     "variant": 4,
+     "final_sha256": "0086f4c02674b112b4fd40bdb426f7d184eca1f72c013624aa51313c2d541709",
+     "channels": 1,
+     "sample_rate": 44100,
+     "duration_seconds": 0.85,
+     "seed": 20260720,
+     "renderer": "hybrid"
+    }
+   ]
+  }
+ ],
+ "promoted_artifacts": [
+  {
+   "runtime_file": "assets/sfx/flap.wav",
+   "variant": 1,
+   "final_sha256": "6d02e533792f107f153ff1438da50925eda1f73e4441ebaab07fe60698838e8f",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 1.028,
+   "seed": 20260716,
+   "renderer": "hybrid",
+   "game_asset": "assets/sfx/flap.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/flap_v02.wav",
+   "variant": 2,
+   "final_sha256": "3be5bacd88132380be42b703381b70928b70b2e547972a5d15ea7e7f037aae23",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 1.028,
+   "seed": 20260716,
+   "renderer": "hybrid",
+   "game_asset": "assets/sfx/flap_v02.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/flap_v03.wav",
+   "variant": 3,
+   "final_sha256": "83674956ee3a63f9cd12f021f3c2b78624565e778617be85ae977e5aabe6dd6a",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 1.028,
+   "seed": 20260716,
+   "renderer": "hybrid",
+   "game_asset": "assets/sfx/flap_v03.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/flap_v04.wav",
+   "variant": 4,
+   "final_sha256": "706e1297ba1fead30ce6b6c426112695db83a06a2aa18d7d866f8ebf7f4c4735",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 1.028,
+   "seed": 20260716,
+   "renderer": "hybrid",
+   "game_asset": "assets/sfx/flap_v04.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/flap_v05.wav",
+   "variant": 5,
+   "final_sha256": "5442018bf5e30ad5bbc896913fb3e7ef1e0929c85b8bc93abdf249dc6f784823",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 1.028,
+   "seed": 20260716,
+   "renderer": "hybrid",
+   "game_asset": "assets/sfx/flap_v05.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/hurt.wav",
+   "variant": 1,
+   "final_sha256": "a7ff23458d9f76edac9b954dfba658c4520df150c39551d942ba44f6931f672b",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.608,
+   "seed": 20260716,
+   "renderer": "hybrid",
+   "game_asset": "assets/sfx/hurt.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/hurt_v02.wav",
+   "variant": 2,
+   "final_sha256": "c2d72cd50d228db9a7435aefe306a321aad238279b00eb696e1cf1ba1c33f7e7",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.608,
+   "seed": 20260716,
+   "renderer": "hybrid",
+   "game_asset": "assets/sfx/hurt_v02.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/hurt_v03.wav",
+   "variant": 3,
+   "final_sha256": "8b0bd4f9f54ddf5d2bce8597810402b3d0bf1c12c7f30e5dcbc6495b11655a55",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.608,
+   "seed": 20260716,
+   "renderer": "hybrid",
+   "game_asset": "assets/sfx/hurt_v03.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/hurt_v04.wav",
+   "variant": 4,
+   "final_sha256": "34d9b552f047774236664bf234085a6be340b9aa9130baf4cc948cc8ad3a870e",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.608,
+   "seed": 20260716,
+   "renderer": "hybrid",
+   "game_asset": "assets/sfx/hurt_v04.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/egg.wav",
+   "variant": 1,
+   "final_sha256": "46ef8e8af2d899d8a8abf7d5a1039cc7d2ce4622d20feec879fca22984264459",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.684,
+   "seed": 20260716,
+   "renderer": "hybrid",
+   "game_asset": "assets/sfx/egg.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/egg_v02.wav",
+   "variant": 2,
+   "final_sha256": "1b24a20afd3f7a1148ea506c5d0388f13974a9f1f4b643d509c869a7d62eb01b",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.684,
+   "seed": 20260716,
+   "renderer": "hybrid",
+   "game_asset": "assets/sfx/egg_v02.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/egg_v03.wav",
+   "variant": 3,
+   "final_sha256": "8398b9d2eaa4222753f2b1949a08ee1db089ef77359520edb64b19b0604bdb40",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.684,
+   "seed": 20260716,
+   "renderer": "hybrid",
+   "game_asset": "assets/sfx/egg_v03.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/egg_v04.wav",
+   "variant": 4,
+   "final_sha256": "2f61b1a6c780dee86d489f7bb7e3e9edc8f39f830d95cc2cbb8527cf31a3b42d",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.684,
+   "seed": 20260716,
+   "renderer": "hybrid",
+   "game_asset": "assets/sfx/egg_v04.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/hatch.wav",
+   "variant": 1,
+   "final_sha256": "8219edbd25060376f6803ec1c73cdd7a2d957310eedc318356a2fe3adcca45a3",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 1.52,
+   "seed": 20260716,
+   "renderer": "hybrid",
+   "game_asset": "assets/sfx/hatch.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/hatch_v02.wav",
+   "variant": 2,
+   "final_sha256": "513cd6a4e15ea05639ebccae83197213ae36cc8befcc12dac1f87be2f80294d6",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 1.52,
+   "seed": 20260716,
+   "renderer": "hybrid",
+   "game_asset": "assets/sfx/hatch_v02.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/hatch_v03.wav",
+   "variant": 3,
+   "final_sha256": "400e1d68e824e2b9754b249fdcd661e96c50bbd20cc1004823a885104c2060a8",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 1.52,
+   "seed": 20260716,
+   "renderer": "hybrid",
+   "game_asset": "assets/sfx/hatch_v03.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/hatch_v04.wav",
+   "variant": 4,
+   "final_sha256": "ac8a86430652fedf59dd67c2f9b5bec9223664047711a2bb7c517415db73eb2e",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 1.52,
+   "seed": 20260716,
+   "renderer": "hybrid",
+   "game_asset": "assets/sfx/hatch_v04.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/step.wav",
+   "variant": 1,
+   "final_sha256": "12efaf86bc7b721aded362fdd7ca9e0c35457922751b35e218d3c4a06bb8aaae",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.26,
+   "seed": 20260716,
+   "renderer": "procedural",
+   "game_asset": "assets/sfx/step.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/step_v02.wav",
+   "variant": 2,
+   "final_sha256": "7c5f3accaadd99af979fb99179ca7ad083a026d0e9376893925ff954b54c2ebb",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.26,
+   "seed": 20260716,
+   "renderer": "procedural",
+   "game_asset": "assets/sfx/step_v02.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/step_v03.wav",
+   "variant": 3,
+   "final_sha256": "77c5cff1d34f3f4efd7d48a4ac839327c9ed16f4fe915f9d7934f69d67475e28",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.26,
+   "seed": 20260716,
+   "renderer": "procedural",
+   "game_asset": "assets/sfx/step_v03.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/step_v04.wav",
+   "variant": 4,
+   "final_sha256": "14f984e78edf29b4c673099c053b66ee298659db781c4e0dec1dbbb3e2d4de7a",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.26,
+   "seed": 20260716,
+   "renderer": "procedural",
+   "game_asset": "assets/sfx/step_v04.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/step_v05.wav",
+   "variant": 5,
+   "final_sha256": "79ebeffb2d11aa36c302cd861b2ee6fe0cc37a81cbb8fb8e7fbcff1b06333ce2",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.26,
+   "seed": 20260716,
+   "renderer": "procedural",
+   "game_asset": "assets/sfx/step_v05.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/joust.wav",
+   "variant": 1,
+   "final_sha256": "e5897ace6184097f4b43f2d9375cdc2b14937409be807e326cae4242f42a7d37",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.44,
+   "seed": 20260716,
+   "renderer": "procedural",
+   "game_asset": "assets/sfx/joust.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/joust_v02.wav",
+   "variant": 2,
+   "final_sha256": "0c6aef443edbbdc6dcce117e3393d555015c2396e095a6a9fefe6cde68a60c4e",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.44,
+   "seed": 20260716,
+   "renderer": "procedural",
+   "game_asset": "assets/sfx/joust_v02.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/joust_v03.wav",
+   "variant": 3,
+   "final_sha256": "d592ea7661d00275e8359b6b0c2bff2dc274c0fab38afecd10f66ea7c09f23f4",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.44,
+   "seed": 20260716,
+   "renderer": "procedural",
+   "game_asset": "assets/sfx/joust_v03.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/joust_v04.wav",
+   "variant": 4,
+   "final_sha256": "b91ac22d9fceb7dd14255d910e7bc40781c2fcb50add8be721371b643e97c3b9",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.44,
+   "seed": 20260716,
+   "renderer": "procedural",
+   "game_asset": "assets/sfx/joust_v04.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/joust_v05.wav",
+   "variant": 5,
+   "final_sha256": "354a5928737f435bf4acc45adb6edbd5085be0e0c9f7e73df11794a85c34f993",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.44,
+   "seed": 20260716,
+   "renderer": "procedural",
+   "game_asset": "assets/sfx/joust_v05.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/land.wav",
+   "variant": 1,
+   "final_sha256": "4aeee24ec2261d689ecafefd9595e5d85ae98d011a1e07009757e484a373844f",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.59,
+   "seed": 20260716,
+   "renderer": "procedural",
+   "game_asset": "assets/sfx/land.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/land_v02.wav",
+   "variant": 2,
+   "final_sha256": "0bb9115a912ca32fec43d2844d425775bab0c9da2582def9c62ed2dd1a91bf0a",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.59,
+   "seed": 20260716,
+   "renderer": "procedural",
+   "game_asset": "assets/sfx/land_v02.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/land_v03.wav",
+   "variant": 3,
+   "final_sha256": "659a202458674b4db6a39425bf8a7823092a839f01ec1915e224a542ec52fb1d",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.59,
+   "seed": 20260716,
+   "renderer": "procedural",
+   "game_asset": "assets/sfx/land_v03.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/land_v04.wav",
+   "variant": 4,
+   "final_sha256": "68725b2a5b2b86506da99db42ae1fbd67a30462db63dc1539e3843475b282367",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.59,
+   "seed": 20260716,
+   "renderer": "procedural",
+   "game_asset": "assets/sfx/land_v04.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/wave.wav",
+   "variant": 1,
+   "final_sha256": "875fc8ddc8b515ae23fab01f8f1346c96f3aa1fa0a6d4a798beb188f13f3db8b",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.238,
+   "seed": 20260716,
+   "renderer": "procedural",
+   "game_asset": "assets/sfx/wave.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/wave_v02.wav",
+   "variant": 2,
+   "final_sha256": "3d35a3258eb34a8190ec55553ba4684ee847d77b44644db7a4ad449cacc90860",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.239,
+   "seed": 20260716,
+   "renderer": "procedural",
+   "game_asset": "assets/sfx/wave_v02.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/menu.wav",
+   "variant": 1,
+   "final_sha256": "74a6b66a2f637ddcb515d535968fc35373348377b2c894d4bbcab827e36af3cc",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.088,
+   "seed": 20260716,
+   "renderer": "procedural",
+   "game_asset": "assets/sfx/menu.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/menu_v02.wav",
+   "variant": 2,
+   "final_sha256": "1d925924a5f5edf73870baaa36e1bc1dcdc1081be61060c3dcf7a2de42f89b20",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.09,
+   "seed": 20260716,
+   "renderer": "procedural",
+   "game_asset": "assets/sfx/menu_v02.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/menu_v03.wav",
+   "variant": 3,
+   "final_sha256": "51915945e9cfdd157f9e6c485a7a85968fb63913e5f1818059e59be2cc6c23ef",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.09,
+   "seed": 20260716,
+   "renderer": "procedural",
+   "game_asset": "assets/sfx/menu_v03.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/lava.wav",
+   "variant": 1,
+   "final_sha256": "498806c37433b1f5fa9a634ab0268b98f4ee6439b2d6c08aedb59232bc6cc93e",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.85,
+   "seed": 20260720,
+   "renderer": "hybrid",
+   "game_asset": "assets/sfx/lava.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/lava_v02.wav",
+   "variant": 2,
+   "final_sha256": "fbe248b60b023e679d4baceb32dcd1ed4873670a02aeee5eeecfd2917198c5cc",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.85,
+   "seed": 20260720,
+   "renderer": "hybrid",
+   "game_asset": "assets/sfx/lava_v02.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/lava_v03.wav",
+   "variant": 3,
+   "final_sha256": "1edf6fbed7dc4caf167f0d0e29cedd73a1ae5d906b6a3aac04c5eb30134406f8",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.85,
+   "seed": 20260720,
+   "renderer": "hybrid",
+   "game_asset": "assets/sfx/lava_v03.wav"
+  },
+  {
+   "runtime_file": "assets/sfx/lava_v04.wav",
+   "variant": 4,
+   "final_sha256": "0086f4c02674b112b4fd40bdb426f7d184eca1f72c013624aa51313c2d541709",
+   "channels": 1,
+   "sample_rate": 44100,
+   "duration_seconds": 0.85,
+   "seed": 20260720,
+   "renderer": "hybrid",
+   "game_asset": "assets/sfx/lava_v04.wav"
+  }
+ ],
+ "supersedes": "ElevenLabs Text-to-Sound-Effects v2 bank (removed 2026-07-16); prior blobs remain in git history."
+}

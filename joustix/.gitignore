@@ -1,0 +1,4 @@
+joustix
+src/*.o
+render_*.ppm
+*.core

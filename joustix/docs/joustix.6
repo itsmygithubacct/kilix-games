@@ -1,0 +1,42 @@
+.TH JOUSTIX 6 "July 2026" "joustix 0.1.0" "Games"
+.SH NAME
+joustix \- flying-joust arcade game for Kitty-protocol terminals
+.SH SYNOPSIS
+.B joustix
+.RI [ option ]
+.SH DESCRIPTION
+Joustix renders a software framebuffer directly in Kilix or another terminal
+implementing the Kitty graphics protocol. Fly above enemy riders, defeat them
+in height-based collisions, and collect their eggs before they hatch.
+.SH CONTROLS
+Left/A and Right/D fly horizontally. Up/W/Space flaps. P or Escape pauses.
+M toggles sound. Direction keys select menu options; Enter confirms the
+selection. Q quits.
+.SH OPTIONS
+.TP
+.B --selftest [seed] [ticks]
+Run a deterministic headless simulation.
+.TP
+.B --rules-test
+Run deterministic gameplay regressions.
+.TP
+.B --render-test [seed]
+Write four PPM scene snapshots.
+.TP
+.B --sound-test
+Play the procedural sound cues.
+.TP
+.B --help
+Show command-line help.
+.SH ENVIRONMENT
+.TP
+.B JOUSTIX_SKIP_PROBE
+Skip the Kitty graphics capability query when set.
+.TP
+.B JOUSTIX_RENDER_DIR
+Destination directory for render-test snapshots.
+.TP
+.B JOUSTIX_ASSETS
+Override the production-image directory.
+.SH AUTHORS
+Joustix contributors.
