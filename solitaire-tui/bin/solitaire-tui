@@ -1,0 +1,5 @@
+#!/bin/sh
+# Run solitaire-tui from a checkout without installing it.
+here=$(dirname "$(readlink -f "$0")")
+PYTHONPATH="$here/..${PYTHONPATH:+:$PYTHONPATH}" PYTHONDONTWRITEBYTECODE=1 \
+    exec python3 -m solitaire_tui "$@"
