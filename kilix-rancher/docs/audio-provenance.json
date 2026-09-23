@@ -1,0 +1,803 @@
+{
+  "cues": [
+    {
+      "artifacts": [
+        {
+          "channels": 1,
+          "duration_seconds": 0.04,
+          "final_sha256": "e5930d3025ba6a2cbb40c614dc41f31f1aa3f01b562415243f5cd901394f75c0",
+          "options": {
+            "style": "acoustic"
+          },
+          "runtime_file": "assets/sfx/move.wav",
+          "sample_rate": 44100,
+          "sample_width_bytes": 2,
+          "seed": 20260715,
+          "source_recordings": [],
+          "synthesis": "synthesised from oscillators and shaped noise at render time; this generator bundles no sample library, so the cue has no source recordings",
+          "variant": 1
+        },
+        {
+          "channels": 1,
+          "duration_seconds": 0.04,
+          "final_sha256": "8b492b6cc5813643e74072566358b96f11991a02fe68a2b5168fd66b140318fd",
+          "options": {
+            "style": "acoustic"
+          },
+          "runtime_file": "assets/sfx/move_v02.wav",
+          "sample_rate": 44100,
+          "sample_width_bytes": 2,
+          "seed": 20260716,
+          "source_recordings": [],
+          "synthesis": "synthesised from oscillators and shaped noise at render time; this generator bundles no sample library, so the cue has no source recordings",
+          "variant": 2
+        },
+        {
+          "channels": 1,
+          "duration_seconds": 0.04,
+          "final_sha256": "573c7cd308a0e8896edbb4dc87c01a87a0410d4eb7fd01aeb3af384463f8a9dd",
+          "options": {
+            "style": "acoustic"
+          },
+          "runtime_file": "assets/sfx/move_v03.wav",
+          "sample_rate": 44100,
+          "sample_width_bytes": 2,
+          "seed": 20260717,
+          "source_recordings": [],
+          "synthesis": "synthesised from oscillators and shaped noise at render time; this generator bundles no sample library, so the cue has no source recordings",
+          "variant": 3
+        },
+        {
+          "channels": 1,
+          "duration_seconds": 0.04,
+          "final_sha256": "313b62cbd4187efb610e12dfe0936b74af93b8c71a12fbbbe4873453761af0d6",
+          "options": {
+            "style": "acoustic"
+          },
+          "runtime_file": "assets/sfx/move_v04.wav",
+          "sample_rate": 44100,
+          "sample_width_bytes": 2,
+          "seed": 20260718,
+          "source_recordings": [],
+          "synthesis": "synthesised from oscillators and shaped noise at render time; this generator bundles no sample library, so the cue has no source recordings",
+          "variant": 4
+        }
+      ],
+      "base_seed": 20260715,
+      "generator_cue": "menu_move",
+      "generator_pack": "kilix-rancher",
+      "generator_package": "ui_game_state_generator",
+      "id": "move",
+      "options": {
+        "style": "acoustic"
+      },
+      "render_command": "python -m ui_game_state_generator pack kilix-rancher",
+      "requested_variants": 4,
+      "seed_derivation": "per-file rng = numpy default_rng(base_seed + variation_index); verified byte-identical to a standalone render at the same seed",
+      "source_audio": "none; pure synthesis"
+    },
+    {
+      "artifacts": [
+        {
+          "channels": 1,
+          "duration_seconds": 0.198957,
+          "final_sha256": "b5067a3f9376f40704c5ec3d384fa74d3c52d83616f55c417022bc60fce935d8",
+          "options": {
+            "style": "acoustic"
+          },
+          "runtime_file": "assets/sfx/confirm.wav",
+          "sample_rate": 44100,
+          "sample_width_bytes": 2,
+          "seed": 20260715,
+          "source_recordings": [],
+          "synthesis": "synthesised from oscillators and shaped noise at render time; this generator bundles no sample library, so the cue has no source recordings",
+          "variant": 1
+        },
+        {
+          "channels": 1,
+          "duration_seconds": 0.19542,
+          "final_sha256": "63e25e60562407f6b6d91b29f5ba698e52f360585fe5b20dbf05336e175e1c2b",
+          "options": {
+            "style": "acoustic"
+          },
+          "runtime_file": "assets/sfx/confirm_v02.wav",
+          "sample_rate": 44100,
+          "sample_width_bytes": 2,
+          "seed": 20260716,
+          "source_recordings": [],
+          "synthesis": "synthesised from oscillators and shaped noise at render time; this generator bundles no sample library, so the cue has no source recordings",
+          "variant": 2
+        },
+        {
+          "channels": 1,
+          "duration_seconds": 0.200635,
+          "final_sha256": "319dc111e42f9fab2b4eca2f0feb28f1d120733d9fd2ee0027d248a0d7584246",
+          "options": {
+            "style": "acoustic"
+          },
+          "runtime_file": "assets/sfx/confirm_v03.wav",
+          "sample_rate": 44100,
+          "sample_width_bytes": 2,
+          "seed": 20260717,
+          "source_recordings": [],
+          "synthesis": "synthesised from oscillators and shaped noise at render time; this generator bundles no sample library, so the cue has no source recordings",
+          "variant": 3
+        }
+      ],
+      "base_seed": 20260715,
+      "generator_cue": "menu_accept",
+      "generator_pack": "kilix-rancher",
+      "generator_package": "ui_game_state_generator",
+      "id": "confirm",
+      "options": {
+        "style": "acoustic"
+      },
+      "render_command": "python -m ui_game_state_generator pack kilix-rancher",
+      "requested_variants": 3,
+      "seed_derivation": "per-file rng = numpy default_rng(base_seed + variation_index); verified byte-identical to a standalone render at the same seed",
+      "source_audio": "none; pure synthesis"
+    },
+    {
+      "artifacts": [
+        {
+          "channels": 1,
+          "duration_seconds": 0.394218,
+          "final_sha256": "574fb1499f86c17d402b9e13b1be9e8ace5ed75ef4c478d80ce19a9a5709515a",
+          "options": {
+            "style": "acoustic"
+          },
+          "runtime_file": "assets/sfx/train.wav",
+          "sample_rate": 44100,
+          "sample_width_bytes": 2,
+          "seed": 20260714,
+          "source_recordings": [],
+          "synthesis": "synthesised from oscillators and shaped noise at render time; this generator bundles no sample library, so the cue has no source recordings",
+          "variant": 1
+        },
+        {
+          "channels": 1,
+          "duration_seconds": 0.397324,
+          "final_sha256": "b4f459a24a0279a2a4cbad6c5102dd9d971037567f09f3aee32dfeb7511a9f64",
+          "options": {
+            "style": "acoustic"
+          },
+          "runtime_file": "assets/sfx/train_v02.wav",
+          "sample_rate": 44100,
+          "sample_width_bytes": 2,
+          "seed": 20260715,
+          "source_recordings": [],
+          "synthesis": "synthesised from oscillators and shaped noise at render time; this generator bundles no sample library, so the cue has no source recordings",
+          "variant": 2
+        },
+        {
+          "channels": 1,
+          "duration_seconds": 0.398345,
+          "final_sha256": "7d0b5b5f3417386a25c45e2550833b5bb0a3241f5390897bd7dfb0138923dda4",
+          "options": {
+            "style": "acoustic"
+          },
+          "runtime_file": "assets/sfx/train_v03.wav",
+          "sample_rate": 44100,
+          "sample_width_bytes": 2,
+          "seed": 20260716,
+          "source_recordings": [],
+          "synthesis": "synthesised from oscillators and shaped noise at render time; this generator bundles no sample library, so the cue has no source recordings",
+          "variant": 3
+        },
+        {
+          "channels": 1,
+          "duration_seconds": 0.401156,
+          "final_sha256": "884e31e4c6496080c4dcaac52102c670128b37ab1a41cf3e0bf1c294e8318fed",
+          "options": {
+            "style": "acoustic"
+          },
+          "runtime_file": "assets/sfx/train_v04.wav",
+          "sample_rate": 44100,
+          "sample_width_bytes": 2,
+          "seed": 20260717,
+          "source_recordings": [],
+          "synthesis": "synthesised from oscillators and shaped noise at render time; this generator bundles no sample library, so the cue has no source recordings",
+          "variant": 4
+        }
+      ],
+      "base_seed": 20260714,
+      "generator_cue": "powerup_activate",
+      "generator_pack": "kilix-rancher",
+      "generator_package": "powerup_generator",
+      "id": "train",
+      "options": {
+        "style": "acoustic"
+      },
+      "render_command": "python -m powerup_generator pack kilix-rancher --style acoustic",
+      "requested_variants": 4,
+      "seed_derivation": "per-file rng = numpy default_rng(base_seed + variation_index); verified byte-identical to a standalone render at the same seed",
+      "source_audio": "none; pure synthesis"
+    },
+    {
+      "artifacts": [
+        {
+          "channels": 1,
+          "duration_seconds": 0.627075,
+          "final_sha256": "27d0b94647e86d5b299f9be7a463716c875441d2e3154f091fd323e949732fab",
+          "options": {
+            "intensity": 0.9,
+            "weight": "heavy"
+          },
+          "peak_dbfs": -9.0,
+          "rms_dbfs": -18.46,
+          "runtime_file": "assets/sfx/hit.wav",
+          "sample_rate": 44100,
+          "sample_width_bytes": 2,
+          "seed": 20260717,
+          "source_recordings": [
+            {
+              "author": "Independent.nu",
+              "bundled_file": "independent_nu_hit_02.wav",
+              "collection": "37 hits/punches",
+              "license": "CC0 1.0",
+              "original_file": "hits/hit02.mp3.flac",
+              "source_page": "https://opengameart.org/content/37-hitspunches"
+            },
+            {
+              "author": "Independent.nu",
+              "bundled_file": "independent_nu_hit_20.wav",
+              "collection": "37 hits/punches",
+              "license": "CC0 1.0",
+              "original_file": "hits/hit20.mp3.flac",
+              "source_page": "https://opengameart.org/content/37-hitspunches"
+            }
+          ],
+          "variant": 1
+        },
+        {
+          "channels": 1,
+          "duration_seconds": 0.650544,
+          "final_sha256": "761993a56a76a516317682db1dff212ca0221c461a2890544fbb57319929f6cc",
+          "options": {
+            "intensity": 0.9,
+            "weight": "heavy"
+          },
+          "peak_dbfs": -9.0,
+          "rms_dbfs": -18.264,
+          "runtime_file": "assets/sfx/hit_v02.wav",
+          "sample_rate": 44100,
+          "sample_width_bytes": 2,
+          "seed": 20261726,
+          "source_recordings": [
+            {
+              "author": "Independent.nu",
+              "bundled_file": "independent_nu_hit_08.wav",
+              "collection": "37 hits/punches",
+              "license": "CC0 1.0",
+              "original_file": "hits/hit08.mp3.flac",
+              "source_page": "https://opengameart.org/content/37-hitspunches"
+            },
+            {
+              "author": "Independent.nu",
+              "bundled_file": "independent_nu_hit_34.wav",
+              "collection": "37 hits/punches",
+              "license": "CC0 1.0",
+              "original_file": "hits/hit34.mp3.flac",
+              "source_page": "https://opengameart.org/content/37-hitspunches"
+            }
+          ],
+          "variant": 2
+        },
+        {
+          "channels": 1,
+          "duration_seconds": 0.69678,
+          "final_sha256": "e56873482df48a457937186a1c056d4ea09868690dbbf67fec218dddcf1bc526",
+          "options": {
+            "intensity": 0.9,
+            "weight": "heavy"
+          },
+          "peak_dbfs": -9.0,
+          "rms_dbfs": -19.638,
+          "runtime_file": "assets/sfx/hit_v03.wav",
+          "sample_rate": 44100,
+          "sample_width_bytes": 2,
+          "seed": 20262735,
+          "source_recordings": [
+            {
+              "author": "Independent.nu",
+              "bundled_file": "independent_nu_hit_20.wav",
+              "collection": "37 hits/punches",
+              "license": "CC0 1.0",
+              "original_file": "hits/hit20.mp3.flac",
+              "source_page": "https://opengameart.org/content/37-hitspunches"
+            },
+            {
+              "author": "Independent.nu",
+              "bundled_file": "independent_nu_hit_08.wav",
+              "collection": "37 hits/punches",
+              "license": "CC0 1.0",
+              "original_file": "hits/hit08.mp3.flac",
+              "source_page": "https://opengameart.org/content/37-hitspunches"
+            }
+          ],
+          "variant": 3
+        },
+        {
+          "channels": 1,
+          "duration_seconds": 0.721519,
+          "final_sha256": "2f0395d64cdef1e6040113268e0ed4ec58ea76817cc7d77e9c76d1716ed1d973",
+          "options": {
+            "intensity": 0.9,
+            "weight": "heavy"
+          },
+          "peak_dbfs": -9.0,
+          "rms_dbfs": -20.047,
+          "runtime_file": "assets/sfx/hit_v04.wav",
+          "sample_rate": 44100,
+          "sample_width_bytes": 2,
+          "seed": 20263744,
+          "source_recordings": [
+            {
+              "author": "Independent.nu",
+              "bundled_file": "independent_nu_hit_29.wav",
+              "collection": "37 hits/punches",
+              "license": "CC0 1.0",
+              "original_file": "hits/hit29.mp3.flac",
+              "source_page": "https://opengameart.org/content/37-hitspunches"
+            },
+            {
+              "author": "Independent.nu",
+              "bundled_file": "independent_nu_hit_08.wav",
+              "collection": "37 hits/punches",
+              "license": "CC0 1.0",
+              "original_file": "hits/hit08.mp3.flac",
+              "source_page": "https://opengameart.org/content/37-hitspunches"
+            }
+          ],
+          "variant": 4
+        },
+        {
+          "channels": 1,
+          "duration_seconds": 0.395034,
+          "final_sha256": "a7a0689ebff467e74b722eb580004b32033b928ba2d0eb5cdbb84127acda7892",
+          "options": {
+            "intensity": 0.9,
+            "weight": "heavy"
+          },
+          "peak_dbfs": -9.0,
+          "rms_dbfs": -18.052,
+          "runtime_file": "assets/sfx/hit_v05.wav",
+          "sample_rate": 44100,
+          "sample_width_bytes": 2,
+          "seed": 20264753,
+          "source_recordings": [
+            {
+              "author": "Independent.nu",
+              "bundled_file": "independent_nu_hit_20.wav",
+              "collection": "37 hits/punches",
+              "license": "CC0 1.0",
+              "original_file": "hits/hit20.mp3.flac",
+              "source_page": "https://opengameart.org/content/37-hitspunches"
+            },
+            {
+              "author": "Independent.nu",
+              "bundled_file": "independent_nu_hit_29.wav",
+              "collection": "37 hits/punches",
+              "license": "CC0 1.0",
+              "original_file": "hits/hit29.mp3.flac",
+              "source_page": "https://opengameart.org/content/37-hitspunches"
+            }
+          ],
+          "variant": 5
+        },
+        {
+          "channels": 1,
+          "duration_seconds": 0.423741,
+          "final_sha256": "0ced7d40812cae54f367b8d9b693d652acd1eb6cda563c16e0681c5cd63d9ee2",
+          "options": {
+            "intensity": 0.9,
+            "weight": "heavy"
+          },
+          "peak_dbfs": -9.0,
+          "rms_dbfs": -18.837,
+          "runtime_file": "assets/sfx/hit_v06.wav",
+          "sample_rate": 44100,
+          "sample_width_bytes": 2,
+          "seed": 20265762,
+          "source_recordings": [
+            {
+              "author": "Independent.nu",
+              "bundled_file": "independent_nu_hit_29.wav",
+              "collection": "37 hits/punches",
+              "license": "CC0 1.0",
+              "original_file": "hits/hit29.mp3.flac",
+              "source_page": "https://opengameart.org/content/37-hitspunches"
+            },
+            {
+              "author": "Independent.nu",
+              "bundled_file": "independent_nu_hit_34.wav",
+              "collection": "37 hits/punches",
+              "license": "CC0 1.0",
+              "original_file": "hits/hit34.mp3.flac",
+              "source_page": "https://opengameart.org/content/37-hitspunches"
+            }
+          ],
+          "variant": 6
+        }
+      ],
+      "generator_cue": "hit",
+      "generator_pack": "kilix-rancher",
+      "generator_package": "unarmed_foley_generator",
+      "id": "hit",
+      "options": {
+        "intensity": 0.9,
+        "weight": "heavy"
+      },
+      "render_command": "python -m unarmed_foley_generator pack kilix-rancher",
+      "requested_variants": 6,
+      "seed_derivation": "per-file seeds are assigned by the generator and recorded per artifact; taken from the pack's render manifest",
+      "source_audio": "CC0 recordings, resynthesised at render time"
+    },
+    {
+      "artifacts": [
+        {
+          "channels": 1,
+          "duration_seconds": 1.08,
+          "final_sha256": "1de8e0d3ce16bfc2f3800fe08cc808885ac14ef309af40daa3734713f38fcab3",
+          "options": {
+            "style": "acoustic"
+          },
+          "runtime_file": "assets/sfx/win.wav",
+          "sample_rate": 44100,
+          "sample_width_bytes": 2,
+          "seed": 20260715,
+          "source_recordings": [],
+          "synthesis": "synthesised from oscillators and shaped noise at render time; this generator bundles no sample library, so the cue has no source recordings",
+          "variant": 1
+        },
+        {
+          "channels": 1,
+          "duration_seconds": 1.08,
+          "final_sha256": "bbe72f15c6cfe6a289437247ce3eb870298289a9d2b6d34e8cd1b780c29acf60",
+          "options": {
+            "style": "acoustic"
+          },
+          "runtime_file": "assets/sfx/win_v02.wav",
+          "sample_rate": 44100,
+          "sample_width_bytes": 2,
+          "seed": 20260716,
+          "source_recordings": [],
+          "synthesis": "synthesised from oscillators and shaped noise at render time; this generator bundles no sample library, so the cue has no source recordings",
+          "variant": 2
+        },
+        {
+          "channels": 1,
+          "duration_seconds": 1.08,
+          "final_sha256": "79ebf54af169838c5c310a5a407a5a38c820ab1829eb7ae39e9d79e64f00c8b1",
+          "options": {
+            "style": "acoustic"
+          },
+          "runtime_file": "assets/sfx/win_v03.wav",
+          "sample_rate": 44100,
+          "sample_width_bytes": 2,
+          "seed": 20260717,
+          "source_recordings": [],
+          "synthesis": "synthesised from oscillators and shaped noise at render time; this generator bundles no sample library, so the cue has no source recordings",
+          "variant": 3
+        }
+      ],
+      "base_seed": 20260715,
+      "generator_cue": "win",
+      "generator_pack": "kilix-rancher",
+      "generator_package": "ui_game_state_generator",
+      "id": "win",
+      "options": {
+        "style": "acoustic"
+      },
+      "render_command": "python -m ui_game_state_generator pack kilix-rancher",
+      "requested_variants": 3,
+      "seed_derivation": "per-file rng = numpy default_rng(base_seed + variation_index); verified byte-identical to a standalone render at the same seed",
+      "source_audio": "none; pure synthesis"
+    },
+    {
+      "artifacts": [
+        {
+          "channels": 1,
+          "duration_seconds": 0.663492,
+          "final_sha256": "65c12f5f15cd64d6221f1a5b6ec8ed2ccaa1792302bbc6141f02b54129a0746a",
+          "options": {
+            "style": "acoustic"
+          },
+          "runtime_file": "assets/sfx/lose.wav",
+          "sample_rate": 44100,
+          "sample_width_bytes": 2,
+          "seed": 20260715,
+          "source_recordings": [],
+          "synthesis": "synthesised from oscillators and shaped noise at render time; this generator bundles no sample library, so the cue has no source recordings",
+          "variant": 1
+        },
+        {
+          "channels": 1,
+          "duration_seconds": 0.662063,
+          "final_sha256": "3cd75f50975d9bea866306ebb0f1d8cd593a1e40c98970a70af2ebfc144e7640",
+          "options": {
+            "style": "acoustic"
+          },
+          "runtime_file": "assets/sfx/lose_v02.wav",
+          "sample_rate": 44100,
+          "sample_width_bytes": 2,
+          "seed": 20260716,
+          "source_recordings": [],
+          "synthesis": "synthesised from oscillators and shaped noise at render time; this generator bundles no sample library, so the cue has no source recordings",
+          "variant": 2
+        },
+        {
+          "channels": 1,
+          "duration_seconds": 0.673129,
+          "final_sha256": "046de38a40218d5c37614ccb26ea7f5d13ee32789281d9fee4de05367f019631",
+          "options": {
+            "style": "acoustic"
+          },
+          "runtime_file": "assets/sfx/lose_v03.wav",
+          "sample_rate": 44100,
+          "sample_width_bytes": 2,
+          "seed": 20260717,
+          "source_recordings": [],
+          "synthesis": "synthesised from oscillators and shaped noise at render time; this generator bundles no sample library, so the cue has no source recordings",
+          "variant": 3
+        }
+      ],
+      "base_seed": 20260715,
+      "generator_cue": "lose",
+      "generator_pack": "kilix-rancher",
+      "generator_package": "ui_game_state_generator",
+      "id": "lose",
+      "options": {
+        "style": "acoustic"
+      },
+      "render_command": "python -m ui_game_state_generator pack kilix-rancher",
+      "requested_variants": 3,
+      "seed_derivation": "per-file rng = numpy default_rng(base_seed + variation_index); verified byte-identical to a standalone render at the same seed",
+      "source_audio": "none; pure synthesis"
+    }
+  ],
+  "generated_at": "2026-07-16T07:42:03.678158+00:00",
+  "license": {
+    "basis": "The battle-impact cue is derived from CC0 1.0 source recordings (see source_collections); every other cue is original synthesis with no source audio. No rights-restricted or licence-encumbered material is used, and no third-party attribution is required.",
+    "runtime_assets": "CC0-1.0",
+    "source_audio_policy": "CC0 or public domain only"
+  },
+  "mastering": {
+    "description": "Mastering is performed by each generator at render time: cues are rendered to their own peak target and written directly as the runtime file. No post-hoc mastering pass is applied by the game build.",
+    "runtime_format": "mono 44100 Hz signed 16-bit PCM WAV"
+  },
+  "pack": "kilix-rancher",
+  "promoted": true,
+  "promoted_artifacts": [
+    {
+      "channels": 1,
+      "duration_seconds": 0.04,
+      "final_sha256": "e5930d3025ba6a2cbb40c614dc41f31f1aa3f01b562415243f5cd901394f75c0",
+      "game_asset": "assets/sfx/move.wav",
+      "runtime_file": "assets/sfx/move.wav",
+      "sample_rate": 44100,
+      "variant": 1
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 0.04,
+      "final_sha256": "8b492b6cc5813643e74072566358b96f11991a02fe68a2b5168fd66b140318fd",
+      "game_asset": "assets/sfx/move_v02.wav",
+      "runtime_file": "assets/sfx/move_v02.wav",
+      "sample_rate": 44100,
+      "variant": 2
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 0.04,
+      "final_sha256": "573c7cd308a0e8896edbb4dc87c01a87a0410d4eb7fd01aeb3af384463f8a9dd",
+      "game_asset": "assets/sfx/move_v03.wav",
+      "runtime_file": "assets/sfx/move_v03.wav",
+      "sample_rate": 44100,
+      "variant": 3
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 0.04,
+      "final_sha256": "313b62cbd4187efb610e12dfe0936b74af93b8c71a12fbbbe4873453761af0d6",
+      "game_asset": "assets/sfx/move_v04.wav",
+      "runtime_file": "assets/sfx/move_v04.wav",
+      "sample_rate": 44100,
+      "variant": 4
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 0.198957,
+      "final_sha256": "b5067a3f9376f40704c5ec3d384fa74d3c52d83616f55c417022bc60fce935d8",
+      "game_asset": "assets/sfx/confirm.wav",
+      "runtime_file": "assets/sfx/confirm.wav",
+      "sample_rate": 44100,
+      "variant": 1
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 0.19542,
+      "final_sha256": "63e25e60562407f6b6d91b29f5ba698e52f360585fe5b20dbf05336e175e1c2b",
+      "game_asset": "assets/sfx/confirm_v02.wav",
+      "runtime_file": "assets/sfx/confirm_v02.wav",
+      "sample_rate": 44100,
+      "variant": 2
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 0.200635,
+      "final_sha256": "319dc111e42f9fab2b4eca2f0feb28f1d120733d9fd2ee0027d248a0d7584246",
+      "game_asset": "assets/sfx/confirm_v03.wav",
+      "runtime_file": "assets/sfx/confirm_v03.wav",
+      "sample_rate": 44100,
+      "variant": 3
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 0.394218,
+      "final_sha256": "574fb1499f86c17d402b9e13b1be9e8ace5ed75ef4c478d80ce19a9a5709515a",
+      "game_asset": "assets/sfx/train.wav",
+      "runtime_file": "assets/sfx/train.wav",
+      "sample_rate": 44100,
+      "variant": 1
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 0.397324,
+      "final_sha256": "b4f459a24a0279a2a4cbad6c5102dd9d971037567f09f3aee32dfeb7511a9f64",
+      "game_asset": "assets/sfx/train_v02.wav",
+      "runtime_file": "assets/sfx/train_v02.wav",
+      "sample_rate": 44100,
+      "variant": 2
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 0.398345,
+      "final_sha256": "7d0b5b5f3417386a25c45e2550833b5bb0a3241f5390897bd7dfb0138923dda4",
+      "game_asset": "assets/sfx/train_v03.wav",
+      "runtime_file": "assets/sfx/train_v03.wav",
+      "sample_rate": 44100,
+      "variant": 3
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 0.401156,
+      "final_sha256": "884e31e4c6496080c4dcaac52102c670128b37ab1a41cf3e0bf1c294e8318fed",
+      "game_asset": "assets/sfx/train_v04.wav",
+      "runtime_file": "assets/sfx/train_v04.wav",
+      "sample_rate": 44100,
+      "variant": 4
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 0.627075,
+      "final_sha256": "27d0b94647e86d5b299f9be7a463716c875441d2e3154f091fd323e949732fab",
+      "game_asset": "assets/sfx/hit.wav",
+      "runtime_file": "assets/sfx/hit.wav",
+      "sample_rate": 44100,
+      "variant": 1
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 0.650544,
+      "final_sha256": "761993a56a76a516317682db1dff212ca0221c461a2890544fbb57319929f6cc",
+      "game_asset": "assets/sfx/hit_v02.wav",
+      "runtime_file": "assets/sfx/hit_v02.wav",
+      "sample_rate": 44100,
+      "variant": 2
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 0.69678,
+      "final_sha256": "e56873482df48a457937186a1c056d4ea09868690dbbf67fec218dddcf1bc526",
+      "game_asset": "assets/sfx/hit_v03.wav",
+      "runtime_file": "assets/sfx/hit_v03.wav",
+      "sample_rate": 44100,
+      "variant": 3
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 0.721519,
+      "final_sha256": "2f0395d64cdef1e6040113268e0ed4ec58ea76817cc7d77e9c76d1716ed1d973",
+      "game_asset": "assets/sfx/hit_v04.wav",
+      "runtime_file": "assets/sfx/hit_v04.wav",
+      "sample_rate": 44100,
+      "variant": 4
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 0.395034,
+      "final_sha256": "a7a0689ebff467e74b722eb580004b32033b928ba2d0eb5cdbb84127acda7892",
+      "game_asset": "assets/sfx/hit_v05.wav",
+      "runtime_file": "assets/sfx/hit_v05.wav",
+      "sample_rate": 44100,
+      "variant": 5
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 0.423741,
+      "final_sha256": "0ced7d40812cae54f367b8d9b693d652acd1eb6cda563c16e0681c5cd63d9ee2",
+      "game_asset": "assets/sfx/hit_v06.wav",
+      "runtime_file": "assets/sfx/hit_v06.wav",
+      "sample_rate": 44100,
+      "variant": 6
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 1.08,
+      "final_sha256": "1de8e0d3ce16bfc2f3800fe08cc808885ac14ef309af40daa3734713f38fcab3",
+      "game_asset": "assets/sfx/win.wav",
+      "runtime_file": "assets/sfx/win.wav",
+      "sample_rate": 44100,
+      "variant": 1
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 1.08,
+      "final_sha256": "bbe72f15c6cfe6a289437247ce3eb870298289a9d2b6d34e8cd1b780c29acf60",
+      "game_asset": "assets/sfx/win_v02.wav",
+      "runtime_file": "assets/sfx/win_v02.wav",
+      "sample_rate": 44100,
+      "variant": 2
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 1.08,
+      "final_sha256": "79ebf54af169838c5c310a5a407a5a38c820ab1829eb7ae39e9d79e64f00c8b1",
+      "game_asset": "assets/sfx/win_v03.wav",
+      "runtime_file": "assets/sfx/win_v03.wav",
+      "sample_rate": 44100,
+      "variant": 3
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 0.663492,
+      "final_sha256": "65c12f5f15cd64d6221f1a5b6ec8ed2ccaa1792302bbc6141f02b54129a0746a",
+      "game_asset": "assets/sfx/lose.wav",
+      "runtime_file": "assets/sfx/lose.wav",
+      "sample_rate": 44100,
+      "variant": 1
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 0.662063,
+      "final_sha256": "3cd75f50975d9bea866306ebb0f1d8cd593a1e40c98970a70af2ebfc144e7640",
+      "game_asset": "assets/sfx/lose_v02.wav",
+      "runtime_file": "assets/sfx/lose_v02.wav",
+      "sample_rate": 44100,
+      "variant": 2
+    },
+    {
+      "channels": 1,
+      "duration_seconds": 0.673129,
+      "final_sha256": "046de38a40218d5c37614ccb26ea7f5d13ee32789281d9fee4de05367f019631",
+      "game_asset": "assets/sfx/lose_v03.wav",
+      "runtime_file": "assets/sfx/lose_v03.wav",
+      "sample_rate": 44100,
+      "variant": 3
+    }
+  ],
+  "provenance_basis": "Every runtime SFX in this game is rendered locally by the python_sound_assets generators. Each artifact below records the generator package, its cue, the exact seed, the render options, and the SHA-256 of the shipped file; renders are reproducible from those values.",
+  "provider": "local procedural generators (python_sound_assets)",
+  "replaces": {
+    "previous_model": "eleven_text_to_sound_v2",
+    "previous_provider": "ElevenLabs",
+    "reason": "The ElevenLabs bank was licence-restricted: its use depended on an active paid subscription and remained subject to the ElevenLabs sound-effects terms, which constrained redistribution. All 23 runtime WAVs were replaced with the locally generated CC0-derived bank described here. No asset in this game originates from ElevenLabs any more, so that provider's prompt and attestation records have been removed rather than left as a stale claim."
+  },
+  "schema": 1,
+  "source_collections": [
+    {
+      "author": "Independent.nu",
+      "license": "CC0 1.0",
+      "name": "37 hits/punches",
+      "original_archive": "independent_nu_ljudbank-hits_and_punches.7z",
+      "original_archive_sha256": "641c65d2e1a00002171c23e2c6fa14e925ae4c12db09d3f79d130a4538916032",
+      "source_page": "https://opengameart.org/content/37-hitspunches",
+      "submitted_by": "qubodup",
+      "used_by_cues": [
+        "hit"
+      ]
+    }
+  ],
+  "standalone_distribution": "intended only as bundled kilix-rancher game assets, not a standalone SFX library"
+}

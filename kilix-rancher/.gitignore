@@ -1,0 +1,9 @@
+kilix-rancher
+src/*.o
+src/*.d
+.render-test/
+render_*.ppm
+*.tmp
+*.dat
+*.save
+images/
