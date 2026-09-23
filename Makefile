@@ -30,11 +30,20 @@ $(BIN): $(OBJ) $(KILIX_GAME_KIT_LIB)
 src/%.o: src/%.c src/kilix_pong.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
 
+src/game.o: src/neural_policy_blob.h
 src/render.o: src/font8x16.h $(SOFT_RASTER_DIR)/include/soft_raster.h
 src/sound.o: $(PCM_MIXER_DIR)/include/pcmmix_bank.h
 src/term.o: $(KITTY_KEYBOARD_DIR)/include/kitty_keyboard.h \
 	$(KITTY_KEYBOARD_DIR)/include/kitty_keyboard_posix.h \
 	$(KITTY_FRAMEBUFFER_DIR)/include/kitty_framebuffer.h
+
+# Headless training/tuning lab for the CPU levels and the neural player.
+# Not part of `all`; see tools/neural/README.md.
+LAB = tools/neural/pong-lab
+lab: $(LAB)
+$(LAB): tools/neural/pong_lab.c src/game.o src/kilix_pong.h $(KILIX_GAME_KIT_LIB)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -Isrc -o $@ tools/neural/pong_lab.c src/game.o \
+		$(KILIX_GAME_KIT_LIB) $(LDLIBS)
 
 sfx:
 	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) tools/gen_sfx.py \
@@ -42,6 +51,9 @@ sfx:
 
 check-sfx:
 	@PYTHONDONTWRITEBYTECODE=1 $(PYTHON) tools/gen_sfx.py --check
+
+check-policy:
+	@PYTHONDONTWRITEBYTECODE=1 $(PYTHON) tools/neural/check-policy.py
 
 check-release-tree:
 	@set -eu; \
@@ -51,8 +63,9 @@ check-release-tree:
 	[ -z "$$bad" ] || { printf 'non-release files in working tree:\n%s\n' "$$bad" >&2; exit 1; }; \
 	[ ! -d tools/__pycache__ ] || { echo 'tools/__pycache__ must not exist in the release tree' >&2; exit 1; }
 
-test: $(BIN) check-sfx check-release-tree
+test: $(BIN) check-sfx check-policy check-release-tree
 	./$(BIN) --rules-test
+	./$(BIN) --ai-test
 	@set -eu; \
 	first=$$(mktemp); second=$$(mktemp); \
 	trap 'rm -f "$$first" "$$second"' EXIT HUP INT TERM; \
@@ -66,7 +79,7 @@ test: $(BIN) check-sfx check-release-tree
 	trap 'rm -rf "$$render_dir"' EXIT HUP INT TERM; \
 	./$(BIN) --render-test 7 "$$render_dir"; \
 	set -- "$$render_dir"/render_*.ppm; \
-	[ "$$#" -eq 6 ] || { echo "expected 6 render fixtures, found $$#" >&2; exit 1; }; \
+	[ "$$#" -eq 7 ] || { echo "expected 7 render fixtures, found $$#" >&2; exit 1; }; \
 	for image do \
 		header=$$(head -n 3 "$$image"); set -- $$header; \
 		[ "$$#" -eq 4 ] && [ "$$1" = P6 ] && [ "$$2" = 960 ] && \
@@ -93,6 +106,7 @@ sanitize:
 	$(MAKE) CFLAGS='-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -Wall -Wextra -Wpedantic -Werror -std=c11' \
 		LDFLAGS='-fsanitize=address,undefined' $(BIN)
 	./$(BIN) --rules-test
+	./$(BIN) --ai-test
 	./$(BIN) --selftest 1337 12000
 	@render_dir=$$(mktemp -d); \
 	trap 'rm -rf "$$render_dir"' EXIT HUP INT TERM; \
@@ -111,6 +125,6 @@ uninstall:
 	rm -rf "$(DESTDIR)$(PREFIX)/share/kilix-pong"
 
 clean:
-	rm -f $(OBJ) $(BIN)
+	rm -f $(OBJ) $(BIN) $(LAB)
 
-.PHONY: all sfx check-sfx check-release-tree test sanitize install uninstall clean
+.PHONY: all lab sfx check-sfx check-policy check-release-tree test sanitize install uninstall clean

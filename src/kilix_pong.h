@@ -58,8 +58,23 @@ typedef struct {
 } KeyEvent;
 
 enum { GS_TITLE, GS_SERVE, GS_PLAYING, GS_PAUSED, GS_POINT, GS_GAMEOVER };
-enum { MODE_AI, MODE_2P, MODE_COUNT };
 enum { SIDE_LEFT, SIDE_RIGHT, SIDE_COUNT };
+
+/* Who drives a paddle. Any combination is legal: two humans is local 2P,
+   CPU vs NEURAL (or NEURAL vs NEURAL) is a watchable exhibition. */
+enum { CTRL_HUMAN, CTRL_CPU, CTRL_NEURAL, CTRL_COUNT };
+
+/* CPU skill. Every level is beatable; see cpu_levels in game.c. */
+enum { LEVEL_EASY, LEVEL_NORMAL, LEVEL_HARD, LEVEL_COUNT };
+
+/* Title-menu rows. */
+enum { MENU_LEFT, MENU_RIGHT, MENU_LEVEL, MENU_ROWS };
+
+/* Neural policy input width: mirrored per side, so one network plays both.
+   game_policy_features() is the single definition the game and the training
+   lab (tools/neural) share. */
+#define POLICY_FEATURES 11
+#define POLICY_ACTIONS  3     /* 0 up, 1 stay, 2 down */
 
 /* Held-state slots. game.c owns these; term.c knows nothing about them. */
 enum { ACT_P1_UP, ACT_P1_DOWN, ACT_P2_UP, ACT_P2_DOWN, ACT_COUNT };
@@ -73,12 +88,26 @@ enum {
 };
 #define SFX_VARIANTS 3   /* per cue; rotated so rallies do not machine-gun one sample */
 
+/* CPU opponent state. It lives in the paddle (and so in G) rather than in
+   file statics, so copying G copies the whole simulation -- which is what
+   the training lab's exact lookahead relies on. */
+enum { CPU_IDLE, CPU_REACTING, CPU_TRACKING };
+typedef struct {
+    int   phase;    /* CPU_* */
+    int   timer;    /* ticks left in the reaction delay / until the next replan */
+    int   refines;  /* error refinements left for this shot */
+    float error;    /* current aim error in logical units */
+    float aim;      /* strike offset it plays for, -1 (top) .. +1 (bottom) */
+    float target;   /* paddle-centre target */
+} CpuBrain;
+
 typedef struct {
     float x, y, w, h;
     float vy;
-    float input;    /* -1..1, reduced from held state by game.c */
+    float input;       /* -1..1, from keys, the CPU or the neural policy */
     int   score;
-    bool  is_ai;
+    int   controller;  /* CTRL_* */
+    CpuBrain cpu;
 } Paddle;
 
 typedef struct {
@@ -99,7 +128,12 @@ typedef struct {
     int  state;
     int  W, H;
     bool quit, headless, sound_on;
-    int  mode;
+
+    /* Match setup, chosen on the title menu (or the command line). */
+    int  setup[SIDE_COUNT];   /* CTRL_* per side */
+    int  level;               /* LEVEL_*, used by every CPU side */
+    int  menu_row;            /* MENU_* */
+    int  paused_from;         /* state a pause resumes into */
 
     uint32_t rng;
     uint64_t ticks;
@@ -125,10 +159,22 @@ extern GameState G;
 float clampf(float v, float lo, float hi);
 float game_randf(void);
 void  game_init(int w, int h, uint32_t seed);
-void  game_start(int mode);
+/* Starts a match with the current G.setup and G.level. */
+void  game_start(void);
+/* Validated setters; out-of-range values are clamped to the defaults. */
+void  game_configure(int left_controller, int right_controller, int level);
 void  game_tick(void);
 void  game_handle_event(const KeyEvent *ev);
 void  game_autopilot(void);
+/* Mirrored policy inputs for `side`: that side always sees itself on the
+   left, so one network plays both paddles. */
+void  game_policy_features(int side, float out[POLICY_FEATURES]);
+/* True when the compiled-in neural policy loaded and matches the feature
+   and action widths; otherwise NEURAL sides fall back to the CPU. */
+bool  game_neural_ready(void);
+const char *game_neural_status(void);
+const char *game_controller_name(int controller);
+const char *game_level_name(int level);
 bool  game_validate(char *error, size_t error_len);
 /* Order-independent digest of simulation state. Same seed + same tick count
    must yield an identical value on every run and platform; --selftest prints

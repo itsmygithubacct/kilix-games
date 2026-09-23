@@ -250,10 +250,21 @@ static void draw_ball_and_trail(void)
     draw_ball_shape(G.ball.x, G.ball.y, BALL_RADIUS);
 }
 
+/* Scoreboard label for a side, from its controller. */
 static const char *side_name(int side)
 {
-    if (side == SIDE_LEFT) return "PLAYER 1";
-    return G.mode == MODE_2P ? "PLAYER 2" : "CPU";
+    static char labels[SIDE_COUNT][24];
+    int controller = G.paddles[side].controller;
+    bool two_humans = G.paddles[SIDE_LEFT].controller == CTRL_HUMAN &&
+                      G.paddles[SIDE_RIGHT].controller == CTRL_HUMAN;
+    if (controller == CTRL_HUMAN)
+        return two_humans ? (side == SIDE_LEFT ? "PLAYER 1" : "PLAYER 2")
+                          : "PLAYER";
+    if (controller == CTRL_NEURAL && game_neural_ready()) return "NEURAL";
+    /* NEURAL without a loaded policy plays as the CPU; say so. */
+    (void)snprintf(labels[side], sizeof labels[side], "CPU %s",
+                   game_level_name(G.level));
+    return labels[side];
 }
 
 static void draw_scores(void)
@@ -339,18 +350,33 @@ static void draw_title(float time)
     text_centered(160, 77, "PURE TERMINAL ARCADE", .58f,
                   0xc4b5fd, .92f);
 
-    bool two_player = G.mode == MODE_2P;
-    rounded_rectangle(91, 90, 138, 23, 4, two_player ? 0x4c1638 : 0x083344,
-                      .90f);
-    text_centered(160, 97, two_player ? "< 2 PLAYERS  LOCAL >" :
-                                      "< 1 PLAYER  VS CPU >",
-                  .58f, two_player ? 0xf9a8d4 : 0x67e8f9, 1.0f);
+    /* Three menu rows; the selected one is lit and shows its arrows. */
+    static const char *row_names[MENU_ROWS] = { "LEFT", "RIGHT", "LEVEL" };
+    bool cpu_in_match = G.setup[SIDE_LEFT] == CTRL_CPU ||
+                        G.setup[SIDE_RIGHT] == CTRL_CPU ||
+                        (!game_neural_ready() &&
+                         (G.setup[SIDE_LEFT] == CTRL_NEURAL ||
+                          G.setup[SIDE_RIGHT] == CTRL_NEURAL));
+    for (int row = 0; row < MENU_ROWS; row++) {
+        float y = 86.0f + (float)row * 11.0f;
+        bool selected = row == G.menu_row;
+        const char *value = row == MENU_LEVEL ? game_level_name(G.level)
+                            : game_controller_name(G.setup[row == MENU_LEFT ? SIDE_LEFT : SIDE_RIGHT]);
+        uint32_t color = row == MENU_LEFT ? 0x67e8f9 : (row == MENU_RIGHT ? 0xf9a8d4 : 0xfde68a);
+        float alpha = (row == MENU_LEVEL && !cpu_in_match) ? .45f : 1.0f;
+        if (selected)
+            rounded_rectangle(95, y - 2.5f, 130, 10.5f, 3, 0x1e293b, .95f);
+        char line[48];
+        (void)snprintf(line, sizeof line, selected ? "%-5s  < %s >" : "%-5s    %s",
+                       row_names[row], value);
+        text_logical(102, y, line, .52f, color, selected ? alpha : alpha * .72f);
+    }
     float pulse = .55f + .45f * sinf(time * 4.0f);
-    text_centered(160, 120, "PRESS ENTER", .72f, 0xfef3c7, pulse);
-    text_centered(160, 135, "LEFT RIGHT MODE   M SOUND   Q QUIT", .40f,
+    text_centered(160, 121, "PRESS ENTER", .66f, 0xfef3c7, pulse);
+    text_centered(160, 134, "UP DOWN ROW   LEFT RIGHT CHANGE", .40f,
                   0x94a3b8, .90f);
     text_centered(160, 153, "P1  W S", .47f, 0x67e8f9, .82f);
-    text_centered(160, 163, "P2  UP DOWN", .47f, 0xf9a8d4, .82f);
+    text_centered(160, 163, "P2  UP DOWN   M SOUND   Q QUIT", .47f, 0xf9a8d4, .82f);
 }
 
 static void draw_gameover(float time)

@@ -13,6 +13,8 @@
  * assumes the build does not contract a*b+c into fma (-ffp-contract=off).
  */
 #include "kilix_pong.h"
+#include "kilix_game_policy.h"
+#include "neural_policy_blob.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -20,21 +22,101 @@
 
 GameState G;
 
-/* AI/autopilot tuning lives here, not in the shared header: codex_pong's
- * modules never reference it, and the header is the cross-module contract
- * rather than a dumping ground for one module's internals. Both biases are
- * drawn from the seeded RNG and reset on init/start, so replays stay exact
- * without needing to appear in game_state_digest.
+/* ---------- CPU skill levels ----------
+ *
+ * The old tracker re-predicted the ball perfectly every tick, so with any
+ * speed handicap it still could not be beaten: at the 420 cap the steepest
+ * return leaves it >= 1.04 s (137 units of travel) for at most ~71 units of
+ * need. These levels make it beatable the way people are: it reacts late,
+ * commits to a prediction whose error grows with ball speed and with the
+ * number of wall bounces it has to fold, and only sharpens that guess a few
+ * times as the ball approaches. NORMAL and HARD also play english, aiming
+ * the return away from the opponent -- which costs them some misses. Every
+ * draw comes from the seeded RNG, so replays stay exact.
+ *
+ * Values were tuned headlessly against scripted players; the numbers and
+ * the tournament are in tools/neural/README.md.
  */
-#define AI_SPEED_SCALE 0.88f   /* handicap vs. a human's PADDLE_SPEED */
+typedef struct {
+    float speed_scale;     /* x PADDLE_SPEED */
+    int   react_ticks;     /* ticks before it starts tracking an inbound ball */
+    int   react_jitter;    /* + uniform 0..jitter ticks */
+    float err_base;        /* aim-error sigma terms, logical units: */
+    float err_bounce;      /*   per predicted wall bounce */
+    float err_speed;       /*   at the 420 speed cap, scaled linearly */
+    float settle;          /* error multiplier at each refinement */
+    int   refines;         /* how many times it sharpens its guess per shot */
+    int   replan_ticks;
+    float english;         /* strike offset it plays for; 0 = dead centre */
+    float idle_speed;      /* fraction of speed used to recentre */
+} CpuLevel;
 
-static float ai_bias;          /* AI aim error, re-rolled each point */
-static float autopilot_bias;   /* autopilot aim error, for headless rallies */
+static const CpuLevel cpu_levels[LEVEL_COUNT] = {
+    /*            speed react jit  base bnc  spd  settle ref replan eng  idle */
+    /* EASY   */ { 0.66f, 14, 8, 6.0f, 7.0f, 11.0f, 0.75f, 1, 12, 0.00f, 0.50f },
+    /* NORMAL */ { 0.80f, 11, 6, 6.0f, 12.0f, 19.0f, 0.60f, 2, 10, 0.30f, 0.70f },
+    /* HARD   */ { 0.92f, 8, 4, 4.0f, 9.0f, 15.0f, 0.60f, 2, 8, 0.55f, 0.90f },
+};
 
-/* Pause restores the exact state it interrupted rather than inferring one from
- * ball.active: pausing during GS_POINT and resuming into GS_SERVE would skip
- * the remainder of that point's dwell. */
-static int paused_from = GS_PLAYING;
+#define CPU_DEADZONE 3.0f
+
+/* The neural player: a kilix-game-kit policy compiled in from
+   src/neural_policy_blob.h (tools/neural regenerates it). Read-only after
+   the first game_init, so it is not simulation state. */
+static kilix_policy neural_policy;
+static int  neural_loaded;          /* 0 untried, 1 ready, -1 failed */
+static char neural_status[96] = "not loaded";
+
+static void neural_load_once(void)
+{
+    if (neural_loaded) return;
+    kilix_policy_status status =
+        kilix_policy_load(&neural_policy, neural_policy_blob, neural_policy_blob_size);
+    if (status != KILIX_POLICY_OK) {
+        (void)snprintf(neural_status, sizeof neural_status, "policy rejected: %s",
+                       kilix_policy_status_string(status));
+        neural_loaded = -1;
+    } else if (kilix_policy_input_count(&neural_policy) != POLICY_FEATURES ||
+               kilix_policy_output_count(&neural_policy) != POLICY_ACTIONS) {
+        (void)snprintf(neural_status, sizeof neural_status,
+                       "policy shape %zu->%zu, game needs %d->%d",
+                       kilix_policy_input_count(&neural_policy),
+                       kilix_policy_output_count(&neural_policy),
+                       POLICY_FEATURES, POLICY_ACTIONS);
+        kilix_policy_free(&neural_policy);
+        neural_loaded = -1;
+    } else {
+        (void)snprintf(neural_status, sizeof neural_status,
+                       "ready: %zu parameters, digest %016llx",
+                       neural_policy.parameter_count,
+                       (unsigned long long)neural_policy.digest);
+        neural_loaded = 1;
+    }
+}
+
+bool game_neural_ready(void)
+{
+    neural_load_once();
+    return neural_loaded == 1;
+}
+
+const char *game_neural_status(void)
+{
+    neural_load_once();
+    return neural_status;
+}
+
+const char *game_controller_name(int controller)
+{
+    static const char *names[CTRL_COUNT] = { "HUMAN", "CPU", "NEURAL" };
+    return (controller >= 0 && controller < CTRL_COUNT) ? names[controller] : "?";
+}
+
+const char *game_level_name(int level)
+{
+    static const char *names[LEVEL_COUNT] = { "EASY", "NORMAL", "HARD" };
+    return (level >= 0 && level < LEVEL_COUNT) ? names[level] : "?";
+}
 
 float clampf(float v, float lo, float hi)
 {
@@ -60,13 +142,12 @@ static float rand_range(float lo, float hi)
     return lo + (hi - lo) * game_randf();
 }
 
-/* Re-rolls both aim errors from the seeded RNG. Called at every match and
- * point boundary so neither opponent plays the same line twice, and so a fresh
- * game_init(seed) never inherits the previous match's bias. */
-static void roll_biases(void)
+/* Approximately standard normal from four uniforms (Irwin-Hall), so it
+   uses only exactly-rounded arithmetic. */
+static float rand_gauss(void)
 {
-    ai_bias = rand_range(-6.0f, 6.0f);
-    autopilot_bias = rand_range(-5.0f, 5.0f);
+    float sum = game_randf() + game_randf() + game_randf() + game_randf();
+    return (sum - 2.0f) * 1.7320508f;
 }
 
 static void play(int id, float volume, float pitch)
@@ -134,9 +215,10 @@ static void reset_paddles(void)
         G.paddles[s].h = PADDLE_H;
         G.paddles[s].vy = 0.0f;
         G.paddles[s].input = 0.0f;
+        G.paddles[s].controller = G.setup[s];
+        memset(&G.paddles[s].cpu, 0, sizeof G.paddles[s].cpu);
+        G.paddles[s].cpu.target = LOGICAL_H * 0.5f;
     }
-    l->is_ai = false;
-    r->is_ai = (G.mode == MODE_AI);
 }
 
 /* Places the ball at center and aims it toward serve_to -- the receiver, per
@@ -178,22 +260,30 @@ void game_init(int w, int h, uint32_t seed)
     G.H = h;
     G.rng = seed ? seed : 0x1234567u;
     G.state = GS_TITLE;
-    G.mode = MODE_AI;
+    G.setup[SIDE_LEFT] = CTRL_HUMAN;
+    G.setup[SIDE_RIGHT] = CTRL_CPU;
+    G.level = LEVEL_NORMAL;
+    G.menu_row = MENU_LEFT;
     G.winner = -1;
     G.serve_to = SIDE_RIGHT;
-    /* Module statics are not covered by the memset of G: reset them here or a
-       second game_init(seed) in one process inherits the first match's aim. */
-    ai_bias = 0.0f;
-    autopilot_bias = 0.0f;
-    paused_from = GS_PLAYING;
+    G.paused_from = GS_PLAYING;
+    neural_load_once();
     reset_paddles();
     serve_ball();
     G.ball.active = false;
 }
 
-void game_start(int mode)
+void game_configure(int left_controller, int right_controller, int level)
 {
-    G.mode = (mode >= 0 && mode < MODE_COUNT) ? mode : MODE_AI;
+    G.setup[SIDE_LEFT] = (left_controller >= 0 && left_controller < CTRL_COUNT)
+                         ? left_controller : CTRL_HUMAN;
+    G.setup[SIDE_RIGHT] = (right_controller >= 0 && right_controller < CTRL_COUNT)
+                          ? right_controller : CTRL_CPU;
+    G.level = (level >= 0 && level < LEVEL_COUNT) ? level : LEVEL_NORMAL;
+}
+
+void game_start(void)
+{
     G.paddles[SIDE_LEFT].score = 0;
     G.paddles[SIDE_RIGHT].score = 0;
     G.winner = -1;
@@ -204,11 +294,10 @@ void game_start(int mode)
     memset(G.particles, 0, sizeof G.particles);
     memset(G.act_held, 0, sizeof G.act_held);
     memset(G.act_tick, 0, sizeof G.act_tick);
-    roll_biases();
     reset_paddles();
     serve_ball();
     G.state = GS_SERVE;
-    paused_from = GS_PLAYING;
+    G.paused_from = GS_PLAYING;
     G.state_timer = 0.7f;
     play(SFX_SERVE, 0.8f, 1.0f);
 }
@@ -240,18 +329,50 @@ static int action_for_key(int key)
 static void toggle_pause(void)
 {
     if (G.state == GS_PLAYING || G.state == GS_SERVE || G.state == GS_POINT) {
-        paused_from = G.state;
+        G.paused_from = G.state;
         G.state = GS_PAUSED;
         play(SFX_MENU, 0.7f, 1.0f);
     } else if (G.state == GS_PAUSED) {
-        G.state = paused_from;
+        G.state = G.paused_from;
         play(SFX_MENU, 0.7f, 1.1f);
     }
+}
+
+/* Title menu: Up/Down (or W/S) pick a row, Left/Right change it. */
+static bool title_menu_event(const KeyEvent *ev)
+{
+    if (G.state != GS_TITLE) return false;
+    int step = 0;
+    switch (ev->key) {
+    case KEY_UP: case 'w': case 'W':
+        if (ev->action == KEY_ACTION_PRESS)
+            G.menu_row = (G.menu_row + MENU_ROWS - 1) % MENU_ROWS;
+        break;
+    case KEY_DOWN: case 's': case 'S':
+        if (ev->action == KEY_ACTION_PRESS)
+            G.menu_row = (G.menu_row + 1) % MENU_ROWS;
+        break;
+    case KEY_LEFT:  step = -1; break;
+    case KEY_RIGHT: step = 1;  break;
+    default:
+        return false;
+    }
+    if (step && ev->action == KEY_ACTION_PRESS) {
+        if (G.menu_row == MENU_LEVEL) {
+            G.level = (G.level + LEVEL_COUNT + step) % LEVEL_COUNT;
+        } else {
+            int side = G.menu_row == MENU_LEFT ? SIDE_LEFT : SIDE_RIGHT;
+            G.setup[side] = (G.setup[side] + CTRL_COUNT + step) % CTRL_COUNT;
+        }
+    }
+    if (ev->action == KEY_ACTION_PRESS) play(SFX_MENU, 0.7f, step ? 1.15f : 1.0f);
+    return true;
 }
 
 void game_handle_event(const KeyEvent *ev)
 {
     if (!ev) return;
+    if (title_menu_event(ev)) return;
 
     int act = action_for_key(ev->key);
     if (act >= 0) {
@@ -286,19 +407,11 @@ void game_handle_event(const KeyEvent *ev)
         play(SFX_MENU, 0.7f, 1.2f);   /* only audible when switching on */
         break;
 
-    case KEY_LEFT:
-    case KEY_RIGHT:              /* mode select, title only */
-        if (G.state == GS_TITLE) {
-            G.mode = (ev->key == KEY_LEFT) ? MODE_AI : MODE_2P;
-            play(SFX_MENU, 0.7f, 1.15f);
-        }
-        break;
-
     case ' ': case KEY_ENTER:
         if (G.state == GS_TITLE) {
-            game_start(G.mode);
+            game_start();
         } else if (G.state == GS_GAMEOVER) {
-            game_start(G.mode);       /* direct rematch; Esc goes to title */
+            game_start();             /* direct rematch; Esc goes to title */
         } else if (G.state == GS_PAUSED) {
             toggle_pause();
         }
@@ -330,13 +443,24 @@ static float axis_from(int up_act, int down_act, bool trust_release)
     return (down ? 1.0f : 0.0f) - (up ? 1.0f : 0.0f);
 }
 
+/* Human paddles read their keys: W/S for the left, Up/Down for the right.
+ * With exactly one human, either key pair drives that paddle, so a lone
+ * player on the right side is not stuck with the arrow keys. */
 static void apply_input(void)
 {
     bool trust = G.headless ? true : term_has_key_release();
+    bool left_human = G.paddles[SIDE_LEFT].controller == CTRL_HUMAN;
+    bool right_human = G.paddles[SIDE_RIGHT].controller == CTRL_HUMAN;
+    float p1 = axis_from(ACT_P1_UP, ACT_P1_DOWN, trust);
+    float p2 = axis_from(ACT_P2_UP, ACT_P2_DOWN, trust);
 
-    G.paddles[SIDE_LEFT].input = axis_from(ACT_P1_UP, ACT_P1_DOWN, trust);
-    if (!G.paddles[SIDE_RIGHT].is_ai)
-        G.paddles[SIDE_RIGHT].input = axis_from(ACT_P2_UP, ACT_P2_DOWN, trust);
+    if (left_human && right_human) {
+        G.paddles[SIDE_LEFT].input = p1;
+        G.paddles[SIDE_RIGHT].input = p2;
+    } else if (left_human || right_human) {
+        G.paddles[left_human ? SIDE_LEFT : SIDE_RIGHT].input =
+            clampf(p1 + p2, -1.0f, 1.0f);
+    }
 }
 
 /* ---------- paddles ---------- */
@@ -355,44 +479,155 @@ static void move_paddle(Paddle *p, float dt)
     p->y = clampf(p->y + p->vy * dt, 0.0f, LOGICAL_H - p->h);
 }
 
-/* Imperfect tracking AI: it reacts to the ball's current position with a
- * deadzone and a speed handicap, and only commits once the ball is heading its
- * way. Beatable on purpose -- a perfect tracker is unplayable and boring. */
-static void update_ai(float dt)
+/* Ball-centre x where a strike on `side`'s face happens. */
+static float face_x(int side)
 {
-    Paddle *p = &G.paddles[SIDE_RIGHT];
-    if (!p->is_ai) return;
+    return side == SIDE_LEFT ? PADDLE_INSET + PADDLE_W + BALL_RADIUS
+                             : LOGICAL_W - PADDLE_INSET - PADDLE_W - BALL_RADIUS;
+}
 
+/* Folds a free-flight height into the band the ball centre can occupy,
+   [R, H-R]; *bounces receives the number of wall reflections. */
+static float fold_height(float y, int *bounces)
+{
+    float lo = BALL_RADIUS, span = LOGICAL_H - 2.0f * BALL_RADIUS;
+    float period = 2.0f * span;
+    float t = fmodf(y - lo, period);
+    if (t < 0.0f) t += period;
+    if (bounces) {
+        float laps = floorf((y - lo) / span);
+        *bounces = (int)fabsf(laps);
+    }
+    return lo + (t > span ? period - t : t);
+}
+
+/* Seconds until the ball reaches `side`'s face, or -1 if it is not inbound. */
+static float time_to_face(int side)
+{
     const Ball *b = &G.ball;
-    float target;
+    float dir = side == SIDE_LEFT ? -1.0f : 1.0f;
+    if (!b->active || b->vx * dir <= 0.0f) return -1.0f;
+    float t = (face_x(side) - b->x) / b->vx;
+    return t < 0.0f ? 0.0f : t;
+}
 
-    if (b->vx > 0.0f && b->active) {
-        /* Predict where the ball crosses the paddle plane, folding wall
-           bounces, then miss slightly so rallies stay alive. */
-        float dx = (p->x - b->x);
-        float t = (fabsf(b->vx) > 0.001f) ? dx / b->vx : 0.0f;
-        float predicted = b->y + b->vy * t;
-
-        /* Reflect the prediction into the playfield instead of iterating. */
-        float span = LOGICAL_H * 2.0f;
-        float wrapped = fmodf(fabsf(predicted), span);
-        if (wrapped < 0.0f) wrapped += span;
-        target = (wrapped > LOGICAL_H) ? (span - wrapped) : wrapped;
-        target += ai_bias;
-    } else {
-        target = LOGICAL_H * 0.5f;   /* recenter while idle */
-    }
-
+static void steer_toward(Paddle *p, float target, float speed)
+{
     float delta = target - paddle_center(p);
-    float deadzone = 3.0f;
-    if (fabsf(delta) < deadzone) {
-        p->input = 0.0f;
-    } else {
-        p->input = (delta > 0.0f) ? 1.0f : -1.0f;
-    }
+    p->input = fabsf(delta) < CPU_DEADZONE ? 0.0f : (delta > 0.0f ? 1.0f : -1.0f);
+    p->vy = p->input * speed;
+    p->y = clampf(p->y + p->vy * TICK_DT, 0.0f, LOGICAL_H - p->h);
+}
 
-    p->vy = p->input * PADDLE_SPEED * AI_SPEED_SCALE;
-    p->y = clampf(p->y + p->vy * dt, 0.0f, LOGICAL_H - p->h);
+static void update_cpu(int side)
+{
+    Paddle *p = &G.paddles[side];
+    CpuBrain *c = &p->cpu;
+    const CpuLevel *L = &cpu_levels[G.level];
+    float speed = PADDLE_SPEED * L->speed_scale;
+    float t = (G.state == GS_PLAYING || G.state == GS_SERVE) ? time_to_face(side) : -1.0f;
+
+    if (t < 0.0f) {                       /* ball away or dead: drift home */
+        c->phase = CPU_IDLE;
+        steer_toward(p, LOGICAL_H * 0.5f, speed * L->idle_speed);
+        return;
+    }
+    if (c->phase == CPU_IDLE) {
+        c->phase = CPU_REACTING;
+        c->timer = L->react_ticks + (int)(game_randf() * (float)(L->react_jitter + 1));
+    }
+    if (c->phase == CPU_REACTING) {
+        if (--c->timer > 0) {             /* still reading the shot */
+            p->input = 0.0f;
+            p->vy = 0.0f;
+            return;
+        }
+        int bounces = 0;
+        (void)fold_height(G.ball.y + G.ball.vy * t, &bounces);
+        float sigma = L->err_base + L->err_bounce * (float)bounces +
+                      L->err_speed * (G.ball.speed / BALL_SPEED_MAX);
+        c->error = sigma * rand_gauss();
+        /* English: strike so the return heads away from the opponent. */
+        float opponent = paddle_center(&G.paddles[side == SIDE_LEFT ? SIDE_RIGHT : SIDE_LEFT]);
+        float amount = L->english * (0.5f + 0.5f * game_randf());
+        c->aim = opponent < LOGICAL_H * 0.5f ? amount : -amount;
+        c->phase = CPU_TRACKING;
+        c->refines = L->refines;
+        c->timer = 0;
+    }
+    if (c->timer <= 0) {                  /* (re)plan; sharpen a bounded number of times */
+        float crossing = fold_height(G.ball.y + G.ball.vy * t, NULL);
+        c->target = crossing + c->error - c->aim * p->h * 0.5f;
+        if (c->refines > 0) {
+            c->error *= L->settle;
+            c->refines--;
+        }
+        c->timer = L->replan_ticks;
+    }
+    c->timer--;
+    steer_toward(p, c->target, speed);
+}
+
+/* ---------- neural player ---------- */
+
+void game_policy_features(int side, float out[POLICY_FEATURES])
+{
+    const Ball *b = &G.ball;
+    const Paddle *own = &G.paddles[side];
+    const Paddle *opp = &G.paddles[side == SIDE_LEFT ? SIDE_RIGHT : SIDE_LEFT];
+    bool mirror = side == SIDE_RIGHT;
+    float x = mirror ? LOGICAL_W - b->x : b->x;
+    float vx = mirror ? -b->vx : b->vx;
+    bool active = b->active;
+    float t = active ? time_to_face(side) : -1.0f;
+
+    out[0] = x / LOGICAL_W * 2.0f - 1.0f;
+    out[1] = b->y / LOGICAL_H * 2.0f - 1.0f;
+    out[2] = active ? vx / BALL_SPEED_MAX : 0.0f;
+    out[3] = active ? b->vy / BALL_SPEED_MAX : 0.0f;
+    out[4] = paddle_center(own) / LOGICAL_H * 2.0f - 1.0f;
+    out[5] = paddle_center(opp) / LOGICAL_H * 2.0f - 1.0f;
+    out[6] = active ? 1.0f : 0.0f;
+    /* Free-flight physics only: time to reach this face and the unfolded
+       crossing height. Wall folding and strategy are left to the network. */
+    out[7] = t >= 0.0f ? t / 3.0f : 0.0f;
+    out[8] = t >= 0.0f ? (b->y + b->vy * t) / LOGICAL_H * 2.0f - 1.0f : 0.0f;
+    out[9] = opp->vy / PADDLE_SPEED;
+    out[10] = active ? b->speed / BALL_SPEED_MAX : 0.0f;
+}
+
+static void update_neural(int side)
+{
+    Paddle *p = &G.paddles[side];
+    float features[POLICY_FEATURES], logits[POLICY_ACTIONS];
+    game_policy_features(side, features);
+    if (kilix_policy_forward(&neural_policy, features, POLICY_FEATURES,
+                             logits, POLICY_ACTIONS) != KILIX_POLICY_OK) {
+        update_cpu(side);
+        return;
+    }
+    size_t action = kilix_policy_argmax(logits, POLICY_ACTIONS);
+    p->input = action == 0 ? -1.0f : (action == 2 ? 1.0f : 0.0f);
+    move_paddle(p, TICK_DT);
+}
+
+/* Moves both paddles by controller. Human input was applied just before. */
+static void drive_paddles(void)
+{
+    for (int side = 0; side < SIDE_COUNT; side++) {
+        switch (G.paddles[side].controller) {
+        case CTRL_CPU:
+            update_cpu(side);
+            break;
+        case CTRL_NEURAL:
+            if (neural_loaded == 1) update_neural(side);
+            else update_cpu(side);
+            break;
+        default:
+            move_paddle(&G.paddles[side], TICK_DT);
+            break;
+        }
+    }
 }
 
 /* ---------- ball ---------- */
@@ -552,9 +787,7 @@ void game_tick(void)
 
     case GS_SERVE:
         apply_input();
-        move_paddle(&G.paddles[SIDE_LEFT], TICK_DT);
-        if (!G.paddles[SIDE_RIGHT].is_ai) move_paddle(&G.paddles[SIDE_RIGHT], TICK_DT);
-        else update_ai(TICK_DT);
+        drive_paddles();
         G.state_timer -= TICK_DT;
         if (G.state_timer <= 0.0f) {
             G.ball.active = true;
@@ -564,12 +797,9 @@ void game_tick(void)
 
     case GS_POINT:
         apply_input();
-        move_paddle(&G.paddles[SIDE_LEFT], TICK_DT);
-        if (!G.paddles[SIDE_RIGHT].is_ai) move_paddle(&G.paddles[SIDE_RIGHT], TICK_DT);
-        else update_ai(TICK_DT);
+        drive_paddles();
         G.state_timer -= TICK_DT;
         if (G.state_timer <= 0.0f) {
-            roll_biases();
             serve_ball();
             G.state = GS_SERVE;
             G.state_timer = 0.7f;
@@ -583,48 +813,45 @@ void game_tick(void)
     }
 
     apply_input();
-    move_paddle(&G.paddles[SIDE_LEFT], TICK_DT);
-    if (!G.paddles[SIDE_RIGHT].is_ai) move_paddle(&G.paddles[SIDE_RIGHT], TICK_DT);
-    else update_ai(TICK_DT);
+    drive_paddles();
     step_ball(TICK_DT);
 }
 
-/* Drives both paddles from the sim itself, for --selftest and --render-test:
- * it exercises real rallies without any terminal or input. */
+/* Drives every HUMAN paddle from the sim itself, for --selftest and
+ * --render-test: it exercises real rallies without any terminal or input.
+ * Each chases the inbound ball's current height with a small per-rally aim
+ * error, so autopilot rallies end rather than run forever. */
+static void autopilot_side(int side, int up_act, int down_act)
+{
+    const Ball *b = &G.ball;
+    Paddle *p = &G.paddles[side];
+    float dir = side == SIDE_LEFT ? -1.0f : 1.0f;
+    float error = (float)((G.rally * 7 + side * 3) % 11) - 5.0f;
+    float target = (b->active && b->vx * dir > 0.0f) ? b->y + error
+                                                     : LOGICAL_H * 0.5f;
+    float delta = target - paddle_center(p);
+    bool up = delta < -3.0f, down = delta > 3.0f;
+    set_action(up_act, up);
+    set_action(down_act, down);
+}
+
 void game_autopilot(void)
 {
-    if (G.state == GS_TITLE) {
-        game_start(G.mode);
-        return;
-    }
-    if (G.state == GS_GAMEOVER) {
-        game_start(G.mode);
+    if (G.state == GS_TITLE || G.state == GS_GAMEOVER) {
+        game_start();
         return;
     }
     if (G.state == GS_PAUSED) {
         G.state = G.ball.active ? GS_PLAYING : GS_SERVE;
         return;
     }
-
-    const Ball *b = &G.ball;
-    Paddle *l = &G.paddles[SIDE_LEFT];
-
-    /* Left paddle chases the ball when it is inbound, with a small seeded
-       error so autopilot rallies end rather than run forever. */
-    float target = (b->vx < 0.0f && b->active) ? b->y + autopilot_bias
-                                               : LOGICAL_H * 0.5f;
-    float delta = target - paddle_center(l);
-    if (fabsf(delta) < 3.0f) set_action(ACT_P1_UP, false), set_action(ACT_P1_DOWN, false);
-    else if (delta < 0.0f)   set_action(ACT_P1_UP, true),  set_action(ACT_P1_DOWN, false);
-    else                     set_action(ACT_P1_UP, false), set_action(ACT_P1_DOWN, true);
-
-    if (!G.paddles[SIDE_RIGHT].is_ai) {
-        Paddle *r = &G.paddles[SIDE_RIGHT];
-        float rt = (b->vx > 0.0f && b->active) ? b->y : LOGICAL_H * 0.5f;
-        float rd = rt - paddle_center(r);
-        if (fabsf(rd) < 3.0f) set_action(ACT_P2_UP, false), set_action(ACT_P2_DOWN, false);
-        else if (rd < 0.0f)   set_action(ACT_P2_UP, true),  set_action(ACT_P2_DOWN, false);
-        else                  set_action(ACT_P2_UP, false), set_action(ACT_P2_DOWN, true);
+    bool left_human = G.paddles[SIDE_LEFT].controller == CTRL_HUMAN;
+    bool right_human = G.paddles[SIDE_RIGHT].controller == CTRL_HUMAN;
+    if (left_human) autopilot_side(SIDE_LEFT, ACT_P1_UP, ACT_P1_DOWN);
+    if (right_human) {
+        /* A lone right-side human hears both key pairs; drive one. */
+        if (left_human) autopilot_side(SIDE_RIGHT, ACT_P2_UP, ACT_P2_DOWN);
+        else autopilot_side(SIDE_RIGHT, ACT_P1_UP, ACT_P1_DOWN);
     }
 }
 
@@ -654,7 +881,9 @@ uint64_t game_state_digest(void)
     uint64_t h = 1469598103934665603ULL;
 
     digest_add(&h, G.state);
-    digest_add(&h, G.mode);
+    digest_add(&h, G.setup[SIDE_LEFT]);
+    digest_add(&h, G.setup[SIDE_RIGHT]);
+    digest_add(&h, G.level);
     digest_add(&h, (int64_t)G.ticks);
     digest_add(&h, G.rally);
     digest_add(&h, G.serve_to);
@@ -671,6 +900,10 @@ uint64_t game_state_digest(void)
     for (int s = 0; s < SIDE_COUNT; s++) {
         digest_addf(&h, G.paddles[s].y);
         digest_add(&h, G.paddles[s].score);
+        digest_add(&h, G.paddles[s].cpu.phase);
+        digest_add(&h, G.paddles[s].cpu.timer);
+        digest_addf(&h, G.paddles[s].cpu.error);
+        digest_addf(&h, G.paddles[s].cpu.target);
     }
     return h;
 }
@@ -683,8 +916,14 @@ bool game_validate(char *error, size_t error_len)
         return false;                                          \
     } while (0)
 
+    if (G.level < 0 || G.level >= LEVEL_COUNT)
+        FAIL("level out of range: %d", G.level);
     for (int s = 0; s < SIDE_COUNT; s++) {
         const Paddle *p = &G.paddles[s];
+        if (p->controller < 0 || p->controller >= CTRL_COUNT)
+            FAIL("paddle %d controller out of range: %d", s, p->controller);
+        if (!isfinite(p->cpu.error) || !isfinite(p->cpu.target))
+            FAIL("paddle %d CPU state is not finite", s);
         if (p->y < -0.01f || p->y + p->h > LOGICAL_H + 0.01f)
             FAIL("paddle %d left the playfield: y=%.3f h=%.3f",
                  s, (double)p->y, (double)p->h);
