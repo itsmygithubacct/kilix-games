@@ -1,0 +1,182 @@
+{
+  "artifact_count": 21,
+  "artifacts": [
+    {
+      "cue": "paddle",
+      "duration_seconds": 0.047982,
+      "frames": 2116,
+      "runtime_file": "assets/sfx/paddle.wav",
+      "sha256": "cfae84d77ff561b723e61e3354c0b8d2a0d84ad56915c3b74f66d4c3c58a32aa",
+      "variant": 1
+    },
+    {
+      "cue": "paddle",
+      "duration_seconds": 0.047982,
+      "frames": 2116,
+      "runtime_file": "assets/sfx/paddle_v02.wav",
+      "sha256": "c1657dd8b3ceb48d70ce9367f4a4d54932ccee106789c1f35e80714844a034d3",
+      "variant": 2
+    },
+    {
+      "cue": "paddle",
+      "duration_seconds": 0.047982,
+      "frames": 2116,
+      "runtime_file": "assets/sfx/paddle_v03.wav",
+      "sha256": "c8c4f63035ed2e23933823681251f3b6dbc488d178c1330087927c6b32e6912d",
+      "variant": 3
+    },
+    {
+      "cue": "wall",
+      "duration_seconds": 0.04,
+      "frames": 1764,
+      "runtime_file": "assets/sfx/wall.wav",
+      "sha256": "1155629abebe04bf0c9929b54ed099addabafca1d5c59c4c814740f2d1fee68b",
+      "variant": 1
+    },
+    {
+      "cue": "wall",
+      "duration_seconds": 0.04,
+      "frames": 1764,
+      "runtime_file": "assets/sfx/wall_v02.wav",
+      "sha256": "9a9550d153615ada0834675f14ae6be1e87e7b5ab494f8bb074c717733c15db6",
+      "variant": 2
+    },
+    {
+      "cue": "wall",
+      "duration_seconds": 0.04,
+      "frames": 1764,
+      "runtime_file": "assets/sfx/wall_v03.wav",
+      "sha256": "c6d349cb5d0a711f21159e724132e4db407a4d70d68a50086e338b565f9a84d5",
+      "variant": 3
+    },
+    {
+      "cue": "score",
+      "duration_seconds": 0.18,
+      "frames": 7938,
+      "runtime_file": "assets/sfx/score.wav",
+      "sha256": "629a376309bb6f2ec1dad3a4d340066b87ac681cd3cc9c81fa719058cbde9c09",
+      "variant": 1
+    },
+    {
+      "cue": "score",
+      "duration_seconds": 0.18,
+      "frames": 7938,
+      "runtime_file": "assets/sfx/score_v02.wav",
+      "sha256": "ea7b6dea40309c00c28bc6f4c27b314a3f4abff6b61b584a2717c117046ae3c4",
+      "variant": 2
+    },
+    {
+      "cue": "score",
+      "duration_seconds": 0.18,
+      "frames": 7938,
+      "runtime_file": "assets/sfx/score_v03.wav",
+      "sha256": "2346976b02b76f7f67dad3c48ae2f7c3c11b082ba34a7b47a4d3b71c0ed0a47f",
+      "variant": 3
+    },
+    {
+      "cue": "serve",
+      "duration_seconds": 0.11,
+      "frames": 4851,
+      "runtime_file": "assets/sfx/serve.wav",
+      "sha256": "7b279fb7a814529fbd91d6f2a3dd8c0f2764ab54e1bc5f44d7cb69cabacf6639",
+      "variant": 1
+    },
+    {
+      "cue": "serve",
+      "duration_seconds": 0.11,
+      "frames": 4851,
+      "runtime_file": "assets/sfx/serve_v02.wav",
+      "sha256": "e9623eb3b4b8c1b3c1aca830b407596104364a0c5681235f4b7b454319cc59e2",
+      "variant": 2
+    },
+    {
+      "cue": "serve",
+      "duration_seconds": 0.11,
+      "frames": 4851,
+      "runtime_file": "assets/sfx/serve_v03.wav",
+      "sha256": "eefa49fab8196d0289082f53e3c1ed66e2fefb09a2e709b0b95870a754c46e24",
+      "variant": 3
+    },
+    {
+      "cue": "miss",
+      "duration_seconds": 0.26,
+      "frames": 11466,
+      "runtime_file": "assets/sfx/miss.wav",
+      "sha256": "b04b43d7a2b94c0850bbe694b27047885b5d4c3e6f9baecf0129344b2f69a475",
+      "variant": 1
+    },
+    {
+      "cue": "miss",
+      "duration_seconds": 0.26,
+      "frames": 11466,
+      "runtime_file": "assets/sfx/miss_v02.wav",
+      "sha256": "9a7a3b8a4e399f244de203cca8a2299290d2ed1814f719942816e86adbf0f99e",
+      "variant": 2
+    },
+    {
+      "cue": "miss",
+      "duration_seconds": 0.26,
+      "frames": 11466,
+      "runtime_file": "assets/sfx/miss_v03.wav",
+      "sha256": "e1070d9d9d620f0887fba910069a99a393d41fbd025c5f6830efbc8ce1d7598b",
+      "variant": 3
+    },
+    {
+      "cue": "menu",
+      "duration_seconds": 0.054989,
+      "frames": 2425,
+      "runtime_file": "assets/sfx/menu.wav",
+      "sha256": "e1c8aa841bfefcb6924a4508f19485533599dce245a43604d3974e1c5e67f9df",
+      "variant": 1
+    },
+    {
+      "cue": "menu",
+      "duration_seconds": 0.054989,
+      "frames": 2425,
+      "runtime_file": "assets/sfx/menu_v02.wav",
+      "sha256": "3094e93eaeda2180308ab3c7858b83235d44d16338a52a53277b352e84f43434",
+      "variant": 2
+    },
+    {
+      "cue": "menu",
+      "duration_seconds": 0.054989,
+      "frames": 2425,
+      "runtime_file": "assets/sfx/menu_v03.wav",
+      "sha256": "3dbaaae43f71022a7a3219203102adec03dce2c0a5022969d2a1e4486b001531",
+      "variant": 3
+    },
+    {
+      "cue": "gameover",
+      "duration_seconds": 0.45,
+      "frames": 19845,
+      "runtime_file": "assets/sfx/gameover.wav",
+      "sha256": "4024b7fa31cb525d78a0ba87165de0099adc0d6676e902fa37ee86d0a25bf030",
+      "variant": 1
+    },
+    {
+      "cue": "gameover",
+      "duration_seconds": 0.45,
+      "frames": 19845,
+      "runtime_file": "assets/sfx/gameover_v02.wav",
+      "sha256": "09808f9e8d53fd978f94ca688d2334ef345f8566912ac8d98f7b9636b80f5889",
+      "variant": 2
+    },
+    {
+      "cue": "gameover",
+      "duration_seconds": 0.45,
+      "frames": 19845,
+      "runtime_file": "assets/sfx/gameover_v03.wav",
+      "sha256": "2ecda7f72374edd3b0fcb5462d361b3639ff96bff78e8af6470821d9a39236d0",
+      "variant": 3
+    }
+  ],
+  "bits_per_sample": 16,
+  "channels": 1,
+  "cue_count": 7,
+  "generator": "tools/gen_sfx.py",
+  "generator_sha256": "ffac33ec6d765a0a472afc1919704f0309b7bc0f2cf5b3b537a65d2a7623c864",
+  "method": "deterministic stdlib-only integer fixed-point synthesis",
+  "reproducible": "No libm transcendentals in the sample path; integer fixed-point phase/envelope and fixed-seed xorshift noise only. `gen_sfx.py --check` byte-compares a fresh render against these artifacts.",
+  "sample_rate": 44100,
+  "variants_per_cue": 3
+}

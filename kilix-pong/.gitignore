@@ -1,0 +1,19 @@
+# Build output
+/kilix-pong
+src/*.o
+
+# Render/test dumps (tests must write to a temp dir; this is a backstop)
+render_*.ppm
+*.core
+core
+
+# Python caches from tools/gen_sfx.py
+__pycache__/
+*.py[cod]
+
+# Local build/test scratch
+/build/
+/.cache/
+
+# Training lab binary (make lab)
+/tools/neural/pong-lab
