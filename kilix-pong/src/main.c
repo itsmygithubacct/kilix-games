@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
@@ -97,12 +98,19 @@ static bool ctrl_c_event(const KeyEvent *event)
 
 /* ---------- remembered setup ----------
  *
- * The title-menu choice (both controllers, level, sound) is kept in a
- * kilix-state record under $XDG_DATA_HOME/kilix-pong/, written only by the
- * interactive game -- never by tests. Payload v1: version, left, right,
- * level, sound, one byte each; anything else is ignored.
+ * The main-menu choice (both controllers, level, sound and the match options)
+ * is kept in a kilix-state record under $XDG_DATA_HOME/kilix-pong/, written
+ * only by the interactive game -- never by tests. Payload v2: version, left,
+ * right, level, sound, speed-up, serve, points, paddle, one byte each. A v1
+ * record (the first five) still loads its fields; anything else is ignored.
  */
-#define SETTINGS_VERSION 1u
+#define SETTINGS_VERSION 2u
+#define SETTINGS_V1_SIZE 5u
+#define SETTINGS_SIZE    (SETTINGS_V1_SIZE + OPT_COUNT)
+
+/* An interactive session without saved options starts with a speed-up you
+   can feel; headless modes keep game_init's CLASSIC physics. */
+#define INTERACTIVE_SPEEDUP SPEEDUP_FAST
 
 static bool settings_open(kilixstate_store *store)
 {
@@ -118,14 +126,18 @@ static void settings_load(void)
 {
     kilixstate_store store;
     if (!settings_open(&store)) return;
-    uint8_t payload[5];
+    uint8_t payload[SETTINGS_SIZE];
     size_t size = 0;
     if (kilixstate_load(&store, payload, sizeof payload, &size) == KILIXSTATE_OK &&
-        size == sizeof payload && payload[0] == SETTINGS_VERSION &&
+        ((payload[0] == 1u && size == SETTINGS_V1_SIZE) ||
+         (payload[0] == SETTINGS_VERSION && size == SETTINGS_SIZE)) &&
         payload[1] < CTRL_COUNT && payload[2] < CTRL_COUNT &&
         payload[3] < LEVEL_COUNT && payload[4] <= 1u) {
         game_configure(payload[1], payload[2], payload[3]);
         G.sound_on = payload[4] != 0u;
+        if (payload[0] == SETTINGS_VERSION)
+            for (int option = 0; option < OPT_COUNT; option++)
+                game_set_option(option, payload[SETTINGS_V1_SIZE + option]);
     }
     kilixstate_store_close(&store);
 }
@@ -134,10 +146,12 @@ static void settings_save(void)
 {
     kilixstate_store store;
     if (!settings_open(&store)) return;
-    uint8_t payload[5] = {
+    uint8_t payload[SETTINGS_SIZE] = {
         SETTINGS_VERSION, (uint8_t)G.setup[SIDE_LEFT], (uint8_t)G.setup[SIDE_RIGHT],
         (uint8_t)G.level, G.sound_on ? 1u : 0u
     };
+    for (int option = 0; option < OPT_COUNT; option++)
+        payload[SETTINGS_V1_SIZE + option] = (uint8_t)G.option[option];
     kilixstate_result result = kilixstate_save(&store, payload, sizeof payload);
     if (result != KILIXSTATE_OK)
         fprintf(stderr, "kilix-pong: settings not saved: %s\n",
@@ -163,9 +177,19 @@ static int parse_level(const char *text)
     return -1;
 }
 
+/* An option value by its menu name, case-insensitively ("fast", "21"). */
+static int parse_option(int option, const char *text)
+{
+    if (!text) return -1;
+    for (int value = 0; value < game_option_count(option); value++)
+        if (!strcasecmp(text, game_option_name(option, value))) return value;
+    return -1;
+}
+
 /* Command-line overrides for an interactive session; -1 keeps the saved or
-   default value. */
-static int cli_setup[3] = { -1, -1, -1 };
+   default value. Slots: left, right, level, then OPT_* from slot 3. */
+#define CLI_SLOTS (3 + OPT_COUNT)
+static int cli_setup[CLI_SLOTS] = { -1, -1, -1, -1, -1, -1, -1 };
 
 static int run_interactive(void)
 {
@@ -181,10 +205,13 @@ static int run_interactive(void)
     (void)atexit(term_shutdown);
 
     game_init(width, height, (uint32_t)time(NULL));
+    game_set_option(OPT_SPEEDUP, INTERACTIVE_SPEEDUP);
     settings_load();
     game_configure(cli_setup[0] >= 0 ? cli_setup[0] : G.setup[SIDE_LEFT],
                    cli_setup[1] >= 0 ? cli_setup[1] : G.setup[SIDE_RIGHT],
                    cli_setup[2] >= 0 ? cli_setup[2] : G.level);
+    for (int option = 0; option < OPT_COUNT; option++)
+        if (cli_setup[3 + option] >= 0) game_set_option(option, cli_setup[3 + option]);
     render_init(width, height);
     if (!render_fb()) {
         fprintf(stderr, "kilix-pong: unable to allocate the framebuffer\n");
@@ -498,10 +525,12 @@ static int rules_test(void)
     EXPECT(game_validate(error, sizeof error),
            "game_validate accepts the exercised deterministic state");
 
-    /* ---- title menu ---- */
+    /* ---- main menu ---- */
     game_init(960, 540, 99);
     G.headless = true;
+    EXPECT(G.menu_row == MENU_PLAY, "the main menu opens on PLAY");
     KeyEvent key = { KEY_DOWN, 0, KEY_ACTION_PRESS };
+    game_handle_event(&key);                              /* row -> LEFT */
     game_handle_event(&key);                              /* row -> RIGHT */
     key.key = KEY_RIGHT;
     game_handle_event(&key);                              /* CPU -> NEURAL */
@@ -512,17 +541,97 @@ static int rules_test(void)
     game_handle_event(&key);                              /* EASY -> HARD (wraps) */
     EXPECT(G.menu_row == MENU_LEVEL && G.setup[SIDE_RIGHT] == CTRL_NEURAL &&
            G.level == LEVEL_HARD && G.setup[SIDE_LEFT] == CTRL_HUMAN,
-           "title menu rows and values respond to arrows and W/S");
+           "main menu rows and values respond to arrows and W/S");
+    key.key = KEY_DOWN;
+    game_handle_event(&key);                              /* row -> SPEED-UP */
+    key.key = KEY_RIGHT;
+    game_handle_event(&key);                              /* CLASSIC -> FAST */
+    key.key = KEY_ENTER;
+    game_handle_event(&key);                              /* Enter steps: FAST -> WILD */
+    EXPECT(G.state == GS_TITLE && G.option[OPT_SPEEDUP] == SPEEDUP_WILD,
+           "Enter on a value row changes it instead of starting");
+    key.key = 'q';
+    game_handle_event(&key);
+    EXPECT(!G.quit, "Q no longer quits");
+    key.key = KEY_ESC;
+    game_handle_event(&key);
+    EXPECT(!G.quit && G.menu_row == MENU_QUIT, "Esc on the main menu selects QUIT without quitting");
+    key.key = KEY_DOWN;
+    game_handle_event(&key);                              /* wraps QUIT -> PLAY */
     key.key = KEY_ENTER;
     game_handle_event(&key);
     EXPECT(G.state == GS_SERVE &&
            G.paddles[SIDE_RIGHT].controller == CTRL_NEURAL &&
            G.paddles[SIDE_LEFT].controller == CTRL_HUMAN,
-           "Enter starts a match with the menu's controllers");
+           "PLAY starts a match with the menu's controllers");
     key.key = KEY_DOWN;
-    key.action = KEY_ACTION_PRESS;
     game_handle_event(&key);
-    EXPECT(G.menu_row == MENU_LEVEL, "arrow keys leave the menu alone once playing");
+    EXPECT(G.menu_row == MENU_PLAY, "arrow keys leave the menu alone once playing");
+    key.key = 'q';
+    game_handle_event(&key);
+    EXPECT(!G.quit && G.state == GS_SERVE, "Q does nothing mid-match");
+
+    /* ---- pause menu ---- */
+    key.key = KEY_ESC;
+    game_handle_event(&key);
+    EXPECT(G.state == GS_PAUSED && G.pause_row == PAUSE_RESUME, "Esc opens the pause menu");
+    key.key = KEY_UP;
+    game_handle_event(&key);                              /* wraps RESUME -> QUIT */
+    EXPECT(G.pause_row == PAUSE_QUIT && !G.act_held[ACT_P2_UP],
+           "pause menu navigation does not move a paddle");
+    key.key = KEY_UP;
+    game_handle_event(&key);                              /* -> MAIN MENU */
+    key.key = KEY_ENTER;
+    game_handle_event(&key);
+    EXPECT(G.state == GS_TITLE && !G.quit, "pause menu MAIN MENU returns to the main menu");
+    key.key = KEY_ENTER;
+    game_handle_event(&key);                              /* PLAY */
+    key.key = 'p';
+    game_handle_event(&key);
+    key.key = KEY_UP;
+    game_handle_event(&key);                              /* -> QUIT */
+    key.key = KEY_ENTER;
+    game_handle_event(&key);
+    EXPECT(G.quit, "pause menu QUIT exits the game");
+
+    /* ---- game-over menu and match options ---- */
+    game_init(960, 540, 1234);
+    G.headless = true;
+    game_set_option(OPT_POINTS, POINTS_5);
+    game_start();
+    G.paddles[SIDE_RIGHT].score = 4;
+    prepare_ball(-BALL_RADIUS - 1, 90, -BALL_SPEED_MIN, 0);
+    game_tick();
+    EXPECT(G.state == GS_GAMEOVER && G.winner == SIDE_RIGHT && G.over_row == OVER_REMATCH,
+           "POINTS TO WIN 5 ends the match at five");
+    key = (KeyEvent){ KEY_DOWN, 0, KEY_ACTION_PRESS };
+    game_handle_event(&key);
+    game_handle_event(&key);                              /* -> QUIT */
+    key.key = KEY_ENTER;
+    game_handle_event(&key);
+    EXPECT(G.quit, "game-over menu QUIT exits the game");
+
+    game_init(960, 540, 1234);
+    G.headless = true;
+    game_set_option(OPT_SPEEDUP, SPEEDUP_WILD);
+    game_set_option(OPT_SERVE, SERVE_SLOW);
+    game_set_option(OPT_PADDLE, PADDLE_LARGE);
+    game_start();
+    EXPECT(G.ball.speed == game_serve_speed() && G.paddles[SIDE_LEFT].h == game_paddle_height() &&
+           game_paddle_height() > PADDLE_H,
+           "serve speed and paddle size options take effect at the start");
+    left = &G.paddles[SIDE_LEFT];
+    prepare_ball(left->x + left->w + BALL_RADIUS + 1.0f, left->y + left->h * .5f, -200, 0);
+    game_tick();
+    EXPECT(G.rally == 1 && fabsf(G.ball.speed - (200.0f + game_speed_gain())) < .01f &&
+           game_speed_gain() > BALL_SPEED_GAIN,
+           "WILD speed-up adds its gain on every paddle hit");
+    prepare_ball(left->x + left->w + BALL_RADIUS + 1.0f, left->y + left->h * .5f,
+                 -(BALL_SPEED_MAX - 5.0f), 0);
+    game_tick();
+    EXPECT(G.ball.speed <= BALL_SPEED_MAX, "speed-up still respects the hard speed cap");
+    game_set_option(OPT_SPEEDUP, 99);
+    EXPECT(G.option[OPT_SPEEDUP] == SPEEDUP_CLASSIC, "game_set_option clamps to CLASSIC");
 
     game_init(960, 540, 99);
     game_configure(99, -4, 12);
@@ -764,6 +873,10 @@ static void usage(void)
          "  (no option)                         play interactively\n"
          "  --left C --right C --level L        play with this setup\n"
          "                                      C: human|cpu|neural  L: easy|normal|hard\n"
+         "  --speedup S --serve V --points N --paddle P   match options\n"
+         "                                      S: off|classic|fast|wild\n"
+         "                                      V: slow|classic|fast  N: 5|7|11|15|21\n"
+         "                                      P: small|classic|large\n"
          "  --rules-test                        targeted gameplay regressions\n"
          "  --ai-test                           CPU-level and neural tournaments\n"
          "  --selftest [seed] [ticks]           deterministic simulation\n"
@@ -778,22 +891,33 @@ static void usage(void)
          "  KILIX_PONG_RENDER_DIR=/path         render-test output directory\n"
          "  KILIX_PONG_SKIP_PROBE=1             skip Kitty graphics query\n"
          "\ncontrols:\n"
-         "  W/S player 1   Up/Down player 2   P/Esc pause   M sound   Q quit\n"
-         "  title menu: Up/Down pick LEFT, RIGHT or LEVEL; Left/Right change it");
+         "  W/S player 1   Up/Down player 2   P/Esc pause menu   M sound\n"
+         "  menus: Up/Down select, Left/Right change, Enter confirm;\n"
+         "  quit from the main, pause or game-over menu (Ctrl+C also exits)");
 }
 
 int main(int argc, char **argv)
 {
     asset_paths_init();
     if (argc == 1) return run_interactive();
-    if (!strcmp(argv[1], "--left") || !strcmp(argv[1], "--right") ||
-        !strcmp(argv[1], "--level")) {
+    static const char *const option_flags[OPT_COUNT] = {
+        "--speedup", "--serve", "--points", "--paddle"
+    };
+    bool setup_flag = !strcmp(argv[1], "--left") || !strcmp(argv[1], "--right") ||
+                      !strcmp(argv[1], "--level");
+    for (int option = 0; option < OPT_COUNT; option++)
+        if (!strcmp(argv[1], option_flags[option])) setup_flag = true;
+    if (setup_flag) {
         for (int index = 1; index < argc; index += 2) {
             const char *value = index + 1 < argc ? argv[index + 1] : NULL;
             int parsed = -1, slot = -1;
             if (!strcmp(argv[index], "--left")) slot = 0, parsed = parse_controller(value);
             else if (!strcmp(argv[index], "--right")) slot = 1, parsed = parse_controller(value);
             else if (!strcmp(argv[index], "--level")) slot = 2, parsed = parse_level(value);
+            else
+                for (int option = 0; option < OPT_COUNT; option++)
+                    if (!strcmp(argv[index], option_flags[option]))
+                        slot = 3 + option, parsed = parse_option(option, value);
             if (slot < 0 || parsed < 0) {
                 fprintf(stderr, "kilix-pong: bad setup option '%s %s'\n",
                         argv[index], value ? value : "");

@@ -118,6 +118,77 @@ const char *game_level_name(int level)
     return (level >= 0 && level < LEVEL_COUNT) ? names[level] : "?";
 }
 
+/* ---------- match options ---------- */
+
+typedef struct {
+    const char *name;
+    float value;
+} OptionEntry;
+
+static const OptionEntry speedup_table[SPEEDUP_COUNT] = {
+    { "OFF", 0.0f }, { "CLASSIC", BALL_SPEED_GAIN }, { "FAST", 18.0f }, { "WILD", 32.0f },
+};
+static const OptionEntry serve_table[SERVE_COUNT] = {
+    { "SLOW", 85.0f }, { "CLASSIC", BALL_SPEED_MIN }, { "FAST", 150.0f },
+};
+static const OptionEntry points_table[POINTS_COUNT] = {
+    { "5", 5.0f }, { "7", 7.0f }, { "11", (float)WIN_SCORE }, { "15", 15.0f },
+    { "21", (float)WIN_SCORE_MAX },
+};
+static const OptionEntry paddle_table[PADDLE_COUNT] = {
+    { "SMALL", 22.0f }, { "CLASSIC", PADDLE_H }, { "LARGE", 40.0f },
+};
+
+static const OptionEntry *option_table(int option, int *count)
+{
+    switch (option) {
+    case OPT_SPEEDUP: *count = SPEEDUP_COUNT; return speedup_table;
+    case OPT_SERVE:   *count = SERVE_COUNT;   return serve_table;
+    case OPT_POINTS:  *count = POINTS_COUNT;  return points_table;
+    case OPT_PADDLE:  *count = PADDLE_COUNT;  return paddle_table;
+    default:          *count = 0;             return NULL;
+    }
+}
+
+static const int option_classic[OPT_COUNT] = {
+    SPEEDUP_CLASSIC, SERVE_CLASSIC, POINTS_11, PADDLE_CLASSIC
+};
+
+int game_option_count(int option)
+{
+    int count;
+    (void)option_table(option, &count);
+    return count;
+}
+
+const char *game_option_name(int option, int value)
+{
+    int count;
+    const OptionEntry *table = option_table(option, &count);
+    return (table && value >= 0 && value < count) ? table[value].name : "?";
+}
+
+static float option_value(int option)
+{
+    int count;
+    const OptionEntry *table = option_table(option, &count);
+    int value = G.option[option];
+    return (value >= 0 && value < count) ? table[value].value
+                                         : table[option_classic[option]].value;
+}
+
+float game_speed_gain(void)    { return option_value(OPT_SPEEDUP); }
+float game_serve_speed(void)   { return option_value(OPT_SERVE); }
+int   game_win_score(void)     { return (int)option_value(OPT_POINTS); }
+float game_paddle_height(void) { return option_value(OPT_PADDLE); }
+
+void game_set_option(int option, int value)
+{
+    if (option < 0 || option >= OPT_COUNT) return;
+    G.option[option] = (value >= 0 && value < game_option_count(option))
+                       ? value : option_classic[option];
+}
+
 float clampf(float v, float lo, float hi)
 {
     return v < lo ? lo : (v > hi ? hi : v);
@@ -209,10 +280,11 @@ static void reset_paddles(void)
 
     l->x = PADDLE_INSET;
     r->x = LOGICAL_W - PADDLE_INSET - PADDLE_W;
+    float height = game_paddle_height();
     for (int s = 0; s < SIDE_COUNT; s++) {
-        G.paddles[s].y = (LOGICAL_H - PADDLE_H) * 0.5f;
+        G.paddles[s].y = (LOGICAL_H - height) * 0.5f;
         G.paddles[s].w = PADDLE_W;
-        G.paddles[s].h = PADDLE_H;
+        G.paddles[s].h = height;
         G.paddles[s].vy = 0.0f;
         G.paddles[s].input = 0.0f;
         G.paddles[s].controller = G.setup[s];
@@ -229,7 +301,7 @@ static void serve_ball(void)
     Ball *b = &G.ball;
     b->x = LOGICAL_W * 0.5f;
     b->y = LOGICAL_H * 0.5f;
-    b->speed = BALL_SPEED_MIN;
+    b->speed = game_serve_speed();
     b->active = true;
     b->trail_head = 0;
     for (int i = 0; i < BALL_TRAIL_LEN; i++) {
@@ -263,7 +335,9 @@ void game_init(int w, int h, uint32_t seed)
     G.setup[SIDE_LEFT] = CTRL_HUMAN;
     G.setup[SIDE_RIGHT] = CTRL_CPU;
     G.level = LEVEL_NORMAL;
-    G.menu_row = MENU_LEFT;
+    for (int option = 0; option < OPT_COUNT; option++)
+        G.option[option] = option_classic[option];
+    G.menu_row = MENU_PLAY;
     G.winner = -1;
     G.serve_to = SIDE_RIGHT;
     G.paused_from = GS_PLAYING;
@@ -331,6 +405,7 @@ static void toggle_pause(void)
     if (G.state == GS_PLAYING || G.state == GS_SERVE || G.state == GS_POINT) {
         G.paused_from = G.state;
         G.state = GS_PAUSED;
+        G.pause_row = PAUSE_RESUME;
         play(SFX_MENU, 0.7f, 1.0f);
     } else if (G.state == GS_PAUSED) {
         G.state = G.paused_from;
@@ -338,46 +413,165 @@ static void toggle_pause(void)
     }
 }
 
-/* Title menu: Up/Down (or W/S) pick a row, Left/Right change it. */
-static bool title_menu_event(const KeyEvent *ev)
+static void go_to_title(void)
 {
-    if (G.state != GS_TITLE) return false;
-    int step = 0;
+    G.state = GS_TITLE;
+    G.ball.active = false;
+    G.menu_row = MENU_PLAY;
+    memset(G.act_held, 0, sizeof G.act_held);
+}
+
+static void toggle_sound(void)
+{
+    G.sound_on = !G.sound_on;
+    if (!G.headless) sound_set_enabled(G.sound_on);
+    play(SFX_MENU, 0.7f, 1.2f);   /* only audible when switching on */
+}
+
+/* Changes a main-menu value row by step (wrapping). */
+static void change_row(int row, int step)
+{
+    switch (row) {
+    case MENU_LEFT:
+    case MENU_RIGHT: {
+        int side = row == MENU_LEFT ? SIDE_LEFT : SIDE_RIGHT;
+        G.setup[side] = (G.setup[side] + CTRL_COUNT + step) % CTRL_COUNT;
+        break;
+    }
+    case MENU_LEVEL:
+        G.level = (G.level + LEVEL_COUNT + step) % LEVEL_COUNT;
+        break;
+    case MENU_SPEEDUP: case MENU_SERVE: case MENU_POINTS: case MENU_PADDLE: {
+        int option = OPT_SPEEDUP + (row - MENU_SPEEDUP);
+        int count = game_option_count(option);
+        G.option[option] = (G.option[option] + count + step) % count;
+        break;
+    }
+    case MENU_SOUND:
+        toggle_sound();
+        return;
+    default:
+        return;
+    }
+    play(SFX_MENU, 0.7f, 1.15f);
+}
+
+/* Up/Down (or W/S) move through a menu of `rows`; true when consumed. */
+static bool menu_move(const KeyEvent *ev, int *row, int rows)
+{
     switch (ev->key) {
     case KEY_UP: case 'w': case 'W':
-        if (ev->action == KEY_ACTION_PRESS)
-            G.menu_row = (G.menu_row + MENU_ROWS - 1) % MENU_ROWS;
+        *row = (*row + rows - 1) % rows;
         break;
     case KEY_DOWN: case 's': case 'S':
-        if (ev->action == KEY_ACTION_PRESS)
-            G.menu_row = (G.menu_row + 1) % MENU_ROWS;
+        *row = (*row + 1) % rows;
         break;
-    case KEY_LEFT:  step = -1; break;
-    case KEY_RIGHT: step = 1;  break;
     default:
         return false;
     }
-    if (step && ev->action == KEY_ACTION_PRESS) {
-        if (G.menu_row == MENU_LEVEL) {
-            G.level = (G.level + LEVEL_COUNT + step) % LEVEL_COUNT;
-        } else {
-            int side = G.menu_row == MENU_LEFT ? SIDE_LEFT : SIDE_RIGHT;
-            G.setup[side] = (G.setup[side] + CTRL_COUNT + step) % CTRL_COUNT;
-        }
-    }
-    if (ev->action == KEY_ACTION_PRESS) play(SFX_MENU, 0.7f, step ? 1.15f : 1.0f);
+    play(SFX_MENU, 0.7f, 1.0f);
     return true;
+}
+
+static bool is_confirm(int key)
+{
+    return key == KEY_ENTER || key == ' ';
+}
+
+/* Main menu: Up/Down pick a row, Left/Right change it, Enter plays, quits
+   or steps a value row forward. Esc jumps to QUIT; it never quits by itself. */
+static void title_menu_event(const KeyEvent *ev)
+{
+    if (menu_move(ev, &G.menu_row, MENU_ROWS)) return;
+    switch (ev->key) {
+    case KEY_LEFT:  change_row(G.menu_row, -1); break;
+    case KEY_RIGHT: change_row(G.menu_row, 1);  break;
+    case KEY_ESC:
+        G.menu_row = MENU_QUIT;
+        play(SFX_MENU, 0.7f, 1.0f);
+        break;
+    case 'm': case 'M':
+        toggle_sound();
+        break;
+    default:
+        if (!is_confirm(ev->key)) break;
+        if (G.menu_row == MENU_PLAY) game_start();
+        else if (G.menu_row == MENU_QUIT) G.quit = true;
+        else change_row(G.menu_row, 1);
+        break;
+    }
+}
+
+/* Pause menu: RESUME, RESTART, MAIN MENU, QUIT. P or Esc resumes. */
+static void pause_menu_event(const KeyEvent *ev)
+{
+    if (menu_move(ev, &G.pause_row, PAUSE_ROWS)) return;
+    switch (ev->key) {
+    case 'p': case 'P': case KEY_ESC:
+        toggle_pause();
+        break;
+    case 'm': case 'M':
+        toggle_sound();
+        break;
+    default:
+        if (!is_confirm(ev->key)) break;
+        switch (G.pause_row) {
+        case PAUSE_RESUME:  toggle_pause(); break;
+        case PAUSE_RESTART: game_start(); break;
+        case PAUSE_MENU:    go_to_title(); play(SFX_MENU, 0.7f, 1.0f); break;
+        default:            G.quit = true; break;
+        }
+        break;
+    }
+}
+
+/* Game-over menu: REMATCH, MAIN MENU, QUIT. Esc goes to the main menu. */
+static void over_menu_event(const KeyEvent *ev)
+{
+    if (menu_move(ev, &G.over_row, OVER_ROWS)) return;
+    if (ev->key == KEY_ESC) {
+        go_to_title();
+        play(SFX_MENU, 0.7f, 1.0f);
+        return;
+    }
+    if (ev->key == 'm' || ev->key == 'M') { toggle_sound(); return; }
+    if (!is_confirm(ev->key)) return;
+    switch (G.over_row) {
+    case OVER_REMATCH: game_start(); break;
+    case OVER_MENU:    go_to_title(); play(SFX_MENU, 0.7f, 1.0f); break;
+    default:           G.quit = true; break;
+    }
 }
 
 void game_handle_event(const KeyEvent *ev)
 {
     if (!ev) return;
-    if (title_menu_event(ev)) return;
 
+    /* Releases always reach the held state, so a key held into a menu is
+       not left stuck down when play resumes. */
     int act = action_for_key(ev->key);
+    if (act >= 0 && ev->action == KEY_ACTION_RELEASE) {
+        set_action(act, false);
+        return;
+    }
+
+    bool in_menu = G.state == GS_TITLE || G.state == GS_PAUSED ||
+                   G.state == GS_GAMEOVER;
+    if (in_menu) {
+        /* Menus are edge-triggered, except that held Up/Down autorepeat. */
+        bool nav = ev->key == KEY_UP || ev->key == KEY_DOWN ||
+                   ev->key == 'w' || ev->key == 'W' ||
+                   ev->key == 's' || ev->key == 'S';
+        if (ev->action != KEY_ACTION_PRESS &&
+            !(nav && ev->action == KEY_ACTION_REPEAT)) return;
+        if (G.state == GS_TITLE) title_menu_event(ev);
+        else if (G.state == GS_PAUSED) pause_menu_event(ev);
+        else over_menu_event(ev);
+        return;
+    }
+
     if (act >= 0) {
-        if (ev->action == KEY_ACTION_RELEASE) set_action(act, false);
-        else set_action(act, true);   /* press or repeat both refresh the hold */
+        set_action(act, true);   /* press or repeat both refresh the hold */
         return;
     }
 
@@ -385,36 +579,13 @@ void game_handle_event(const KeyEvent *ev)
     if (ev->action != KEY_ACTION_PRESS) return;
 
     switch (ev->key) {
-    case 'q': case 'Q':          /* Q always quits; Esc never does mid-match */
-        G.quit = true;
-        break;
-
-    case 'p': case 'P':          /* pause only; never a way out of the game */
+    case 'p': case 'P':          /* the menu is the only way out of a match */
+    case KEY_ESC:
         toggle_pause();
         break;
 
-    case KEY_ESC:                /* pause in play, back out of menus */
-        if (G.state == GS_TITLE) G.quit = true;
-        else if (G.state == GS_GAMEOVER) {
-            G.state = GS_TITLE;
-            play(SFX_MENU, 0.7f, 1.0f);
-        } else toggle_pause();
-        break;
-
     case 'm': case 'M':          /* sound, per the house control scheme */
-        G.sound_on = !G.sound_on;
-        if (!G.headless) sound_set_enabled(G.sound_on);
-        play(SFX_MENU, 0.7f, 1.2f);   /* only audible when switching on */
-        break;
-
-    case ' ': case KEY_ENTER:
-        if (G.state == GS_TITLE) {
-            game_start();
-        } else if (G.state == GS_GAMEOVER) {
-            game_start();             /* direct rematch; Esc goes to title */
-        } else if (G.state == GS_PAUSED) {
-            toggle_pause();
-        }
+        toggle_sound();
         break;
 
     default:
@@ -649,7 +820,7 @@ static void push_trail(void)
  */
 static void deflect(Ball *b, float offset, float dir)
 {
-    b->speed = clampf(b->speed + BALL_SPEED_GAIN, BALL_SPEED_MIN, BALL_SPEED_MAX);
+    b->speed = clampf(b->speed + game_speed_gain(), 0.0f, BALL_SPEED_MAX);
 
     float vy_unit = clampf(offset, -1.0f, 1.0f) * 0.75f;
     float vx_unit = sqrtf(1.0f - vy_unit * vy_unit);
@@ -706,9 +877,10 @@ static void award_point(int side)
     float x = (side == SIDE_LEFT) ? LOGICAL_W - 6.0f : 6.0f;
     spawn_particles(x, G.ball.y, 22, 0xFFE8C0FFu, 30.0f, 130.0f);
 
-    if (G.paddles[side].score >= WIN_SCORE) {
+    if (G.paddles[side].score >= game_win_score()) {
         G.winner = side;
         G.state = GS_GAMEOVER;
+        G.over_row = OVER_REMATCH;
         G.state_timer = 0.0f;
         play(SFX_GAMEOVER, 0.9f, 1.0f);
     } else {
@@ -884,6 +1056,8 @@ uint64_t game_state_digest(void)
     digest_add(&h, G.setup[SIDE_LEFT]);
     digest_add(&h, G.setup[SIDE_RIGHT]);
     digest_add(&h, G.level);
+    for (int option = 0; option < OPT_COUNT; option++)
+        digest_add(&h, G.option[option]);
     digest_add(&h, (int64_t)G.ticks);
     digest_add(&h, G.rally);
     digest_add(&h, G.serve_to);
@@ -918,6 +1092,9 @@ bool game_validate(char *error, size_t error_len)
 
     if (G.level < 0 || G.level >= LEVEL_COUNT)
         FAIL("level out of range: %d", G.level);
+    for (int option = 0; option < OPT_COUNT; option++)
+        if (G.option[option] < 0 || G.option[option] >= game_option_count(option))
+            FAIL("option %d out of range: %d", option, G.option[option]);
     for (int s = 0; s < SIDE_COUNT; s++) {
         const Paddle *p = &G.paddles[s];
         if (p->controller < 0 || p->controller >= CTRL_COUNT)
@@ -927,7 +1104,7 @@ bool game_validate(char *error, size_t error_len)
         if (p->y < -0.01f || p->y + p->h > LOGICAL_H + 0.01f)
             FAIL("paddle %d left the playfield: y=%.3f h=%.3f",
                  s, (double)p->y, (double)p->h);
-        if (p->score < 0 || p->score > WIN_SCORE)
+        if (p->score < 0 || p->score > game_win_score())
             FAIL("paddle %d score out of range: %d", s, p->score);
     }
 
@@ -946,7 +1123,7 @@ bool game_validate(char *error, size_t error_len)
 
     if (G.state == GS_GAMEOVER && G.winner < 0)
         FAIL("gameover with no winner");
-    if (G.winner >= 0 && G.paddles[G.winner].score < WIN_SCORE)
+    if (G.winner >= 0 && G.paddles[G.winner].score < game_win_score())
         FAIL("winner %d has only %d points", G.winner, G.paddles[G.winner].score);
     return true;
 #undef FAIL

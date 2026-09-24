@@ -12,13 +12,23 @@ kilix-pong \- luminous paddle-ball arcade game for Kitty terminals
 .IR controller ]
 .RB [ --level
 .IR level ]
+.RB [ --speedup
+.IR s ]
+.RB [ --serve
+.IR v ]
+.RB [ --points
+.IR n ]
+.RB [ --paddle
+.IR p ]
 .SH DESCRIPTION
 .B kilix-pong
 is an original two-paddle arcade game rendered as a software framebuffer and
 displayed directly through the Kitty graphics protocol. Each paddle can be a
 human, a CPU opponent at one of three beatable levels, or a small trained
-neural player; two humans play locally. Rallies gain speed, paddle position applies
-english to the return angle, and the first side to 11 points wins.
+neural player; two humans play locally. Every paddle hit speeds the ball up
+(by an amount set in the main menu) to a hard cap, paddle position applies
+english to the return angle, and the first side to the chosen score (11 by
+default) wins. The game is left through its main, pause, or game-over menu.
 .PP
 Interactive play requires a Linux terminal with Kitty graphics support. Kilix
 and Kitty also provide key-release events for true simultaneous local controls.
@@ -30,7 +40,7 @@ Play with this controller on that side:
 .BR cpu ,
 or
 .BR neural .
-Overrides the remembered title-menu setup for this session.
+Overrides the remembered main-menu setup for this session.
 .TP
 .BI --level " level"
 CPU level:
@@ -38,6 +48,30 @@ CPU level:
 .BR normal ,
 or
 .BR hard .
+.TP
+.BI --speedup " s" "\fR, \fP" --serve " v" "\fR, \fP" --points " n" "\fR, \fP" --paddle " p"
+Match options, as on the main menu: speed-up per paddle hit
+.RB ( off ,
+.BR classic ,
+.BR fast ,
+.BR wild ),
+serve speed
+.RB ( slow ,
+.BR classic ,
+.BR fast ),
+points to win
+.RB ( 5 ,
+.BR 7 ,
+.BR 11 ,
+.BR 15 ,
+.BR 21 )
+and paddle size
+.RB ( small ,
+.BR classic ,
+.BR large ).
+Interactive play defaults to
+.B fast
+speed-up; headless tests always use the classic values.
 .TP
 .B --rules-test
 Run targeted wall, paddle, anti-tunneling, scoring, win-state, menu, CPU, and
@@ -80,26 +114,29 @@ Move player 1 up and down.
 .TP
 .B Up, Down
 Move player 2 in local two-player mode. With a single human, either key pair
-moves that paddle. On the title screen, choose the LEFT, RIGHT or LEVEL row.
+moves that paddle. In a menu, W/S and Up/Down move the selection.
 .TP
 .B Left, Right
-On the title screen, change the selected row.
+On the main menu, change the selected setting.
 .TP
 .B Enter, Space
-Start or confirm.
+Choose the selected menu item (PLAY, QUIT GAME, RESUME, ...); on a setting,
+step it to its next value.
 .TP
 .B P, Escape
-Pause or resume.
+Open the pause menu (RESUME, RESTART MATCH, MAIN MENU, QUIT GAME), or resume
+from it. On the main menu Escape selects QUIT GAME; on the game-over menu it
+returns to the main menu.
 .TP
 .B M
 Toggle sound.
 .TP
-.B Q
-Quit.
+.B Ctrl+C
+Emergency exit; the menus are the normal way out.
 .SH FILES
 .TP
 .I $XDG_DATA_HOME/kilix-pong/settings.state
-The remembered title-menu setup (both controllers, level, sound), written on
+The remembered main-menu setup (controllers, level, sound and match options), written on
 exit by the interactive game through kilix-state.
 .SH ENVIRONMENT
 .TP

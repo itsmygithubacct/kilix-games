@@ -15,11 +15,12 @@
 #define PADDLE_INSET    10.0f
 #define PADDLE_SPEED    150.0f
 #define BALL_RADIUS     2.0f
-#define BALL_SPEED_MIN  110.0f
+#define BALL_SPEED_MIN  110.0f   /* CLASSIC serve speed */
 #define BALL_SPEED_MAX  420.0f   /* hard cap: anti-tunneling bound */
-#define BALL_SPEED_GAIN 8.0f     /* per paddle contact */
+#define BALL_SPEED_GAIN 8.0f     /* CLASSIC gain per paddle contact */
 #define BALL_MIN_VX     0.35f    /* fraction of speed; forbids vertical stalls */
-#define WIN_SCORE       11
+#define WIN_SCORE       11       /* CLASSIC match length */
+#define WIN_SCORE_MAX   21       /* longest selectable match */
 #define BALL_TRAIL_LEN  12
 #define MAX_PARTICLES   128
 
@@ -67,8 +68,24 @@ enum { CTRL_HUMAN, CTRL_CPU, CTRL_NEURAL, CTRL_COUNT };
 /* CPU skill. Every level is beatable; see cpu_levels in game.c. */
 enum { LEVEL_EASY, LEVEL_NORMAL, LEVEL_HARD, LEVEL_COUNT };
 
-/* Title-menu rows. */
-enum { MENU_LEFT, MENU_RIGHT, MENU_LEVEL, MENU_ROWS };
+/* Match options beyond the controllers. Each option's CLASSIC entry is the
+   physics the CPU levels and the neural player were tuned and tested on;
+   game_init selects it, so headless tests and the training lab never see
+   the others unless they ask. */
+enum { OPT_SPEEDUP, OPT_SERVE, OPT_POINTS, OPT_PADDLE, OPT_COUNT };
+enum { SPEEDUP_OFF, SPEEDUP_CLASSIC, SPEEDUP_FAST, SPEEDUP_WILD, SPEEDUP_COUNT };
+enum { SERVE_SLOW, SERVE_CLASSIC, SERVE_FAST, SERVE_COUNT };
+enum { POINTS_5, POINTS_7, POINTS_11, POINTS_15, POINTS_21, POINTS_COUNT };
+enum { PADDLE_SMALL, PADDLE_CLASSIC, PADDLE_LARGE, PADDLE_COUNT };
+
+/* Main-menu rows, top to bottom. */
+enum {
+    MENU_PLAY, MENU_LEFT, MENU_RIGHT, MENU_LEVEL, MENU_SPEEDUP, MENU_SERVE,
+    MENU_POINTS, MENU_PADDLE, MENU_SOUND, MENU_QUIT, MENU_ROWS
+};
+/* Pause and game-over menus. */
+enum { PAUSE_RESUME, PAUSE_RESTART, PAUSE_MENU, PAUSE_QUIT, PAUSE_ROWS };
+enum { OVER_REMATCH, OVER_MENU, OVER_QUIT, OVER_ROWS };
 
 /* Neural policy input width: mirrored per side, so one network plays both.
    game_policy_features() is the single definition the game and the training
@@ -132,7 +149,10 @@ typedef struct {
     /* Match setup, chosen on the title menu (or the command line). */
     int  setup[SIDE_COUNT];   /* CTRL_* per side */
     int  level;               /* LEVEL_*, used by every CPU side */
+    int  option[OPT_COUNT];   /* index into each option's table */
     int  menu_row;            /* MENU_* */
+    int  pause_row;           /* PAUSE_* */
+    int  over_row;            /* OVER_* */
     int  paused_from;         /* state a pause resumes into */
 
     uint32_t rng;
@@ -163,6 +183,14 @@ void  game_init(int w, int h, uint32_t seed);
 void  game_start(void);
 /* Validated setters; out-of-range values are clamped to the defaults. */
 void  game_configure(int left_controller, int right_controller, int level);
+void  game_set_option(int option, int value);
+/* Option tables: count, display name, and the physical value in effect. */
+int   game_option_count(int option);
+const char *game_option_name(int option, int value);
+float game_speed_gain(void);
+float game_serve_speed(void);
+int   game_win_score(void);
+float game_paddle_height(void);
 void  game_tick(void);
 void  game_handle_event(const KeyEvent *ev);
 void  game_autopilot(void);

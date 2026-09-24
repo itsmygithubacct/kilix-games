@@ -8,9 +8,10 @@ terminal—no SDL, X11, ncurses, or desktop window.
 
 Either paddle can be a human, a CPU opponent at EASY, NORMAL or HARD, or a
 trained neural player. Two humans get true local two-player controls through
-the Kitty keyboard protocol's press/repeat/release events. Rallies accelerate
-to a hard-capped top speed, paddle contact adds directional english, and the
-first side to 11 wins.
+the Kitty keyboard protocol's press/repeat/release events. Every paddle hit
+speeds the ball up to a hard-capped top speed (an on-screen readout shows how
+fast it is going), paddle contact adds directional english, and the first
+side to the chosen score wins.
 
 ## Features
 
@@ -20,7 +21,10 @@ first side to 11 wins.
 - Human, CPU (three beatable levels) and neural controllers on either side
 - A 5,123-parameter neural player trained from the game's own simulation
   (see [`tools/neural/`](tools/neural/README.md)), compiled in and verified
-- Title-menu setup remembered between sessions through `kilix-state`
+- A main menu for controllers, CPU level, speed-up per hit, serve speed,
+  points to win, paddle size and sound; pause and game-over menus; the
+  game is left through a menu rather than a quit key
+- Main-menu setup remembered between sessions through `kilix-state`
 - Real held-key input on Kitty/Kilix, with a safe legacy key-repeat fallback
 - Ball trails, impact particles, score flash, screen shake, and responsive UI
 - Twenty-one original WAV effects generated deterministically by Python
@@ -51,14 +55,21 @@ means normal builds and gameplay do not invoke Python.
 
 | Key | Action |
 |---|---|
-| W / S | move player 1 up / down |
-| Up / Down | move player 2 up / down in local 2P |
-| Up / Down (title) | choose the LEFT, RIGHT or LEVEL row |
-| Left / Right (title) | change that row: HUMAN / CPU / NEURAL, or EASY / NORMAL / HARD |
-| Enter / Space | start or confirm |
-| P / Esc | pause or resume |
+| W / S | move player 1 up / down; move the selection in a menu |
+| Up / Down | move player 2 up / down in local 2P; move the selection in a menu |
+| Left / Right (main menu) | change the selected setting |
+| Enter / Space | choose the selected item; on a setting, step to the next value |
+| P / Esc | open the pause menu, or resume from it |
 | M | toggle sound |
-| Q | quit |
+| Ctrl+C | emergency exit |
+
+The main menu has PLAY, both paddles (HUMAN / CPU / NEURAL), CPU LEVEL,
+SPEED-UP (OFF / CLASSIC +8 / FAST +18 / WILD +32 per hit, capped at 420),
+SERVE SPEED, POINTS TO WIN (5 / 7 / 11 / 15 / 21), PADDLE SIZE, SOUND and
+QUIT GAME. The pause menu offers RESUME, RESTART MATCH, MAIN MENU and QUIT
+GAME; the game-over menu REMATCH, MAIN MENU and QUIT GAME. Interactive play
+defaults to FAST speed-up. CLASSIC values are the physics the CPU levels and
+the neural player were tuned on, and every headless test uses them.
 
 With exactly one human, W/S and Up/Down both move that paddle, whichever side
 it is on. The setup can also be given on the command line, which overrides
@@ -66,6 +77,7 @@ the remembered one for that session:
 
 ```sh
 kilix-pong --left human --right cpu --level hard
+kilix-pong --left human --right neural --speedup wild --points 7
 kilix-pong --left neural --right cpu --level hard   # watch the neural player
 ```
 

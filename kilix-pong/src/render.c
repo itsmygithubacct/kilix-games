@@ -278,6 +278,20 @@ static void draw_scores(void)
     text_right(146, 34, side_name(SIDE_LEFT), .52f, 0x67e8f9, .76f);
     text_logical(174, 34, side_name(SIDE_RIGHT), .52f, 0xf9a8d4, .76f);
 
+    if (G.ball.active && G.state == GS_PLAYING) {
+        /* Ball speed relative to this match's serve, so the per-hit speed-up
+           is visible; it turns from cyan through amber to red near the cap. */
+        char speed[24];
+        float serve = game_serve_speed();
+        (void)snprintf(speed, sizeof speed, "SPEED %.1fX",
+                       (double)(G.ball.speed / (serve > 0.0f ? serve : 1.0f)));
+        float heat = clampf((G.ball.speed - serve) /
+                            (BALL_SPEED_MAX - serve > 1.0f ? BALL_SPEED_MAX - serve : 1.0f),
+                            0.0f, 1.0f);
+        uint32_t color = heat < .35f ? 0x67e8f9 : (heat < .75f ? 0xfbbf24 : 0xf87171);
+        text_right(311, 166.4f, speed, .45f, color, .85f);
+    }
+
     if (G.rally >= 3) {
         char rally[32];
         (void)snprintf(rally, sizeof rally, "RALLY %d", G.rally);
@@ -308,6 +322,24 @@ static void draw_panel(float x, float y, float width, float height)
                  .7f, 0xf472b6, .55f);
 }
 
+/* A centered list of actions; the selected one sits on a lit bar. */
+static void draw_menu_items(const char *const *items, int count, int selected,
+                            float top, float pitch, float time)
+{
+    float pulse = .70f + .30f * sinf(time * 5.0f);
+    for (int index = 0; index < count; index++) {
+        float y = top + (float)index * pitch;
+        if (index == selected) {
+            rounded_rectangle(112, y - 2.6f, 96, 9.6f, 3, 0x1e293b, .95f);
+            line_logical(114, y + 7.0f, 206, y + 7.0f, .45f, 0xfde68a, .55f * pulse);
+            text_logical(116, y, ">", .52f, 0xfde68a, pulse);
+        }
+        text_centered(160, y, items[index], .52f,
+                      index == selected ? 0xfef3c7 : 0xcbd5e1,
+                      index == selected ? 1.0f : .70f);
+    }
+}
+
 static void draw_status_overlays(float time)
 {
     camera_x = camera_y = 0.0f;
@@ -323,11 +355,14 @@ static void draw_status_overlays(float time)
         rounded_rectangle(119, 71, 82, 35, 5, 0x071226, .80f);
         text_centered(160, 81, "POINT", 1.55f, 0xfef3c7, pulse);
     } else if (G.state == GS_PAUSED) {
+        static const char *items[PAUSE_ROWS] = {
+            "RESUME", "RESTART MATCH", "MAIN MENU", "QUIT GAME"
+        };
         rectangle_logical(3, 3, 314, 174, 0x020617, .50f);
-        draw_panel(102, 64, 116, 55);
-        glowing_text_centered(160, 75, "PAUSED", 1.35f, 0xfde68a);
-        text_centered(160, 101, "P OR ESC TO RESUME", .50f,
-                      0xcbd5e1, .90f);
+        draw_panel(100, 46, 120, 90);
+        glowing_text_centered(160, 55, "PAUSED", 1.35f, 0xfde68a);
+        draw_menu_items(items, PAUSE_ROWS, G.pause_row, 78, 11, time);
+        text_centered(160, 126, "P OR ESC RESUMES", .40f, 0x94a3b8, .85f);
     }
 }
 
@@ -342,41 +377,62 @@ static void draw_title(float time)
     float ball_y = 102.0f + sinf(time * 1.61f) * 27.0f;
     draw_ball_shape(ball_x, ball_y, BALL_RADIUS);
 
-    rounded_rectangle(69, 18, 182, 126, 8, 0x020617, .78f);
-    text_centered(160.8f, 29.8f, "KILIX", 2.35f, 0x082f49, .90f);
-    text_centered(160, 29, "KILIX", 2.35f, 0x67e8f9, 1.0f);
-    text_centered(160.8f, 49.8f, "PONG", 3.25f, 0x4c0519, .90f);
-    text_centered(160, 49, "PONG", 3.25f, 0xf9a8d4, 1.0f);
-    text_centered(160, 77, "PURE TERMINAL ARCADE", .58f,
-                  0xc4b5fd, .92f);
+    rounded_rectangle(66, 6, 188, 168, 8, 0x020617, .84f);
+    text_centered(120.6f, 12.6f, "KILIX", 1.9f, 0x082f49, .90f);
+    text_centered(120, 12, "KILIX", 1.9f, 0x67e8f9, 1.0f);
+    text_centered(196.6f, 12.6f, "PONG", 1.9f, 0x4c0519, .90f);
+    text_centered(196, 12, "PONG", 1.9f, 0xf9a8d4, 1.0f);
+    line_logical(80, 30, 240, 30, .45f, 0x8b5cf6, .45f);
 
-    /* Three menu rows; the selected one is lit and shows its arrows. */
-    static const char *row_names[MENU_ROWS] = { "LEFT", "RIGHT", "LEVEL" };
+    /* Action rows (PLAY, QUIT) are centered; value rows show label and value,
+       with arrows on the selected one. */
+    static const char *labels[MENU_ROWS] = {
+        "PLAY", "LEFT PADDLE", "RIGHT PADDLE", "CPU LEVEL", "SPEED-UP",
+        "SERVE SPEED", "POINTS TO WIN", "PADDLE SIZE", "SOUND", "QUIT GAME"
+    };
     bool cpu_in_match = G.setup[SIDE_LEFT] == CTRL_CPU ||
                         G.setup[SIDE_RIGHT] == CTRL_CPU ||
                         (!game_neural_ready() &&
                          (G.setup[SIDE_LEFT] == CTRL_NEURAL ||
                           G.setup[SIDE_RIGHT] == CTRL_NEURAL));
+    float pulse = .70f + .30f * sinf(time * 5.0f);
     for (int row = 0; row < MENU_ROWS; row++) {
-        float y = 86.0f + (float)row * 11.0f;
+        float y = 36.0f + (float)row * 12.0f + (row > MENU_PLAY ? 3.0f : 0.0f) +
+                  (row == MENU_QUIT ? 3.0f : 0.0f);
         bool selected = row == G.menu_row;
-        const char *value = row == MENU_LEVEL ? game_level_name(G.level)
-                            : game_controller_name(G.setup[row == MENU_LEFT ? SIDE_LEFT : SIDE_RIGHT]);
-        uint32_t color = row == MENU_LEFT ? 0x67e8f9 : (row == MENU_RIGHT ? 0xf9a8d4 : 0xfde68a);
+        if (selected) {
+            rounded_rectangle(76, y - 2.8f, 168, 10.0f, 3, 0x1e293b, .95f);
+            line_logical(78, y + 7.2f, 242, y + 7.2f, .45f, 0xfde68a, .55f * pulse);
+        }
+        if (row == MENU_PLAY || row == MENU_QUIT) {
+            uint32_t color = row == MENU_PLAY ? 0xfef3c7 : 0xfda4af;
+            text_centered(160, y, labels[row], row == MENU_PLAY ? .66f : .52f, color,
+                          selected ? pulse : .70f);
+            continue;
+        }
+        char value[24];
+        const char *text;
+        switch (row) {
+        case MENU_LEFT:  text = game_controller_name(G.setup[SIDE_LEFT]); break;
+        case MENU_RIGHT: text = game_controller_name(G.setup[SIDE_RIGHT]); break;
+        case MENU_LEVEL: text = game_level_name(G.level); break;
+        case MENU_SOUND: text = G.sound_on ? "ON" : "OFF"; break;
+        default:
+            text = game_option_name(OPT_SPEEDUP + (row - MENU_SPEEDUP),
+                                    G.option[OPT_SPEEDUP + (row - MENU_SPEEDUP)]);
+            break;
+        }
+        (void)snprintf(value, sizeof value, selected ? "< %s >" : "%s", text);
+        uint32_t color = row == MENU_LEFT ? 0x67e8f9
+                         : (row == MENU_RIGHT ? 0xf9a8d4 : 0xe2e8f0);
         float alpha = (row == MENU_LEVEL && !cpu_in_match) ? .45f : 1.0f;
-        if (selected)
-            rounded_rectangle(95, y - 2.5f, 130, 10.5f, 3, 0x1e293b, .95f);
-        char line[48];
-        (void)snprintf(line, sizeof line, selected ? "%-5s  < %s >" : "%-5s    %s",
-                       row_names[row], value);
-        text_logical(102, y, line, .52f, color, selected ? alpha : alpha * .72f);
+        alpha *= selected ? 1.0f : .72f;
+        text_logical(84, y, labels[row], .50f, 0x94a3b8, alpha);
+        text_right(selected ? 236 : 229.6f, y, value, .50f,
+                   selected ? 0xfde68a : color, alpha);
     }
-    float pulse = .55f + .45f * sinf(time * 4.0f);
-    text_centered(160, 121, "PRESS ENTER", .66f, 0xfef3c7, pulse);
-    text_centered(160, 134, "UP DOWN ROW   LEFT RIGHT CHANGE", .40f,
-                  0x94a3b8, .90f);
-    text_centered(160, 153, "P1  W S", .47f, 0x67e8f9, .82f);
-    text_centered(160, 163, "P2  UP DOWN   M SOUND   Q QUIT", .47f, 0xf9a8d4, .82f);
+    text_centered(160, 166, "UP DOWN SELECT   LEFT RIGHT CHANGE   ENTER OK", .36f,
+                  0x94a3b8, .85f);
 }
 
 static void draw_gameover(float time)
@@ -384,19 +440,18 @@ static void draw_gameover(float time)
     draw_arena(time);
     draw_game_objects();
     rectangle_logical(3, 3, 314, 174, 0x020617, .56f);
-    draw_panel(80, 37, 160, 109);
-    text_centered(160, 48, "MATCH", .72f, 0x94a3b8, .95f);
-    glowing_text_centered(160, 62, side_name(G.winner), 1.20f,
+    draw_panel(80, 32, 160, 124);
+    text_centered(160, 43, "MATCH", .72f, 0x94a3b8, .95f);
+    glowing_text_centered(160, 57, side_name(G.winner), 1.20f,
                           G.winner == SIDE_LEFT ? 0x67e8f9 : 0xf9a8d4);
-    text_centered(160, 78, "WINS", 1.55f, 0xfef3c7, 1.0f);
+    text_centered(160, 73, "WINS", 1.55f, 0xfef3c7, 1.0f);
     char score[32];
     (void)snprintf(score, sizeof score, "%02d  -  %02d",
                    G.paddles[SIDE_LEFT].score,
                    G.paddles[SIDE_RIGHT].score);
-    text_centered(160, 104, score, .82f, 0xe2e8f0, .95f);
-    float pulse = .60f + .40f * sinf(time * 4.0f);
-    text_centered(160, 126, "ENTER REMATCH", .55f, 0xfef3c7, pulse);
-    text_centered(160, 137, "ESC MAIN MENU", .42f, 0x94a3b8, .90f);
+    text_centered(160, 96, score, .82f, 0xe2e8f0, .95f);
+    static const char *items[OVER_ROWS] = { "REMATCH", "MAIN MENU", "QUIT GAME" };
+    draw_menu_items(items, OVER_ROWS, G.over_row, 118, 11, time);
 }
 
 void render_init(int width, int height)
