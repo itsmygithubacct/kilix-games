@@ -1,0 +1,8 @@
+# Build output
+/tictactoe-tui
+src/*.o
+/build/
+
+# Python caches from tools/neural
+__pycache__/
+*.py[cod]

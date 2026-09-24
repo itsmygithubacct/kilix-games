@@ -12,7 +12,7 @@ jobs:
       matrix:
         game: [solitaire-tui, kilix-lander, joustix, kilix-brokeout, bashed-earth,
                kilix-lights, kilix-jpak, kilix-pong, chess-bash, kilix-rancher,
-               kilix-fishtank]
+               kilix-fishtank, tictactoe-tui]
     steps:
       - uses: actions/checkout@v4
         with:

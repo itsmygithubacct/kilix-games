@@ -1,0 +1,137 @@
+{
+ "artifact": "assets/policy/tictactoe-neural.kxpol",
+ "embedded_header": "src/neural_policy_blob.h",
+ "format": "kilix-game-kit KXPOLICY v1",
+ "sha256": "f1e0dd1a096d8538a5ad48fae74e137447ada333543be3c1a3cb2bfd770fb078",
+ "fnv1a64": "5f56931ea432350e",
+ "widths": [
+  18,
+  128,
+  128,
+  9
+ ],
+ "parameters": 20105,
+ "license": "MIT, same as tictactoe-tui",
+ "origin": "Trained only on exact minimax values of tic-tac-toe computed by tools/neural/train.py. No third-party data or weights.",
+ "features": "18 floats: mover's marks on cells 0-8, then the opponent's",
+ "outputs": "9 move values for the mover, about -1 (loss) .. +1 (win)",
+ "targets": "win/loss in d plies = +/-(1 - 0.08 * (d - 1)), draw = 0",
+ "positions": 4520,
+ "training": {
+  "seed": 1,
+  "optimizer": "Adam lr 3e-3, full batch",
+  "loss": "masked MSE over legal moves + 0.1 x cross-entropy toward the best moves",
+  "final_mse": 0.007446,
+  "hidden": 128,
+  "epochs": 3500,
+  "seconds": 582.9,
+  "numpy": "2.2.4"
+ },
+ "gate": {
+  "positions_checked": 4520,
+  "not_optimal": 0,
+  "slow_wins": 0,
+  "rule": "best legal move optimal everywhere, fastest win when a win exists; re-proved in C by tictactoe-tui --neural-test"
+ },
+ "history": [
+  {
+   "epoch": 250,
+   "mse": 0.060573,
+   "ce": 0.762069,
+   "not_optimal": 16,
+   "slow_wins": 27
+  },
+  {
+   "epoch": 500,
+   "mse": 0.036628,
+   "ce": 0.747974,
+   "not_optimal": 3,
+   "slow_wins": 26
+  },
+  {
+   "epoch": 750,
+   "mse": 0.02518,
+   "ce": 0.742767,
+   "not_optimal": 0,
+   "slow_wins": 24
+  },
+  {
+   "epoch": 1000,
+   "mse": 0.01947,
+   "ce": 0.738702,
+   "not_optimal": 0,
+   "slow_wins": 20
+  },
+  {
+   "epoch": 1250,
+   "mse": 0.016317,
+   "ce": 0.737229,
+   "not_optimal": 0,
+   "slow_wins": 15
+  },
+  {
+   "epoch": 1500,
+   "mse": 0.013338,
+   "ce": 0.734744,
+   "not_optimal": 0,
+   "slow_wins": 7
+  },
+  {
+   "epoch": 1750,
+   "mse": 0.011242,
+   "ce": 0.733897,
+   "not_optimal": 0,
+   "slow_wins": 8
+  },
+  {
+   "epoch": 2000,
+   "mse": 0.01067,
+   "ce": 0.732282,
+   "not_optimal": 0,
+   "slow_wins": 5
+  },
+  {
+   "epoch": 2250,
+   "mse": 0.010135,
+   "ce": 0.733882,
+   "not_optimal": 0,
+   "slow_wins": 4
+  },
+  {
+   "epoch": 2500,
+   "mse": 0.008317,
+   "ce": 0.731779,
+   "not_optimal": 0,
+   "slow_wins": 3
+  },
+  {
+   "epoch": 2750,
+   "mse": 0.008557,
+   "ce": 0.731018,
+   "not_optimal": 0,
+   "slow_wins": 2
+  },
+  {
+   "epoch": 3000,
+   "mse": 0.007111,
+   "ce": 0.730671,
+   "not_optimal": 0,
+   "slow_wins": 1
+  },
+  {
+   "epoch": 3250,
+   "mse": 0.007105,
+   "ce": 0.729848,
+   "not_optimal": 0,
+   "slow_wins": 1
+  },
+  {
+   "epoch": 3500,
+   "mse": 0.007446,
+   "ce": 0.730425,
+   "not_optimal": 0,
+   "slow_wins": 0
+  }
+ ],
+ "reproducibility": "deterministic for one numpy build and seed; the shipped bytes are pinned by sha256 and checked by make check-policy"
+}

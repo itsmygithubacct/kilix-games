@@ -18,6 +18,7 @@ checkout at `third_party/kilix-game-sdk`.
 | [chess-bash](chess-bash/) | Animated isometric chess | C |
 | [kilix-rancher](kilix-rancher/) | Creature-raising game | C |
 | [kilix-fishtank](kilix-fishtank/) | Arcade-style virtual fishtank | C |
+| [tictactoe-tui](tictactoe-tui/) | Tic-tac-toe in the terminal it runs from, with a trained neural opponent | C |
 
 Each C game except solitaire-tui moved here from its own repository with its
 full history. The old repositories are archived and point here.
