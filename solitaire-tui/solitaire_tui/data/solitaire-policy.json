@@ -1,0 +1,91 @@
+{
+ "artifact": "solitaire_tui/data/solitaire-policy.kxpol",
+ "format": "kilix-game-kit KXPOLICY v1 (read by solitaire_tui/policy.py, pure Python)",
+ "sha256": "3f4e87df5e43bf85284453f59a2aafa3ceabfafce3c2d67026f5618fd5462cce",
+ "fnv1a64": "08039f6ae4f7ad2e",
+ "widths": [
+  32,
+  64,
+  64,
+  1
+ ],
+ "parameters": 6337,
+ "license": "MIT, same as solitaire-tui",
+ "origin": "Self-trained from solitaire-tui's own engine. Labels come from the game's determinized rollout planner (solitaire_tui/planner.py). No third-party data or weights.",
+ "network": "scores one candidate move at a time from features.move_features (FEATURE_VERSION 2, 32 floats of player-visible information plus the game's own position history); the player takes the best-scoring move of planner.candidate_moves",
+ "teacher": {
+  "agent": "planner:16:100 (16 determinized samples, 100-step rollouts)",
+  "held_out_win_rate": 0.322,
+  "held_out_wilson95": [
+   0.2938,
+   0.3516
+  ]
+ },
+ "training": {
+  "data": "teacher games on seeds 10000-15999 (436,532 decisions with 2+ candidates)",
+  "loss": "softmax cross-entropy over each decision's candidates (hard labels)",
+  "hidden": [
+   64,
+   64
+  ],
+  "epochs": 20,
+  "val_acc": 0.5365,
+  "procedure": "tools/neural/solnet.py collect, then train --loss hard --hidden 64,64; tools/neural/export_policy.py"
+ },
+ "selection": {
+  "rule": "highest win rate on seeds 800000-800499; ties go to the smaller network. Candidates: hard-label 64x64; soft-label (teacher values, tau 0.5) 32x32, 64x64 and 128x128; two DAgger rounds on the soft 128x128 (seeds 30000-39999)",
+  "results": {
+   "hard-64x64": 0.212,
+   "soft-32x32": 0.1,
+   "soft-64x64": 0.132,
+   "soft-128x128": 0.158,
+   "dagger-1": 0.21,
+   "dagger-2": 0.178
+  },
+  "chosen": "hard-64x64"
+ },
+ "held_out": {
+  "seeds": "900000-900999, evaluated once",
+  "neural": {
+   "wins": 219,
+   "win_rate": 0.219,
+   "wilson95": [
+    0.1945,
+    0.2457
+   ]
+  },
+  "neural_shipped_runtime": {
+   "wins": 221,
+   "win_rate": 0.221,
+   "wilson95": [
+    0.1964,
+    0.2478
+   ],
+   "per_seed_agreement": "998/1000"
+  },
+  "greedy": {
+   "wins": 116,
+   "win_rate": 0.116,
+   "wilson95": [
+    0.0976,
+    0.1373
+   ]
+  },
+  "filtered_random": {
+   "win_rate": 0.281,
+   "wilson95": [
+    0.254,
+    0.3097
+   ]
+  },
+  "filtered_greedy": {
+   "win_rate": 0.299,
+   "wilson95": [
+    0.2714,
+    0.3281
+   ]
+  },
+  "ship_rule": "beat greedy with non-overlapping Wilson intervals: met",
+  "caveat": "below the filter-only baselines (a random or greedy choice among the same non-revisiting candidates), so the network's ranking of candidates is worse than chance there"
+ }
+}

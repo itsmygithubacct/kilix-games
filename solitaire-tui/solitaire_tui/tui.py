@@ -20,7 +20,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional
 
-from . import engine
+from . import engine, features, policy
 from .agents import GreedyAgent
 from .engine import (FOUND_TAB, TAB_FOUND, TAB_TAB, TABLEAU, WASTE_FOUND,
                      WASTE_TAB, Move, State)
@@ -39,8 +39,9 @@ STOCK, WASTE = 0, 1      # top-row positions; 2..5 are foundations (suits 0..3)
 TOP_COLUMN = (0, 1, 3, 4, 5, 6)   # screen column of each top-row position
 
 BUTTONS = (("deal", "Deal"), ("auto", "Auto"), ("home", "All home"),
-           ("undo", "Undo"), ("hint", "Hint"), ("new", "New"),
+           ("undo", "Undo"), ("hint", "Hint"), ("play", "Play"), ("new", "New"),
            ("help", "Help"), ("quit", "Quit"))
+AUTOPLAY_TICK_MS = 350
 
 HELP = [
     "Mouse: click a card to pick it up, click where it goes (or drag it).",
@@ -50,6 +51,7 @@ HELP = [
     "a  auto-place the selected card    A  send everything home",
     "1-7  jump to (or drop on) a column    f  send the card home",
     "d deal   u undo   h hint   r restart   n new deal   3 deal one/three   q quit",
+    "p  let the neural player play this deal (any key stops it)",
 ]
 
 
@@ -93,6 +95,7 @@ class Game:
     message: str = ""
     undo: list = field(default_factory=list)
     hint: Optional[Move] = None
+    autoplay: bool = False
     started: float = field(default_factory=time.monotonic)
     show_help: bool = False
     quit: bool = False
@@ -284,14 +287,54 @@ class Game:
         else:
             self.message = "nothing to undo"
 
+    def history(self) -> "features.History":
+        """The game so far (every position, now included), rebuilt from the
+        undo stack so an undo also rewinds what the neural player remembers."""
+        seen = features.History()
+        for s in (*self.undo, self.state):
+            seen.see(s)
+        return seen
+
+    def advice(self) -> tuple:
+        """(move, who): the neural player's choice in a deal-one game when
+        its network is present, otherwise the greedy player's."""
+        legal = engine.legal_moves(self.state)
+        net = None if self.state.draw3 else policy.default_policy()
+        if net is not None:
+            return policy.best_move(net, self.state, legal, self.history()), "neural"
+        return GreedyAgent().choose(self.state, legal), "greedy"
+
     def show_hint(self) -> None:
-        move = GreedyAgent().choose(self.state, engine.legal_moves(self.state))
+        move, who = self.advice()
         self.hint = move
-        self.message = f"hint: {move}" if move else "no hint: try undo or a new deal"
+        self.message = (f"hint ({who}): {move}" if move
+                        else "no hint: try undo or a new deal")
+
+    def toggle_autoplay(self) -> None:
+        if self.autoplay:
+            self.autoplay = False
+            self.message = "you play"
+        elif self.state.draw3 or policy.default_policy() is None:
+            self.message = ("the neural player learned deal one"
+                            if self.state.draw3 else "no neural player installed")
+        else:
+            self.autoplay = True
+            self.message = "neural player: any key stops it"
+
+    def autoplay_step(self) -> None:
+        """One neural move; stops on a win or when it has nothing sensible."""
+        if not self.autoplay:
+            return
+        move, _ = self.advice()
+        if move is None or not self.play(move, quiet=True):
+            self.autoplay = False
+            self.message = "the neural player is stuck: undo, restart or a new deal"
+        elif self.state.won:
+            self.autoplay = False
 
     def button(self, name: str) -> None:
         {"deal": self.deal, "auto": self.auto_place, "home": self.all_home,
-         "undo": self.do_undo, "hint": self.show_hint,
+         "undo": self.do_undo, "hint": self.show_hint, "play": self.toggle_autoplay,
          "new": lambda: self._reset_to(Game.new(draw3=self.state.draw3)),
          "help": lambda: setattr(self, "show_help", True),
          "quit": lambda: setattr(self, "quit", True)}[name]()
@@ -380,6 +423,9 @@ class Game:
         if self.show_help:
             self.show_help = False
             return
+        if self.autoplay and target != ("button", "play"):
+            self.toggle_autoplay()                   # a click hands the game back
+            return
         if target is None:
             self.held = None
             return
@@ -434,6 +480,9 @@ class Game:
         if self.show_help:
             self.show_help = False
             return
+        if self.autoplay:                        # any key hands the game back
+            self.toggle_autoplay()
+            return
         if not self.state.won:
             self.message = ""
         if ch == curses.KEY_LEFT:
@@ -469,6 +518,8 @@ class Game:
         elif ch == ord("3"):
             self._reset_to(Game.new(draw3=not self.state.draw3))
             self.message = "deal three" if self.state.draw3 else "deal one"
+        elif ch == ord("p"):
+            self.toggle_autoplay()
         elif ch == ord("?"):
             self.show_help = True
         elif ch in (ord("q"), ord("Q")):
@@ -599,11 +650,12 @@ def layout(game: Game, width: int = 80, height: int = 40):
         cells.append((height - 4, ORIGIN_X, f"hint: {game.hint}", "hint"))
     cells.append((height - 3, ORIGIN_X, game.message, "msg"))
     bx = ORIGIN_X
+    padded = ORIGIN_X + sum(len(label) + 5 for _, label in BUTTONS) <= width
     for name, label in BUTTONS:
-        text = f"[ {label} ]"
+        text = f"[ {label} ]" if padded else f"[{label}]"
         cells.append((height - 2, bx, text, "button"))
         hits.append((height - 2, height - 1, bx, bx + len(text), ("button", name)))
-        bx += len(text) + 1
+        bx += len(text) + (1 if padded else 0)
     cells.append((height - 1, ORIGIN_X,
                   "click/drag cards · double- or right-click or a: auto-place · "
                   "arrows+space · ? help", "dim"))
@@ -740,7 +792,11 @@ def _main(screen, game: Game) -> None:
     try:
         while not game.quit:
             _draw(screen, game, attrs)
+            screen.timeout(AUTOPLAY_TICK_MS if game.autoplay else 1000)
             ch = screen.getch()
+            if ch == -1 and game.autoplay:
+                game.autoplay_step()
+                continue
             if ch in (-1, curses.KEY_RESIZE):
                 continue
             if ch == 27:

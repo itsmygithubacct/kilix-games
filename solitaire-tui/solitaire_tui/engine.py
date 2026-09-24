@@ -210,9 +210,12 @@ def _with_tab(state: State, i: int, pile: tuple) -> tuple:
     return tuple(tableau), tuple(down)
 
 
-def apply(state: State, move: Move) -> State:
-    """The position after `move`. Raises IllegalMove if it is not legal."""
-    if not is_legal(state, move):
+def apply(state: State, move: Move, check: bool = True) -> State:
+    """The position after `move`. Raises IllegalMove if it is not legal.
+
+    check=False skips the legality test, for search code that only ever
+    applies moves taken from legal_moves() of this same state."""
+    if check and not is_legal(state, move):
         raise IllegalMove(str(move))
     step = state.moves + 1
     if move.kind == DEAL:
