@@ -1,5 +1,8 @@
 /* Entry point: terminal setup, fixed timestep, and headless checks. */
+#define _XOPEN_SOURCE 700              /* nftw(), for scratch-storage cleanup */
 #include "kitty_brokeout.h"
+#include <ftw.h>
+#include <sys/stat.h>
 #include <limits.h>
 #include <math.h>
 #include <signal.h>
@@ -319,6 +322,20 @@ static int menu_test(void)
 
     game_init(1000, 640, 5);
     G.headless = true;
+    game_start_run();
+    game_force_level_clear();
+    game_handle_key(KEY_ESC);
+    EXPECT(G.state == GS_PAUSED, "Esc on the level-clear screen opens the pause menu");
+    game_handle_key(KEY_ESC);
+    EXPECT(G.state == GS_LEVEL_CLEAR, "and Resume returns to the level-clear screen");
+    game_handle_key('p');
+    game_handle_key(KEY_DOWN);
+    game_handle_key(KEY_DOWN);                    /* MAIN MENU */
+    game_handle_key(KEY_ENTER);
+    EXPECT(G.state == GS_TITLE, "the main menu is reachable from a cleared level");
+
+    game_init(1000, 640, 5);
+    G.headless = true;
     G.player = PLAYER_NEURAL;
     game_start_run();
     game_force_level_clear();
@@ -466,8 +483,48 @@ static int run_interactive(void)
     return 0;
 }
 
+/* Every non-interactive mode runs against scratch storage. game_init() opens
+   the high-score store (and may migrate a legacy file in place) before any
+   caller could mark the game headless, so the isolation has to happen before
+   the first game_init(): point XDG data and state at a fresh directory. */
+static char scratch_dir[] = "/tmp/kitty-brokeout-test-XXXXXX";
+
+static int remove_entry(const char *path, const struct stat *st, int type, struct FTW *ftw)
+{
+    (void)st; (void)type; (void)ftw;
+    return remove(path);
+}
+
+static void remove_scratch(void)
+{
+    (void)nftw(scratch_dir, remove_entry, 16, FTW_DEPTH | FTW_PHYS);
+}
+
+static bool isolate_storage(void)
+{
+    if (!mkdtemp(scratch_dir)) {
+        perror("kitty-brokeout: cannot create scratch storage");
+        return false;
+    }
+    (void)atexit(remove_scratch);
+    return setenv("XDG_DATA_HOME", scratch_dir, 1) == 0 &&
+           setenv("XDG_STATE_HOME", scratch_dir, 1) == 0;
+}
+
+static bool headless_mode(const char *arg)
+{
+    static const char *const modes[] = {
+        "--selftest", "--input-test", "--render-test", "--sound-test", "--player-test",
+        "--menu-test"
+    };
+    for (size_t i = 0; i < sizeof modes / sizeof modes[0]; i++)
+        if (!strcmp(arg, modes[i])) return true;
+    return false;
+}
+
 int main(int argc, char **argv)
 {
+    if (argc > 1 && headless_mode(argv[1]) && !isolate_storage()) return 1;
     if (argc > 1 && !strcmp(argv[1], "--selftest")) {
         unsigned seed = argc > 2 ? (unsigned)strtoul(argv[2], NULL, 10) : 1337;
         int ticks = argc > 3 ? atoi(argv[3]) : 7200;

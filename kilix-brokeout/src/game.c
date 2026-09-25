@@ -957,7 +957,11 @@ static void pause_key(int key)
     else if (key == 'r') choice = PAUSE_RESTART;
     else if (menu_ok(key)) choice = G.pauseRow;
     switch (choice) {
-    case PAUSE_RESUME: G.state = GS_PLAYING; sound_play(SND_MENU, 0.35f, 1.0f); break;
+    case PAUSE_RESUME:
+        G.state = G.pausedFrom == GS_LEVEL_CLEAR || G.pausedFrom == GS_BALL_LOST
+                  ? G.pausedFrom : GS_PLAYING;
+        sound_play(SND_MENU, 0.35f, 1.0f);
+        break;
     case PAUSE_RESTART: sound_play(SND_MENU, 0.45f, 1.0f); game_start_run(); break;
     case PAUSE_MENU: game_reset_to_title(); sound_play(SND_MENU, 0.35f, 0.86f); break;
     case PAUSE_QUIT: G.quit = true; break;
@@ -1013,11 +1017,11 @@ void game_handle_key(int key)
     }
     if ((key == KEY_ESC || key == 'p') && (G.state == GS_PLAYING || G.state == GS_BALL_LOST ||
                                           G.state == GS_LEVEL_CLEAR)) {
-        if (G.state == GS_PLAYING || G.state == GS_BALL_LOST) {
-            G.state = GS_PAUSED;
-            G.pauseRow = PAUSE_RESUME;
-            sound_play(SND_MENU, 0.35f, 1.0f);
-        }
+        /* the pause menu is the way out from any of these, the clear screen included */
+        G.pausedFrom = G.state;
+        G.state = GS_PAUSED;
+        G.pauseRow = PAUSE_RESUME;
+        sound_play(SND_MENU, 0.35f, 1.0f);
         return;
     }
     if (key == 'n' && G.player != PLAYER_YOU &&

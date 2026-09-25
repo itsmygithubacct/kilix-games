@@ -104,9 +104,11 @@ test: $(BIN) check-sfx check-policy check-release-tree
 	$(MAKE) --no-print-directory DESTDIR="$$install_root" PREFIX=/usr/local install; \
 	(cd / && "$$install_root/usr/local/bin/$(BIN)" --asset-check)
 
+# The instrumented build uses its own SDK build directory, so the normal
+# SDK archive never holds sanitizer objects and a later plain make links.
 sanitize:
 	$(MAKE) clean
-	$(MAKE) CFLAGS='-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -Wall -Wextra -Wpedantic -Werror -std=c11' \
+	$(MAKE) KILIX_GAME_KIT_BUILD_DIR=$(CURDIR)/build/kilix-game-kit-sanitize CFLAGS='-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -Wall -Wextra -Wpedantic -Werror -std=c11' \
 		LDFLAGS='-fsanitize=address,undefined' $(BIN)
 	./$(BIN) --rules-test
 	./$(BIN) --ai-test
@@ -114,6 +116,7 @@ sanitize:
 	@render_dir=$$(mktemp -d); \
 	trap 'rm -rf "$$render_dir"' EXIT HUP INT TERM; \
 	./$(BIN) --render-test 7 "$$render_dir"
+	$(MAKE) clean
 
 install: $(BIN) check-sfx docs/kilix-pong.6
 	install -Dm755 $(BIN) "$(DESTDIR)$(PREFIX)/bin/$(BIN)"

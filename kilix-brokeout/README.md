@@ -33,7 +33,7 @@ and headless test modes.
   simulation chooses where on the paddle to strike each ball, and learned to
   tunnel through to the top. On 4,000 held-out levels it clears 14.9% of them
   cleanly within three minutes, where the scripted autopilot clears 0.4%, and
-  it removes 85% of the bricks (autopilot: 25%). Pick it on the menu to watch;
+  it removes 85% of the bricks' hit points (autopilot: 25%). Pick it on the menu to watch;
   press N to take the paddle, and N again to hand it back
 - **Menus** - main (start, player, controls, sound, quit), pause (resume,
   restart, main menu, quit) and game over (play again, main menu, quit)
@@ -89,9 +89,10 @@ from 800x500 to 3840x2160, three minutes per level:
 |---|---|---|
 | Level cleared without losing a ball | **14.9%** | 0.4% |
 | Ball lost | 7.1% | 7.0% |
-| Bricks removed on average | **85%** | 25% |
+| Share of brick hit points removed, on average | **85%** | 25% |
 
-It loses the ball about as often as the autopilot does; it is not safer. The
+It loses the ball about as often as the autopilot does (no difference was
+demonstrated either way); it is not safer. The
 difference is that it clears levels, by tunnelling to the top.
 
 ## Development

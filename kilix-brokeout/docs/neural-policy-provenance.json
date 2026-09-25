@@ -80,6 +80,7 @@
     "16-20": 0.002
    }
   },
-  "ship_rule": "clean-clear rate beats the autopilot with non-overlapping Wilson intervals, ball-loss rate not worse with non-overlapping intervals, no level band worse: met (ball-loss rates are statistically level: 7.05% vs 6.95%)"
+  "ship_rule": "clean-clear rate beats the autopilot with non-overlapping Wilson intervals, ball-loss rate not worse with non-overlapping intervals, no level band worse: met. The ball-loss rates (7.05% vs 6.95%) overlap: no difference was demonstrated, which is not proof they are equal.",
+  "progress_metric": "mean_progress is the share of the level's brick hit points removed"
  }
 }

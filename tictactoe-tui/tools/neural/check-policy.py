@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Check that the shipped policy blob, its embedded header and its provenance
-manifest describe the same bytes (run by `make test`)."""
+manifest describe the same network (run by `make test`): the blob's sha256,
+FNV-1a-64 digest, widths and parameter count must equal the manifest's, the
+widths must fit the game's contract, and the header must embed exactly these
+bytes. `--self-test` mutates each of those manifest fields and the header in
+memory and requires every mutation to be caught."""
+import copy
 import hashlib
 import json
 import re
@@ -13,26 +18,66 @@ KIT = ROOT / "third_party" / "kilix-game-kit" / "tools" / "kilix_policy.py"
 BLOB = ROOT / "assets" / "policy" / "tictactoe-neural.kxpol"
 HEADER = ROOT / "src" / "neural_policy_blob.h"
 MANIFEST = ROOT / "docs" / "neural-policy-provenance.json"
+INPUTS, OUTPUTS = 18, 9
 
 
-def fail(message):
-    print(f"check-policy: {message}", file=sys.stderr)
-    sys.exit(1)
+def problems(blob, info, manifest, header):
+    found = []
+    sha = hashlib.sha256(blob).hexdigest()
+    if info["sha256"] != sha or manifest.get("sha256") != sha:
+        found.append("blob sha256 does not match the manifest")
+    if manifest.get("fnv1a64") != info["fnv1a64"]:
+        found.append(f"manifest fnv1a64 {manifest.get('fnv1a64')} is not the blob's {info['fnv1a64']}")
+    if manifest.get("widths") != info["widths"]:
+        found.append(f"manifest widths {manifest.get('widths')} are not the blob's {info['widths']}")
+    if info["widths"][0] != INPUTS or info["widths"][-1] != OUTPUTS:
+        found.append(f"widths {info['widths']} do not fit the game ({INPUTS} in, {OUTPUTS} out)")
+    if manifest.get("parameters") != info["parameters"]:
+        found.append(f"manifest parameters {manifest.get('parameters')} are not the blob's {info['parameters']}")
+    if f"sha256 {sha}" not in header:
+        found.append("embedded header was not generated from this blob")
+    else:
+        body = bytes(int(v, 16) for v in re.findall(r"0x([0-9a-f]{2})", header.split("= {", 1)[1]))
+        if body != blob:
+            found.append("embedded header bytes differ from the blob")
+    return found
 
 
-blob = BLOB.read_bytes()
-sha = hashlib.sha256(blob).hexdigest()
-info = json.loads(subprocess.run([sys.executable, "-B", str(KIT), "verify", str(BLOB)],
-                                 check=True, capture_output=True, text=True).stdout)
-manifest = json.loads(MANIFEST.read_text())
-if manifest["sha256"] != sha or info["sha256"] != sha:
-    fail("blob sha256 does not match the manifest")
-if info["widths"] != manifest["widths"] or info["widths"][0] != 18 or info["widths"][-1] != 9:
-    fail(f"unexpected widths {info['widths']}")
-header = HEADER.read_text()
-if f"sha256 {sha}" not in header:
-    fail("embedded header was not generated from this blob")
-body = bytes(int(v, 16) for v in re.findall(r"0x([0-9a-f]{2})", header.split("= {", 1)[1]))
-if body != blob:
-    fail("embedded header bytes differ from the blob")
-print(f"check-policy: ok ({info['parameters']} parameters, sha256 {sha[:16]})")
+def main():
+    blob = BLOB.read_bytes()
+    info = json.loads(subprocess.run([sys.executable, "-B", str(KIT), "verify", str(BLOB)],
+                                     check=True, capture_output=True, text=True).stdout)
+    manifest = json.loads(MANIFEST.read_text())
+    header = HEADER.read_text()
+    if "--self-test" in sys.argv[1:]:
+        mutations = {
+            "sha256": ("sha256", "0" * 64), "fnv1a64": ("fnv1a64", "0" * 16),
+            "widths": ("widths", [1, 1]), "parameters": ("parameters", 1),
+        }
+        missed = []
+        for name, (key, value) in mutations.items():
+            bad = copy.deepcopy(manifest)
+            bad[key] = value
+            if not problems(blob, info, bad, header):
+                missed.append(name)
+        last = header.rfind("0x")
+        tampered = header[:last] + ("0x01" if header[last:last + 4] != "0x01" else "0x02") + header[last + 4:]
+        if not problems(blob, info, manifest, tampered):
+            missed.append("header bytes")
+        if missed:
+            print(f"check-policy self-test: mutations not caught: {', '.join(missed)}", file=sys.stderr)
+            return 1
+        print("check-policy self-test: every manifest field and the header are checked")
+        return 0
+    found = problems(blob, info, manifest, header)
+    if found:
+        for line in found:
+            print(f"check-policy: {line}", file=sys.stderr)
+        return 1
+    print(f"check-policy: ok ({info['parameters']} parameters, sha256 {info['sha256'][:16]}, "
+          f"fnv1a64 {info['fnv1a64']})")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

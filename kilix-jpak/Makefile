@@ -63,9 +63,11 @@ clean-room-check:
 	[ -z "$$bad" ] || { echo "legacy-format files found:" >&2; echo "$$bad" >&2; exit 1; }
 	@! grep -R -E 'JETPACK[0-9]\.DAT|JETLEV\.DAT|JETDEMO\.DAT|JETSOUND\.DAT|SCLM\.DAT|JETPAK15' src
 
+# The instrumented build uses its own SDK build directory, so the normal
+# SDK archive never holds sanitizer objects and a later plain make links.
 sanitize:
 	$(MAKE) clean
-	$(MAKE) CFLAGS='-O1 -g -Wall -Wextra -Wpedantic -std=c11 -fsanitize=address,undefined -fno-omit-frame-pointer' \
+	$(MAKE) KILIX_GAME_KIT_BUILD_DIR=$(CURDIR)/build/kilix-game-kit-sanitize CFLAGS='-O1 -g -Wall -Wextra -Wpedantic -std=c11 -fsanitize=address,undefined -fno-omit-frame-pointer' \
 		LDFLAGS='-fsanitize=address,undefined'
 	./$(BIN) --rules-test
 	./$(BIN) --input-test

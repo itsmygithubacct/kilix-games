@@ -38,6 +38,7 @@ train:
 
 check-policy:
 	@PYTHONDONTWRITEBYTECODE=1 $(PYTHON) tools/neural/check-policy.py
+	@PYTHONDONTWRITEBYTECODE=1 $(PYTHON) tools/neural/check-policy.py --self-test
 
 test: $(BIN) check-policy
 	./$(BIN) --rules-test
@@ -49,13 +50,16 @@ test: $(BIN) check-policy
 	$(MAKE) --no-print-directory DESTDIR="$$root" PREFIX=/usr/local install; \
 	"$$root/usr/local/bin/$(BIN)" --version
 
+# The instrumented build uses its own SDK build directory, so the normal
+# SDK archive never holds sanitizer objects and a later plain make links.
 sanitize:
 	$(MAKE) clean
-	$(MAKE) CFLAGS='-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -Wall -Wextra -Wpedantic -Werror -std=c11' \
+	$(MAKE) KILIX_GAME_KIT_BUILD_DIR=$(CURDIR)/build/kilix-game-kit-sanitize CFLAGS='-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -Wall -Wextra -Wpedantic -Werror -std=c11' \
 		LDFLAGS='-fsanitize=address,undefined' $(BIN)
 	./$(BIN) --rules-test
 	./$(BIN) --neural-test
 	./$(BIN) --render-test
+	$(MAKE) clean
 
 install: $(BIN)
 	install -Dm755 $(BIN) "$(DESTDIR)$(PREFIX)/bin/$(BIN)"

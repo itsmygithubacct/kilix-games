@@ -151,6 +151,7 @@ typedef struct {
     int player;             /* PLAYER_* chosen on the menu */
     int controller;         /* PLAYER_* in control now (N swaps YOU and player) */
     int menuRow, pauseRow, overRow;
+    int pausedFrom;         /* GS_* that Resume returns to */
 
     uint32_t rng;
 } GameState;

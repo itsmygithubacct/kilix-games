@@ -73,7 +73,7 @@ The one held-out run, 4000 levels:
 |---|---|---|
 | clean clears | 596 (14.9%) [13.8, 16.0] | 17 (0.4%) [0.3, 0.7] |
 | ball lost | 282 (7.05%) [6.3, 7.9] | 278 (6.95%) [6.2, 7.8] |
-| mean share of bricks removed | 84.6% | 24.8% |
+| mean share of brick hit points removed | 84.6% | 24.8% |
 
 By level band, the neural player clears 20.4 / 11.4 / 14.3 / 13.5% of levels
 1-5 / 6-10 / 11-15 / 16-20; the autopilot 0.9 / 0.3 / 0.3 / 0.2%. The shipped

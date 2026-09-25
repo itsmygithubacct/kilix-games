@@ -3,6 +3,7 @@
 .DEFAULT_GOAL := all
 
 CC      ?= cc
+PYTHON  ?= python3
 KILIX_GAME_KIT_DIR ?= third_party/kilix-game-kit
 # In the kilix-games monorepo the SDK is shared; build the kit per game so
 # games never share objects built with different flags.
@@ -55,6 +56,7 @@ validate-audio:
 
 check-policy:
 	@PYTHONDONTWRITEBYTECODE=1 python3 tools/neural/check-policy.py
+	@PYTHONDONTWRITEBYTECODE=1 $(PYTHON) tools/neural/check-policy.py --self-test
 
 test: $(BIN) validate-audio check-policy
 	./$(BIN) --input-test
@@ -65,9 +67,11 @@ test: $(BIN) validate-audio check-policy
 		./$(BIN) --render-test 42 "$$dir"; \
 		[ "$$(ls "$$dir"/render_*.ppm | wc -l)" -eq 5 ] || { echo "expected 5 render fixtures" >&2; exit 1; }
 
+# The instrumented build uses its own SDK build directory, so the normal
+# SDK archive never holds sanitizer objects and a later plain make links.
 sanitize:
 	$(MAKE) clean
-	$(MAKE) CFLAGS='-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -Wall -Wextra -Werror -std=c11' \
+	$(MAKE) KILIX_GAME_KIT_BUILD_DIR=$(CURDIR)/build/kilix-game-kit-sanitize CFLAGS='-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -Wall -Wextra -Werror -std=c11' \
 		LDLIBS='$(KILIX_GAME_KIT_LDLIBS) -fsanitize=address,undefined' $(BIN)
 	./$(BIN) --input-test
 	./$(BIN) --menu-test
