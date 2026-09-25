@@ -1,0 +1,85 @@
+{
+ "artifact": "assets/policy/brokeout-neural.kxpol",
+ "embedded_header": "src/neural_policy_blob.h",
+ "format": "kilix-game-kit KXPOLICY v1",
+ "sha256": "3ad8c4145c53de1f6cbdd026bd6c18cab31584ec210ce5e550a2e70005814475",
+ "fnv1a64": "ca844d8abe7123e5",
+ "widths": [
+  38,
+  32,
+  32,
+  9
+ ],
+ "parameters": 2601,
+ "license": "MIT, same as kilix-brokeout",
+ "origin": "Self-trained in kilix-brokeout's own simulation (tools/neural/brokeout_lab.c linked against game.o). No third-party data or weights.",
+ "inputs": "game_policy_features() in src/game.c: 38 screen-independent floats",
+ "outputs": "9 logits: where on the paddle face to strike the most urgent ball (far left .. far right); argmax each tick; game_apply_action moves the paddle there and launches a resting ball after 0.35 s",
+ "training": {
+  "method": "evolution strategies (antithetic, rank-shaped, Adam, sigma 0.05, lr 0.02, pop 64, 48 shared levels per generation, random level 1-20 and terminal 640x400-3840x2160)",
+  "stages": [
+   "from scratch, 60 s episodes, lost-ball penalty 1.5: selected checkpoint generation 50",
+   "continued 200 generations, 120 s episodes, lost-ball penalty 3.0: selected generation 200"
+  ],
+  "reward": "share of brick hit points removed + (1 + up to 0.5 for a faster clear) - lost-ball penalty",
+  "tool": "tools/neural/brokeout_lab.c (make lab)"
+ },
+ "evaluation_episode": "seed S+k, level 1+(k/10)%20, terminal size k%10 of 1000x640 1280x720 1600x900 1920x1080 800x500 2560x1440 3840x2160 3440x1440 1366x768 2000x600; ends on a clear, a lost ball or 180 s",
+ "selection": {
+  "seeds": "5000000-5001999",
+  "clean_clear": 0.167,
+  "ball_lost": 0.0635,
+  "progress": 0.8387,
+  "rule": "highest clean-clear rate; progress breaks ties; then the smaller network"
+ },
+ "held_out": {
+  "seeds": "9000000-9003999, evaluated once",
+  "neural": {
+   "episodes": 4000,
+   "cleared": 596,
+   "clear_rate": 0.149,
+   "wilson95": [
+    0.1383,
+    0.1604
+   ],
+   "ball_lost": 282,
+   "loss_rate": 0.0705,
+   "loss_wilson95": [
+    0.063,
+    0.0789
+   ],
+   "mean_progress": 0.8456,
+   "mean_clear_seconds": 138.48,
+   "by_levels": {
+    "1-5": 0.204,
+    "6-10": 0.114,
+    "11-15": 0.143,
+    "16-20": 0.135
+   }
+  },
+  "autopilot": {
+   "episodes": 4000,
+   "cleared": 17,
+   "clear_rate": 0.0043,
+   "wilson95": [
+    0.0027,
+    0.0068
+   ],
+   "ball_lost": 278,
+   "loss_rate": 0.0695,
+   "loss_wilson95": [
+    0.062,
+    0.0778
+   ],
+   "mean_progress": 0.2481,
+   "mean_clear_seconds": 150.6,
+   "by_levels": {
+    "1-5": 0.009,
+    "6-10": 0.003,
+    "11-15": 0.003,
+    "16-20": 0.002
+   }
+  },
+  "ship_rule": "clean-clear rate beats the autopilot with non-overlapping Wilson intervals, ball-loss rate not worse with non-overlapping intervals, no level band worse: met (ball-loss rates are statistically level: 7.05% vs 6.95%)"
+ }
+}

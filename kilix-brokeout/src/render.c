@@ -363,11 +363,37 @@ static void draw_hud(void)
     if (G.speedBoostTimer > 0.0f)
         draw_text_shadow(W - 132 * s, 10 * s, "OVERDRIVE", 0x22d3ee, 1.0f, 1);
 
+    if (G.controller != PLAYER_YOU) {
+        const char *who = G.controller == PLAYER_NEURAL ? "NEURAL PLAYER" : "AUTOPILOT";
+        draw_text_shadow(W * 0.5f - 60 * s, 10 * s + 18 * s, who,
+                         G.controller == PLAYER_NEURAL ? 0xc084fc : 0x7dd3fc, 1.0f, 1);
+    }
     fill_rect(0, H - 26 * s, W, 26 * s, 0x020617, 0.70f);
-    draw_text(14 * s, H - 20 * s,
-              W < 850 ? "LEFT/RIGHT move+aim   DOWN center   SPACE launch   P pause   Q quit"
-                      : "LEFT/A RIGHT/D move + aim before launch   DOWN/S center aim   SPACE launch   P pause   Q quit",
-              0x64748b, 1.0f, 1);
+    const char *help;
+    if (G.player != PLAYER_YOU && G.controller != PLAYER_YOU)
+        help = "N take the paddle   P/ESC pause menu   M sound";
+    else if (G.player != PLAYER_YOU)
+        help = W < 850 ? "LEFT/RIGHT move   SPACE launch   N hand back   P pause"
+                       : "LEFT/A RIGHT/D move + aim   SPACE launch   N hand back to the player   P/ESC pause menu";
+    else
+        help = W < 850 ? "LEFT/RIGHT move+aim   DOWN center   SPACE launch   P pause"
+                       : "LEFT/A RIGHT/D move + aim before launch   DOWN/S center aim   SPACE launch   P/ESC pause menu";
+    draw_text(14 * s, H - 20 * s, help, 0x64748b, 1.0f, 1);
+}
+
+/* One menu row centred at y: the selected row sits on a lit bar. */
+static void menu_row(float cx, float width, float y, const char *label, const char *value,
+                     bool selected)
+{
+    float s = G.scale;
+    if (selected) {
+        fill_rect(cx - width * 0.5f, y - 6 * s, width, 26 * s, 0x1e3a5f, 0.95f);
+        fill_rect(cx - width * 0.5f, y + 19 * s, width, 2 * s, 0xfacc15, 0.85f);
+    }
+    char line[96];
+    if (value) snprintf(line, sizeof line, selected ? "%s   < %s >" : "%s   %s", label, value);
+    else snprintf(line, sizeof line, "%s", label);
+    draw_text_center(cx, y, line, selected ? 0xfef9c3 : 0xcbd5e1, 1.0f, 1);
 }
 
 static void panel(float w, float h, float *px, float *py)
@@ -386,7 +412,7 @@ static void draw_title(void)
 {
     float s = G.scale;
     float pw = fminf(W - 70 * s, 720 * s);
-    float ph = 320 * s;
+    float ph = 384 * s;
     float px, py;
     panel(pw, ph, &px, &py);
 
@@ -414,13 +440,20 @@ static void draw_title(void)
                       sr_scale_rgb(col, 1.25f), 0.9f);
         }
     }
-    fill_circle(W * 0.5f + 72 * s, py + 230 * s, 8 * s, 0xf8fafc, 1.0f);
-    draw_line(W * 0.5f + 64 * s, py + 222 * s, W * 0.5f + 8 * s, py + 182 * s,
-              2 * s, 0x93c5fd, 0.45f);
-    fill_rect(W * 0.5f - 90 * s, py + 254 * s, 180 * s, 12 * s, 0x86efac, 0.9f);
 
-    draw_text_center(W * 0.5f, py + 274 * s, "ENTER / SPACE  START", 0xfacc15, 1.0f, 1);
-    draw_text_center(W * 0.5f, py + 298 * s, "C controls     M sound     Q quit", 0x94a3b8, 1.0f, 1);
+    static const char *labels[MENU_ROWS] = { "START", "PLAYER", "CONTROLS", "SOUND", "QUIT" };
+    for (int row = 0; row < MENU_ROWS; row++) {
+        const char *value = row == MENU_PLAYER ? PLAYER_NAMES[G.player]
+                          : row == MENU_SOUND ? (G.soundEnabled ? "ON" : "OFF") : NULL;
+        menu_row(W * 0.5f, pw - 190 * s, py + 206 * s + row * 30 * s, labels[row], value,
+                 row == G.menuRow);
+    }
+    const char *note = G.player == PLAYER_NEURAL
+        ? (player_neural_ready() ? "a trained network plays; press N in a game to take over"
+                                 : "neural player unavailable: the autopilot plays instead")
+        : G.player == PLAYER_AUTOPILOT ? "the scripted autopilot plays; press N to take over"
+        : "UP/DOWN select   LEFT/RIGHT change   ENTER choose";
+    draw_text_center(W * 0.5f, py + 362 * s, note, 0x64748b, 1.0f, 1);
 }
 
 static void draw_controls(void)
@@ -435,7 +468,7 @@ static void draw_controls(void)
     draw_text(px + 74 * s, py + 114 * s, "RIGHT / D      move paddle right; aim right before launch", 0xf8fafc, 1.0f, 1);
     draw_text(px + 74 * s, py + 146 * s, "DOWN / S       center launch aim", 0xf8fafc, 1.0f, 1);
     draw_text(px + 74 * s, py + 178 * s, "SPACE / ENTER  launch and advance", 0xf8fafc, 1.0f, 1);
-    draw_text(px + 74 * s, py + 210 * s, "P              pause", 0xf8fafc, 1.0f, 1);
+    draw_text(px + 74 * s, py + 210 * s, "P / ESC        pause menu     N  swap with the neural player", 0xf8fafc, 1.0f, 1);
     draw_text(px + 74 * s, py + 258 * s, "Metal bricks bounce. Purple bricks explode.", 0xa5b4fc, 1.0f, 1);
     draw_text(px + 74 * s, py + 286 * s, "Cyan bricks trigger overdrive but drop slow capsules.", 0xa5b4fc, 1.0f, 1);
     draw_text_center(W * 0.5f, py + 344 * s, "ENTER / ESC  BACK", 0x64748b, 1.0f, 1);
@@ -457,19 +490,36 @@ static void draw_state_overlay(void)
     char buf1[96], buf2[96];
     if (G.state == GS_TITLE) draw_title();
     else if (G.state == GS_CONTROLS) draw_controls();
-    else if (G.state == GS_PAUSED)
-        draw_center_message("PAUSED", 0xfacc15, "P / ESC resume", "R restart     Q quit");
+    else if (G.state == GS_PAUSED) {
+        static const char *items[PAUSE_ROWS] = { "RESUME", "RESTART", "MAIN MENU", "QUIT" };
+        float s = G.scale, px, py;
+        panel(440 * s, 250 * s, &px, &py);
+        draw_text_center(W * 0.5f, py + 24 * s, "PAUSED", 0xfacc15, 1.0f, 2);
+        for (int row = 0; row < PAUSE_ROWS; row++)
+            menu_row(W * 0.5f, 300 * s, py + 84 * s + row * 36 * s, items[row], NULL,
+                     row == G.pauseRow);
+    }
     else if (G.state == GS_LEVEL_CLEAR) {
         snprintf(buf1, sizeof buf1, "LEVEL %d CLEAR   SCORE %d", G.level, G.score);
-        snprintf(buf2, sizeof buf2, "ENTER next level     LIVES %d", G.lives);
+        snprintf(buf2, sizeof buf2, G.controller == PLAYER_YOU ? "ENTER next level     LIVES %d"
+                                                              : "next level coming up     LIVES %d",
+                 G.lives);
         draw_center_message("CLEAR", 0x86efac, buf1, buf2);
     } else if (G.state == GS_BALL_LOST) {
         snprintf(buf1, sizeof buf1, "BALL LOST   LIVES %d", G.lives);
-        draw_center_message("READY", 0xfacc15, buf1, "SPACE launch");
+        draw_center_message("READY", 0xfacc15, buf1,
+                            G.controller == PLAYER_YOU ? "SPACE launch" : "");
     } else if (G.state == GS_GAMEOVER) {
-        snprintf(buf1, sizeof buf1, "FINAL SCORE %d", G.score);
-        snprintf(buf2, sizeof buf2, "BEST %d     ENTER restart", G.highScore);
-        draw_center_message("GAME OVER", 0xf87171, buf1, buf2);
+        static const char *items[OVER_ROWS] = { "PLAY AGAIN", "MAIN MENU", "QUIT" };
+        float s = G.scale, px, py;
+        panel(480 * s, 290 * s, &px, &py);
+        draw_text_center(W * 0.5f, py + 28 * s, "GAME OVER", 0xf87171, 1.0f, 3);
+        snprintf(buf1, sizeof buf1, "FINAL SCORE %d     BEST %d", G.score, G.highScore);
+        draw_text_center(W * 0.5f, py + 96 * s, buf1, 0xf8fafc, 1.0f, 1);
+        (void)buf2;
+        for (int row = 0; row < OVER_ROWS; row++)
+            menu_row(W * 0.5f, 300 * s, py + 146 * s + row * 36 * s, items[row], NULL,
+                     row == G.overRow);
     }
 }
 

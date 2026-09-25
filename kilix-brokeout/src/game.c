@@ -15,6 +15,8 @@ const char *POWERUP_NAMES[PU_COUNT] = {
     "WIDE", "SLOW", "MULTI", "SHIELD"
 };
 
+const char *PLAYER_NAMES[PLAYER_COUNT] = { "YOU", "NEURAL", "AUTOPILOT" };
+
 static float vlen(float x, float y) { return sqrtf(x * x + y * y); }
 
 float clampf(float v, float lo, float hi)
@@ -612,6 +614,7 @@ static void lose_life(void)
     G.cameraShake = fmaxf(G.cameraShake, 5.0f * G.scale);
     if (G.lives <= 0) {
         G.state = GS_GAMEOVER;
+        G.overRow = OVER_AGAIN;
         update_high_score();
         save_high_score();
     } else {
@@ -705,6 +708,7 @@ static void tick_particles(void)
 void game_reset_to_title(void)
 {
     G.state = GS_TITLE;
+    G.menuRow = MENU_START;
     G.stateTimer = 0.0f;
     G.level = 1;
     G.lives = 3;
@@ -719,9 +723,21 @@ void game_start_run(void)
 {
     layout_playfield();
     G.state = GS_PLAYING;
+    if (G.player < 0 || G.player >= PLAYER_COUNT) G.player = PLAYER_YOU;
+    G.controller = G.player;
     G.score = 0;
     G.level = 1;
     G.lives = 3;
+    clear_dynamic();
+    reset_paddle();
+    create_level();
+    attach_new_ball();
+}
+
+void game_start_level(int level)
+{
+    game_start_run();
+    G.level = level < 1 ? 1 : level;
     clear_dynamic();
     reset_paddle();
     create_level();
@@ -823,6 +839,9 @@ void game_tick(void)
         if (game_active_ball_count() == 0)
             lose_life();
         complete_level_if_needed();
+    } else if (G.state == GS_LEVEL_CLEAR) {
+        /* a computer player moves on by itself; you press Enter */
+        if (G.controller != PLAYER_YOU && G.stateTimer > 2.2f) next_level();
     } else if (G.state == GS_BALL_LOST) {
         tick_powerups();
         if (G.stateTimer > 0.90f) {
@@ -871,33 +890,111 @@ static void launch_all_attached(void)
             launch_ball(&G.balls[i]);
 }
 
+static bool menu_up(int key)   { return key == KEY_UP || key == 'w'; }
+static bool menu_down(int key) { return key == KEY_DOWN || key == 's'; }
+static bool menu_ok(int key)   { return key == KEY_ENTER || key == ' '; }
+
+static void toggle_sound(void)
+{
+    G.soundEnabled = !G.soundEnabled;
+    sound_set_enabled(G.soundEnabled);
+    sound_play(SND_MENU, 0.4f, G.soundEnabled ? 1.15f : 0.75f);
+}
+
+static void change_player(int step)
+{
+    G.player = (G.player + PLAYER_COUNT + step) % PLAYER_COUNT;
+    sound_play(SND_MENU, 0.4f, step > 0 ? 1.1f : 0.9f);
+}
+
+static void title_key(int key)
+{
+    if (menu_up(key) || menu_down(key)) {
+        G.menuRow = (G.menuRow + MENU_ROWS + (menu_up(key) ? -1 : 1)) % MENU_ROWS;
+        sound_play(SND_MENU, 0.3f, 1.0f);
+    } else if ((key == KEY_LEFT || key == 'a' || key == KEY_RIGHT || key == 'd') &&
+               G.menuRow == MENU_PLAYER) {
+        change_player(key == KEY_LEFT || key == 'a' ? -1 : 1);
+    } else if ((key == KEY_LEFT || key == 'a' || key == KEY_RIGHT || key == 'd') &&
+               G.menuRow == MENU_SOUND) {
+        toggle_sound();
+    } else if (key == 'n') {
+        change_player(1);
+    } else if (key == 'c') {
+        G.state = GS_CONTROLS;
+        G.stateTimer = 0.0f;
+        sound_play(SND_MENU, 0.4f, 1.0f);
+    } else if (key == 'r') {
+        sound_play(SND_MENU, 0.5f, 1.1f);
+        game_start_run();
+    } else if (key == KEY_ESC) {
+        G.menuRow = MENU_QUIT;                       /* never quits by itself */
+        sound_play(SND_MENU, 0.3f, 0.9f);
+    } else if (menu_ok(key)) {
+        switch (G.menuRow) {
+        case MENU_START: sound_play(SND_MENU, 0.5f, 1.1f); game_start_run(); break;
+        case MENU_PLAYER: change_player(1); break;
+        case MENU_CONTROLS:
+            G.state = GS_CONTROLS;
+            G.stateTimer = 0.0f;
+            sound_play(SND_MENU, 0.4f, 1.0f);
+            break;
+        case MENU_SOUND: toggle_sound(); break;
+        default: G.quit = true; break;
+        }
+    }
+}
+
+static void pause_key(int key)
+{
+    if (menu_up(key) || menu_down(key)) {
+        G.pauseRow = (G.pauseRow + PAUSE_ROWS + (menu_up(key) ? -1 : 1)) % PAUSE_ROWS;
+        sound_play(SND_MENU, 0.3f, 1.0f);
+        return;
+    }
+    int choice = -1;
+    if (key == KEY_ESC || key == 'p') choice = PAUSE_RESUME;
+    else if (key == 'r') choice = PAUSE_RESTART;
+    else if (menu_ok(key)) choice = G.pauseRow;
+    switch (choice) {
+    case PAUSE_RESUME: G.state = GS_PLAYING; sound_play(SND_MENU, 0.35f, 1.0f); break;
+    case PAUSE_RESTART: sound_play(SND_MENU, 0.45f, 1.0f); game_start_run(); break;
+    case PAUSE_MENU: game_reset_to_title(); sound_play(SND_MENU, 0.35f, 0.86f); break;
+    case PAUSE_QUIT: G.quit = true; break;
+    default: break;
+    }
+}
+
+static void gameover_key(int key)
+{
+    if (menu_up(key) || menu_down(key)) {
+        G.overRow = (G.overRow + OVER_ROWS + (menu_up(key) ? -1 : 1)) % OVER_ROWS;
+        sound_play(SND_MENU, 0.3f, 1.0f);
+        return;
+    }
+    if (key == KEY_ESC) { game_reset_to_title(); return; }
+    if (key == 'r') { game_start_run(); return; }
+    if (!menu_ok(key)) return;
+    switch (G.overRow) {
+    case OVER_AGAIN: sound_play(SND_MENU, 0.45f, 1.0f); game_start_run(); break;
+    case OVER_MENU: game_reset_to_title(); sound_play(SND_MENU, 0.35f, 0.86f); break;
+    default: G.quit = true; break;
+    }
+}
+
 void game_handle_key(int key)
 {
     if (key >= 'A' && key <= 'Z') key += 'a' - 'A';
 
-    if (key == 'q') {
-        G.quit = true;
+    if (key == 'm' && G.state != GS_TITLE) {
+        toggle_sound();
         return;
     }
-    if (key == 'm') {
-        G.soundEnabled = !G.soundEnabled;
-        sound_set_enabled(G.soundEnabled);
-        sound_play(SND_MENU, 0.4f, G.soundEnabled ? 1.15f : 0.75f);
-        return;
-    }
-
     if (G.state == GS_TITLE) {
-        if (key == KEY_ENTER || key == ' ' || key == KEY_UP || key == 'w' || key == 'r') {
-            sound_play(SND_MENU, 0.5f, 1.1f);
-            game_start_run();
-        } else if (key == 'c') {
-            G.state = GS_CONTROLS;
-            G.stateTimer = 0.0f;
-            sound_play(SND_MENU, 0.4f, 1.0f);
-        }
+        if (key == 'm') toggle_sound();
+        else title_key(key);
         return;
     }
-
     if (G.state == GS_CONTROLS) {
         if (key == KEY_ENTER || key == KEY_ESC || key == ' ' || key == 'c') {
             G.state = GS_TITLE;
@@ -906,26 +1003,35 @@ void game_handle_key(int key)
         }
         return;
     }
+    if (G.state == GS_PAUSED) { pause_key(key); return; }
+    if (G.state == GS_GAMEOVER) { gameover_key(key); return; }
 
     if (key == 'r') {
         sound_play(SND_MENU, 0.45f, 1.0f);
         game_start_run();
         return;
     }
-    if (key == KEY_ESC) {
-        if (G.state == GS_PAUSED) G.state = GS_PLAYING;
-        else game_reset_to_title();
-        sound_play(SND_MENU, 0.35f, 0.86f);
+    if ((key == KEY_ESC || key == 'p') && (G.state == GS_PLAYING || G.state == GS_BALL_LOST ||
+                                          G.state == GS_LEVEL_CLEAR)) {
+        if (G.state == GS_PLAYING || G.state == GS_BALL_LOST) {
+            G.state = GS_PAUSED;
+            G.pauseRow = PAUSE_RESUME;
+            sound_play(SND_MENU, 0.35f, 1.0f);
+        }
         return;
     }
-    if (key == 'p') {
-        if (G.state == GS_PLAYING) G.state = GS_PAUSED;
-        else if (G.state == GS_PAUSED) G.state = GS_PLAYING;
-        sound_play(SND_MENU, 0.35f, 1.0f);
+    if (key == 'n' && G.player != PLAYER_YOU &&
+        (G.state == GS_PLAYING || G.state == GS_BALL_LOST || G.state == GS_LEVEL_CLEAR)) {
+        /* hand the paddle over, or take it back */
+        G.controller = G.controller == PLAYER_YOU ? G.player : PLAYER_YOU;
+        game_set_held_controls(G.heldControls, false, false);
+        G.paddle.intentTimer = 0.0f;
+        sound_play(SND_MENU, 0.4f, G.controller == PLAYER_YOU ? 0.9f : 1.2f);
         return;
     }
 
     if (G.state == GS_PLAYING || G.state == GS_BALL_LOST) {
+        if (G.controller != PLAYER_YOU) return;
         if (key == KEY_LEFT || key == 'a') move_intent(-1.0f);
         else if (key == KEY_RIGHT || key == 'd') move_intent(1.0f);
         else if (key == KEY_DOWN || key == 's') G.launchAngle = 0.0f;
@@ -938,14 +1044,6 @@ void game_handle_key(int key)
         if (key == KEY_ENTER || key == ' ' || key == KEY_UP || key == 'w') {
             sound_play(SND_MENU, 0.45f, 1.12f);
             next_level();
-        }
-        return;
-    }
-
-    if (G.state == GS_GAMEOVER) {
-        if (key == KEY_ENTER || key == ' ' || key == KEY_UP || key == 'w') {
-            sound_play(SND_MENU, 0.45f, 1.0f);
-            game_start_run();
         }
     }
 }
@@ -977,6 +1075,138 @@ void game_autopilot_tick(void)
     if (tx < pc - 8.0f * G.scale) move_intent(-1.0f);
     else if (tx > pc + 8.0f * G.scale) move_intent(1.0f);
     if (target && target->attached) launch_ball(target);
+}
+
+/* Where a ball moving at (vx, vy) from (x, y) crosses height `ty`, bouncing off
+   the side walls (bricks ignored), and in how many seconds; -1 if not heading
+   down. */
+static float predict_x(const Ball *b, float ty, float *seconds)
+{
+    *seconds = -1.0f;
+    if (b->attached || b->vy <= 1.0f) return b->x;
+    float t = (ty - b->y) / b->vy;
+    if (t < 0.0f) t = 0.0f;
+    *seconds = t;
+    float lo = G.playX + b->radius, span = G.playW - 2.0f * b->radius;
+    if (span <= 1.0f) return b->x;
+    float u = fmodf(b->x + b->vx * t - lo, 2.0f * span);
+    if (u < 0.0f) u += 2.0f * span;
+    return lo + (u > span ? 2.0f * span - u : u);
+}
+
+/* Everything relative to the playfield: x as -1..1 across it, y as 0..1 down
+   it, speeds over the level's target speed. The two most urgent balls come
+   first (descending, soonest to arrive), then the remaining bricks as eight
+   column bins plus their extent, then the nearest capsule and the timers. */
+void game_policy_features(float out[POLICY_FEATURES])
+{
+    float s = G.scale > 0.0f ? G.scale : 1.0f;
+    float hw = G.playW * 0.5f, cx0 = G.playX + hw;
+    float speed = fmaxf(game_ball_speed_target(), 1.0f);
+    const Paddle *p = &G.paddle;
+    float pc = p->x + p->w * 0.5f;
+    int i = 0;
+    out[i++] = (pc - cx0) / hw;
+    out[i++] = p->w / G.playW;
+
+    /* rank balls: descending ones by arrival time, then the rest by height */
+    int order[MAX_BALLS], n = 0;
+    float key[MAX_BALLS];
+    for (int b = 0; b < MAX_BALLS; b++) {
+        const Ball *ball = &G.balls[b];
+        if (!ball->active) continue;
+        float t;
+        (void)predict_x(ball, p->y, &t);
+        key[n] = t >= 0.0f ? t : 100.0f + (G.playY + G.playH - ball->y) / G.playH;
+        order[n++] = b;
+    }
+    for (int a = 1; a < n; a++)
+        for (int b = a; b > 0 && key[b] < key[b - 1]; b--) {
+            float tk = key[b]; key[b] = key[b - 1]; key[b - 1] = tk;
+            int to = order[b]; order[b] = order[b - 1]; order[b - 1] = to;
+        }
+    for (int slot = 0; slot < 2; slot++) {
+        if (slot < n) {
+            const Ball *b = &G.balls[order[slot]];
+            float t;
+            float px = predict_x(b, p->y, &t);
+            out[i++] = 1.0f;
+            out[i++] = (b->x - cx0) / hw;
+            out[i++] = (b->y - G.playY) / G.playH;
+            out[i++] = b->vx / speed;
+            out[i++] = b->vy / speed;
+            out[i++] = (px - pc) / hw;
+            out[i++] = t >= 0.0f ? fminf(t, 3.0f) / 3.0f : 1.0f;
+            out[i++] = b->attached ? 1.0f : 0.0f;
+        } else {
+            for (int k = 0; k < 8; k++) out[i++] = 0.0f;
+        }
+    }
+
+    float bins[8] = { 0 }, total = 0.0f, lowest = G.playY, sumx = 0.0f;
+    for (int b = 0; b < G.numBricks; b++) {
+        const Brick *br = &G.bricks[b];
+        if (!br->alive || br->type == BRICK_METAL) continue;
+        float bx = br->x + br->w * 0.5f;
+        int bin = (int)((bx - G.playX) / G.playW * 8.0f);
+        if (bin < 0) bin = 0;
+        if (bin > 7) bin = 7;
+        float weight = (float)br->hits;
+        bins[bin] += weight;
+        total += weight;
+        sumx += bx * weight;
+        if (br->y + br->h > lowest) lowest = br->y + br->h;
+    }
+    for (int b = 0; b < 8; b++) out[i++] = total > 0.0f ? bins[b] / total : 0.0f;
+    out[i++] = total > 0.0f ? (sumx / total - cx0) / hw : 0.0f;
+    out[i++] = (lowest - G.playY) / G.playH;
+    out[i++] = fminf(total / 120.0f, 1.5f);
+
+    const Powerup *near = NULL;
+    for (int u = 0; u < MAX_POWERUPS; u++) {
+        const Powerup *pu = &G.powerups[u];
+        if (pu->active && (!near || pu->y > near->y)) near = pu;
+    }
+    out[i++] = near ? 1.0f : 0.0f;
+    out[i++] = near ? (near->x - pc) / hw : 0.0f;
+    out[i++] = near ? (near->y - G.playY) / G.playH : 0.0f;
+    out[i++] = near ? (float)near->type / (PU_COUNT - 1) : 0.0f;
+    out[i++] = G.paddle.wideTimer > 0.0f ? 1.0f : 0.0f;
+    out[i++] = G.paddle.shieldTimer > 0.0f ? 1.0f : 0.0f;
+    out[i++] = G.speedBoostTimer > 0.0f ? 1.0f : 0.0f;
+    out[i++] = (float)(n > 2 ? n - 2 : 0) / 3.0f;
+    out[i++] = speed / s / 610.0f;
+    if (i != POLICY_FEATURES) abort();       /* the contract and this list must agree */
+}
+
+float game_action_offset(int action)
+{
+    if (action < 0 || action >= POLICY_ACTIONS) action = POLICY_ACTIONS / 2;
+    return NEURAL_MAX_OFFSET * (2.0f * (float)action / (float)(POLICY_ACTIONS - 1) - 1.0f);
+}
+
+/* Moves the paddle so the most urgent ball meets it at the chosen strike
+   point. With no ball falling toward the paddle it waits under the ball. */
+void game_apply_action(int action)
+{
+    const Paddle *p = &G.paddle;
+    float pc = p->x + p->w * 0.5f, target = pc;
+    const Ball *urgent = NULL;
+    float soonest = 1e9f;
+    for (int i = 0; i < MAX_BALLS; i++) {
+        const Ball *b = &G.balls[i];
+        if (!b->active) continue;
+        float t;
+        float x = predict_x(b, p->y, &t);
+        float k = t >= 0.0f ? t : 100.0f + (G.playY + G.playH - b->y) / G.playH;
+        if (k < soonest) { soonest = k; urgent = b; target = x; }
+    }
+    if (urgent && !urgent->attached && urgent->vy > 1.0f)
+        target -= game_action_offset(action) * p->w * 0.5f;
+    float dead = 3.0f * G.scale;
+    game_set_held_controls(true, target < pc - dead, target > pc + dead);
+    if (G.state == GS_PLAYING && G.stateTimer >= NEURAL_LAUNCH_DELAY)
+        launch_all_attached();
 }
 
 void game_force_level_clear(void)

@@ -25,7 +25,7 @@ static bool event_matches_letter(const kittykb_event *event, char lower)
 
 static int game_key_from_event(const kittykb_event *event)
 {
-    static const char letters[] = "acdmpqrsw";
+    static const char letters[] = "acdmnpqrsw";
     for (size_t i = 0; i < sizeof letters - 1; i++)
         if (event_matches_letter(event, letters[i])) return letters[i];
 
@@ -69,8 +69,12 @@ static void sleep_ms(double ms)
     nanosleep(&ts, NULL);
 }
 
-static void dump_ppm(const char *path)
+static const char *render_dir = ".";
+
+static void dump_ppm(const char *name)
 {
+    char path[1024];
+    snprintf(path, sizeof path, "%s/%s", render_dir, name);
     FILE *f = fopen(path, "wb");
     if (!f) return;
     fprintf(f, "P6\n%d %d\n255\n", G.W, G.H);
@@ -193,6 +197,138 @@ static int input_test(void)
     return failures ? 1 : 0;
 }
 
+/* ---------- player and menu tests ---------- */
+
+static const int test_sizes[][2] = {
+    { 1000, 640 }, { 1280, 720 }, { 1600, 900 }, { 1920, 1080 }, { 800, 500 }, { 2560, 1440 },
+    { 3840, 2160 }, { 3440, 1440 }, { 1366, 768 }, { 2000, 600 }
+};
+
+/* One level played from its start, as tools/neural/brokeout_lab.c plays it:
+   0 cleared, 1 ball lost, 2 time up. */
+static int play_level(int player, unsigned seed, int k, int seconds)
+{
+    game_init(test_sizes[k % 10][0], test_sizes[k % 10][1], seed);
+    G.headless = true;
+    G.player = player;
+    game_start_level(1 + (k / 10) % 20);
+    int lives = G.lives, outcome = 2;
+    for (int t = 0; t < seconds * 60; t++) {
+        player_tick();
+        game_tick();
+        if (G.state == GS_LEVEL_CLEAR) { outcome = 0; break; }
+        if (G.lives < lives || G.state == GS_GAMEOVER) { outcome = 1; break; }
+    }
+    return outcome;
+}
+
+static int player_test(void)
+{
+    int failures = 0;
+#define EXPECT(condition, label) do { \
+    if (!(condition)) { fprintf(stderr, "FAIL: %s\n", label); failures++; } \
+    else printf("PASS: %s\n", label); \
+} while (0)
+    EXPECT(player_neural_ready(), "the compiled-in neural player loads");
+    printf("player-test: %s\n", player_neural_status());
+    /* Regression seeds 8000000.. (neither selection nor held-out). */
+    enum { N = 400, SECONDS = 180 };
+    int nc = 0, nl = 0, ac = 0, al = 0;
+    for (int k = 0; k < N; k++) {
+        int n = play_level(PLAYER_NEURAL, 8000000u + (unsigned)k, k, SECONDS);
+        int a = play_level(PLAYER_AUTOPILOT, 8000000u + (unsigned)k, k, SECONDS);
+        nc += n == 0; nl += n == 1;
+        ac += a == 0; al += a == 1;
+    }
+    printf("player-test: %d levels, %d s each: neural cleared %d, lost a ball %d; "
+           "autopilot cleared %d, lost a ball %d\n", N, SECONDS, nc, nl, ac, al);
+    /* Shipped: neural cleared 59 and lost 22; the autopilot cleared 0 and lost 30.
+       Games are deterministic; the margins catch a broken or foreign network. */
+    EXPECT(nc >= ac + 30, "the neural player cleanly clears at least 30 more of 400 levels than the autopilot");
+    EXPECT(nl <= al + 10, "without losing noticeably more balls");
+
+    game_init(1280, 720, 99);
+    G.headless = true;
+    G.player = PLAYER_NEURAL;
+    game_start_run();
+    for (int t = 0; t < 900; t++) { player_tick(); game_tick(); }
+    float x1 = G.paddle.x;
+    int s1 = G.score;
+    game_init(1280, 720, 99);
+    G.headless = true;
+    G.player = PLAYER_NEURAL;
+    game_start_run();
+    for (int t = 0; t < 900; t++) { player_tick(); game_tick(); }
+    EXPECT(G.paddle.x == x1 && G.score == s1, "neural games replay exactly");
+#undef EXPECT
+    return failures ? 1 : 0;
+}
+
+static int menu_test(void)
+{
+    int failures = 0;
+#define EXPECT(condition, label) do { \
+    if (!(condition)) { fprintf(stderr, "FAIL: %s\n", label); failures++; } \
+    else printf("PASS: %s\n", label); \
+} while (0)
+    game_init(1000, 640, 5);
+    G.headless = true;
+    EXPECT(G.state == GS_TITLE && G.menuRow == MENU_START, "the game opens on the main menu");
+    game_handle_key('q');
+    EXPECT(!G.quit, "Q does not quit");
+    game_handle_key(KEY_ESC);
+    EXPECT(!G.quit && G.menuRow == MENU_QUIT, "Esc on the menu selects QUIT without quitting");
+    game_handle_key(KEY_DOWN);                    /* wraps to START */
+    game_handle_key(KEY_DOWN);                    /* PLAYER */
+    game_handle_key(KEY_RIGHT);                   /* YOU -> NEURAL */
+    EXPECT(G.player == PLAYER_NEURAL && G.state == GS_TITLE, "the PLAYER row changes the player");
+    G.menuRow = MENU_START;
+    game_handle_key(KEY_ENTER);
+    EXPECT(G.state == GS_PLAYING && G.controller == PLAYER_NEURAL, "START plays with the chosen player");
+    for (int t = 0; t < 60; t++) { player_tick(); game_tick(); }
+    EXPECT(game_active_ball_count() == 1 && !G.balls[0].attached, "the neural player launches the ball itself");
+    game_handle_key('n');
+    EXPECT(G.controller == PLAYER_YOU, "N takes the paddle");
+    game_handle_key('n');
+    EXPECT(G.controller == PLAYER_NEURAL, "N hands it back");
+    game_handle_key('p');
+    EXPECT(G.state == GS_PAUSED && G.pauseRow == PAUSE_RESUME, "P opens the pause menu");
+    float bx = G.balls[0].x;
+    game_tick();
+    EXPECT(G.balls[0].x == bx, "nothing moves while paused");
+    game_handle_key(KEY_ESC);
+    EXPECT(G.state == GS_PLAYING, "Esc resumes");
+    game_handle_key(KEY_ESC);
+    game_handle_key(KEY_DOWN);                    /* RESTART */
+    game_handle_key(KEY_DOWN);                    /* MAIN MENU */
+    game_handle_key(KEY_ENTER);
+    EXPECT(G.state == GS_TITLE, "the pause menu's MAIN MENU returns to the main menu");
+    G.menuRow = MENU_QUIT;
+    game_handle_key(KEY_ENTER);
+    EXPECT(G.quit, "the main menu's QUIT exits");
+
+    game_init(1000, 640, 5);
+    G.headless = true;
+    game_start_run();
+    game_force_gameover();
+    EXPECT(G.state == GS_GAMEOVER, "a lost game shows the game-over menu");
+    G.overRow = OVER_AGAIN;
+    game_handle_key(KEY_UP);                      /* wraps to QUIT */
+    game_handle_key(KEY_ENTER);
+    EXPECT(G.quit, "the game-over menu's QUIT exits");
+
+    game_init(1000, 640, 5);
+    G.headless = true;
+    G.player = PLAYER_NEURAL;
+    game_start_run();
+    game_force_level_clear();
+    G.controller = PLAYER_NEURAL;
+    for (int t = 0; t < 200 && G.state == GS_LEVEL_CLEAR; t++) game_tick();
+    EXPECT(G.state == GS_PLAYING && G.level == 2, "a computer player moves on after a clear by itself");
+#undef EXPECT
+    return failures ? 1 : 0;
+}
+
 static int render_test(unsigned seed)
 {
     game_init(1000, 640, seed);
@@ -207,12 +343,19 @@ static int render_test(unsigned seed)
     render_frame();
     dump_ppm("render_ready.ppm");
 
+    G.player = G.controller = PLAYER_NEURAL;
     for (int i = 0; i < 180; i++) {
-        game_autopilot_tick();
+        player_tick();
         game_tick();
     }
     render_frame();
     dump_ppm("render_playing.ppm");
+    G.state = GS_PAUSED;
+    G.pauseRow = PAUSE_MENU;
+    render_frame();
+    dump_ppm("render_paused.ppm");
+    G.state = GS_PLAYING;
+    G.player = G.controller = PLAYER_YOU;
 
     game_force_level_clear();
     render_frame();
@@ -263,8 +406,11 @@ static int run_interactive(void)
         fprintf(stderr, "or run --selftest / --render-test.\n");
         return 1;
     }
-    signal(SIGINT, on_signal);
-    signal(SIGTERM, on_signal);
+    /* Restore the terminal on every signal whose default action ends the
+       process, not only Ctrl+C and SIGTERM. */
+    static const int fatal[] = { SIGINT, SIGQUIT, SIGTERM, SIGHUP, SIGSEGV, SIGBUS,
+                                 SIGFPE, SIGABRT };
+    for (size_t i = 0; i < sizeof fatal / sizeof fatal[0]; i++) signal(fatal[i], on_signal);
     atexit(term_shutdown);
 
     game_init(w, h, (uint32_t)time(NULL));
@@ -281,10 +427,9 @@ static int run_interactive(void)
             break;
         }
         bool heldInput = term_has_release_events();
-        game_set_held_controls(
-            heldInput,
-            term_key_down('a') || term_key_down(KITTYKB_KEY_LEFT),
-            term_key_down('d') || term_key_down(KITTYKB_KEY_RIGHT));
+        bool left = term_key_down('a') || term_key_down(KITTYKB_KEY_LEFT);
+        bool right = term_key_down('d') || term_key_down(KITTYKB_KEY_RIGHT);
+        game_set_held_controls(heldInput, left, right);
         while (term_next_key_event(&event)) {
             if (event.action == KITTYKB_ACTION_RELEASE) continue;
             if (interrupt_event(&event)) {
@@ -298,8 +443,13 @@ static int run_interactive(void)
         }
         if (G.quit) break;
 
-        game_tick();
-        game_tick();
+        /* Two simulation ticks per frame; a computer player decides on each
+           one, exactly as it was trained. */
+        for (int tick = 0; tick < 2; tick++) {
+            if (!player_tick() && G.controller == PLAYER_YOU)
+                game_set_held_controls(heldInput, left, right);
+            game_tick();
+        }
 
         render_frame();
         term_present(render_fb(), G.W, G.H);
@@ -328,12 +478,15 @@ int main(int argc, char **argv)
     }
     if (argc > 1 && !strcmp(argv[1], "--render-test")) {
         unsigned seed = argc > 2 ? (unsigned)strtoul(argv[2], NULL, 10) : 1337;
+        if (argc > 3) render_dir = argv[3];   /* default: the current directory */
         return render_test(seed);
     }
     if (argc > 1 && !strcmp(argv[1], "--sound-test"))
         return sound_test();
+    if (argc > 1 && !strcmp(argv[1], "--player-test")) return player_test();
+    if (argc > 1 && !strcmp(argv[1], "--menu-test")) return menu_test();
     if (argc > 1 && !strcmp(argv[1], "--version")) {
-        printf("kitty-brokeout 0.1.0\n");
+        printf("kitty-brokeout 0.2.0\n");
         return 0;
     }
     return run_interactive();

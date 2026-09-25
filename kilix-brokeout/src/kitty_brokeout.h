@@ -34,6 +34,16 @@ enum {
     GS_GAMEOVER
 };
 
+/* Who plays. YOU is the keyboard, NEURAL the trained network in player.c,
+   AUTOPILOT the scripted game_autopilot_tick(). */
+enum { PLAYER_YOU, PLAYER_NEURAL, PLAYER_AUTOPILOT, PLAYER_COUNT };
+
+/* Menus: the title is a main menu, P/Esc pauses, game over offers the same
+   way out. The game is left through QUIT (or Ctrl+C), not a key. */
+enum { MENU_START, MENU_PLAYER, MENU_CONTROLS, MENU_SOUND, MENU_QUIT, MENU_ROWS };
+enum { PAUSE_RESUME, PAUSE_RESTART, PAUSE_MENU, PAUSE_QUIT, PAUSE_ROWS };
+enum { OVER_AGAIN, OVER_MENU, OVER_QUIT, OVER_ROWS };
+
 enum {
     BRICK_NORMAL,
     BRICK_METAL,
@@ -138,12 +148,16 @@ typedef struct {
     int frameCount;
     bool soundEnabled;
     bool heldControls, heldLeft, heldRight;
+    int player;             /* PLAYER_* chosen on the menu */
+    int controller;         /* PLAYER_* in control now (N swaps YOU and player) */
+    int menuRow, pauseRow, overRow;
 
     uint32_t rng;
 } GameState;
 
 extern GameState G;
 extern const char *POWERUP_NAMES[PU_COUNT];
+extern const char *PLAYER_NAMES[PLAYER_COUNT];
 
 /* ---------- utilities / game ---------- */
 void frand_seed(uint32_t seed);
@@ -154,6 +168,8 @@ void game_init(int w, int h, uint32_t seed);
 void game_shutdown(void);
 void game_reset_to_title(void);
 void game_start_run(void);
+/* A run that begins at `level` (tests and the neural lab). */
+void game_start_level(int level);
 void game_tick(void);
 void game_handle_key(int key);
 void game_set_held_controls(bool available, bool left, bool right);
@@ -161,9 +177,33 @@ void game_autopilot_tick(void);
 void game_force_level_clear(void);
 void game_force_gameover(void);
 
+/* Neural player contract, shared by the game and tools/neural/brokeout_lab.c:
+   screen-independent features, and POLICY_ACTIONS actions that each choose
+   where on the paddle face to strike the most urgent ball, from the far left
+   edge (0) through the centre to the far right edge. game_apply_action()
+   moves the paddle there; the network decides the shot. The player launches a
+   ball resting on the paddle by itself after NEURAL_LAUNCH_DELAY seconds. */
+#define POLICY_FEATURES 38
+#define POLICY_ACTIONS  9
+#define NEURAL_MAX_OFFSET 0.8f      /* the outermost strike point, x paddle half-width */
+#define NEURAL_LAUNCH_DELAY 0.35f
+/* The strike offset (-1..1 of the paddle half-width) that action a aims for. */
+float game_action_offset(int action);
+void game_policy_features(float out[POLICY_FEATURES]);
+void game_apply_action(int action);
+
 int game_active_ball_count(void);
 int game_remaining_breakable_bricks(void);
 float game_ball_speed_target(void);
+
+/* ---------- player.c ---------- */
+/* The compiled-in network (src/neural_policy_blob.h via kilix_game_policy). */
+bool player_neural_ready(void);
+const char *player_neural_status(void);
+int  player_neural_action(void);
+/* Before each game_tick: lets a computer player act when it has the
+   controls. Returns true when it did (the keyboard is then ignored). */
+bool player_tick(void);
 
 /* ---------- render.c ---------- */
 void render_init(int w, int h);
