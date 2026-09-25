@@ -70,8 +70,12 @@ static void sleep_ms(double ms)
     nanosleep(&ts, NULL);
 }
 
-static void dump_ppm(const char *path)
+static const char *render_dir = ".";
+
+static void dump_ppm(const char *name)
 {
+    char path[1024];
+    snprintf(path, sizeof path, "%s/%s", render_dir, name);
     FILE *f = fopen(path, "wb");
     if (!f) return;
     fprintf(f, "P6\n%d %d\n255\n", G.W, G.H);
@@ -191,6 +195,136 @@ static int input_test(void)
     return failures ? 1 : 0;
 }
 
+/* ---------- pilot and menu tests ---------- */
+
+static const int test_sizes[][2] = {
+    { 1000, 640 }, { 1280, 720 }, { 1600, 900 }, { 1920, 1080 }, { 800, 500 }, { 2560, 1440 },
+    { 3840, 2160 }, { 3440, 1440 }, { 1366, 768 }, { 2000, 600 }
+};
+
+/* One level flown from its start by `pilot`, as tools/neural/lander_lab.c
+   flies it (levels 1-60, ten terminal sizes): true on a landing. */
+static bool fly_level(int pilot, unsigned seed, int k)
+{
+    game_init(test_sizes[k % 10][0], test_sizes[k % 10][1], seed);
+    G.difficulty = k % DIFF_COUNT;
+    G.pilot = pilot;
+    game_start_run();
+    G.level = 1 + (k / DIFF_COUNT) % 60;
+    game_create_level();
+    for (int t = 0; t < 60 * 90 && G.state == GS_PLAYING; t++) {
+        pilot_tick();
+        game_tick();
+    }
+    bool landed = G.state == GS_LEVEL_COMPLETE;
+    game_shutdown();
+    return landed;
+}
+
+static int pilot_test(void)
+{
+    int failures = 0;
+#define EXPECT(condition, label) do { \
+    if (!(condition)) { fprintf(stderr, "FAIL: %s\n", label); failures++; } \
+    else printf("PASS: %s\n", label); \
+} while (0)
+    EXPECT(pilot_neural_ready(), "the compiled-in neural pilot loads");
+    printf("pilot-test: %s\n", pilot_neural_status());
+    /* Regression seeds 8000000.. (neither selection nor held-out). */
+    enum { N = 800 };
+    int neural[DIFF_COUNT] = { 0 }, autop[DIFF_COUNT] = { 0 }, nt = 0, at = 0;
+    for (int k = 0; k < N; k++) {
+        bool n = fly_level(PILOT_NEURAL, 8000000u + (unsigned)k, k);
+        bool a = fly_level(PILOT_AUTOPILOT, 8000000u + (unsigned)k, k);
+        neural[k % DIFF_COUNT] += n;
+        autop[k % DIFF_COUNT] += a;
+        nt += n;
+        at += a;
+    }
+    for (int d = 0; d < DIFF_COUNT; d++)
+        printf("pilot-test: %-10s neural %3d/%d  autopilot %3d/%d\n", DIFFICULTY_NAMES[d],
+               neural[d], N / DIFF_COUNT, autop[d], N / DIFF_COUNT);
+    printf("pilot-test: overall    neural %3d/%d  autopilot %3d/%d\n", nt, N, at, N);
+    EXPECT(nt >= at + N / 5, "the neural pilot lands at least 20 points more often than the autopilot");
+    bool each = true;
+    for (int d = 0; d < DIFF_COUNT; d++) each = each && neural[d] >= autop[d];
+    EXPECT(each, "and at least as often on every difficulty");
+
+    /* The same flight twice is the same flight. */
+    game_init(1280, 720, 99);
+    G.pilot = PILOT_NEURAL;
+    game_start_run();
+    for (int t = 0; t < 300 && G.state == GS_PLAYING; t++) { pilot_tick(); game_tick(); }
+    float x1 = G.lander.x, y1 = G.lander.y;
+    game_shutdown();
+    game_init(1280, 720, 99);
+    G.pilot = PILOT_NEURAL;
+    game_start_run();
+    for (int t = 0; t < 300 && G.state == GS_PLAYING; t++) { pilot_tick(); game_tick(); }
+    EXPECT(G.lander.x == x1 && G.lander.y == y1, "neural flights replay exactly");
+    game_shutdown();
+#undef EXPECT
+    return failures ? 1 : 0;
+}
+
+static int menu_test(void)
+{
+    int failures = 0;
+#define EXPECT(condition, label) do { \
+    if (!(condition)) { fprintf(stderr, "FAIL: %s\n", label); failures++; } \
+    else printf("PASS: %s\n", label); \
+} while (0)
+    game_init(1000, 640, 5);
+    EXPECT(G.state == GS_TITLE && G.menuRow == MENU_START, "the game opens on the main menu");
+    game_handle_key('q');
+    EXPECT(!G.quit, "Q does not quit");
+    game_handle_key(KEY_ESC);
+    EXPECT(!G.quit && G.menuRow == MENU_QUIT, "Esc on the menu selects QUIT without quitting");
+    game_handle_key(KEY_DOWN);                    /* wraps to START */
+    game_handle_key(KEY_DOWN);                    /* DIFFICULTY */
+    game_handle_key(KEY_RIGHT);                   /* Medium -> Hard */
+    game_handle_key(KEY_DOWN);                    /* PILOT */
+    game_handle_key(KEY_RIGHT);                   /* You -> Neural */
+    EXPECT(G.difficulty == DIFF_HARD && G.pilot == PILOT_NEURAL && G.state == GS_TITLE,
+           "menu rows change difficulty and pilot");
+    G.menuRow = MENU_START;
+    game_handle_key(KEY_ENTER);
+    EXPECT(G.state == GS_PLAYING && G.flying == PILOT_NEURAL, "START flies with the chosen pilot");
+    game_handle_key('n');
+    EXPECT(G.flying == PILOT_YOU, "N takes the controls");
+    game_handle_key('n');
+    EXPECT(G.flying == PILOT_NEURAL, "N hands them back");
+    for (int t = 0; t < 30; t++) { pilot_tick(); game_tick(); }
+    float padX = (float)G.pad.x, startY = G.lander.y;
+    (void)startY;
+    game_handle_key(KEY_ESC);
+    EXPECT(G.state == GS_PAUSED, "Esc in flight opens the pause menu");
+    game_tick();
+    EXPECT(G.state == GS_PAUSED, "the simulation stops while paused");
+    game_handle_key(KEY_DOWN);                    /* RESTART LEVEL */
+    game_handle_key(KEY_ENTER);
+    EXPECT(G.state == GS_PLAYING && (float)G.pad.x == padX && G.lander.vx == 0,
+           "RESTART LEVEL replays the same terrain from the start");
+    game_handle_key('p');
+    game_handle_key(KEY_UP);                      /* wraps to QUIT */
+    game_handle_key(KEY_ENTER);
+    EXPECT(G.quit, "the pause menu's QUIT exits");
+    game_shutdown();
+
+    game_init(1000, 640, 5);
+    game_start_run();
+    G.lives = 1;
+    G.lander.vy = 900;                            /* straight into the ground */
+    for (int t = 0; t < 400 && G.state != GS_GAMEOVER; t++) game_tick();
+    EXPECT(G.state == GS_GAMEOVER && G.overRow == OVER_AGAIN, "losing the last life shows the game-over menu");
+    game_handle_key(KEY_DOWN);
+    game_handle_key(KEY_ENTER);
+    EXPECT(G.state == GS_TITLE, "game-over MAIN MENU returns to the main menu");
+    game_shutdown();
+#undef EXPECT
+    return failures ? 1 : 0;
+}
+
 static int render_test(unsigned seed)
 {
     game_init(1000, 640, seed);
@@ -199,13 +333,20 @@ static int render_test(unsigned seed)
     render_frame();
     dump_ppm("render_title.ppm");
 
+    G.pilot = PILOT_NEURAL;
     game_start_run();
     for (int i = 0; i < 180; i++) {
-        game_autopilot_tick();
+        pilot_tick();
         game_tick();
     }
     render_frame();
     dump_ppm("render_playing.ppm");
+    G.state = GS_PAUSED;
+    G.pauseRow = PAUSE_RESTART;
+    render_frame();
+    dump_ppm("render_paused.ppm");
+    G.state = GS_PLAYING;
+    G.pilot = PILOT_YOU;
 
     G.lander.x = G.pad.x - G.lander.w * 2.2f;
     G.lander.y = terrain_height_at(G.lander.x) - G.lander.h - 2;
@@ -298,14 +439,16 @@ static int run_interactive(void)
             game_handle_key(key);
         }
         if (G.quit) break;
-        game_set_held_controls(
-            heldInput,
-            term_key_down('w') || term_key_down(KITTYKB_KEY_UP),
-            term_key_down('a') || term_key_down(KITTYKB_KEY_LEFT),
-            term_key_down('d') || term_key_down(KITTYKB_KEY_RIGHT));
+        bool up = term_key_down('w') || term_key_down(KITTYKB_KEY_UP);
+        bool left = term_key_down('a') || term_key_down(KITTYKB_KEY_LEFT);
+        bool right = term_key_down('d') || term_key_down(KITTYKB_KEY_RIGHT);
 
-        game_tick();
-        game_tick();
+        /* Two simulation ticks per frame; a computer pilot decides on each
+           one, exactly as it was trained. */
+        for (int tick = 0; tick < 2; tick++) {
+            if (!pilot_tick()) game_set_held_controls(heldInput, up, left, right);
+            game_tick();
+        }
 
         render_frame();
         term_present(render_fb(), G.W, G.H);
@@ -332,15 +475,18 @@ int main(int argc, char **argv)
     if (argc > 1 && !strcmp(argv[1], "--input-test")) {
         return input_test();
     }
+    if (argc > 1 && !strcmp(argv[1], "--pilot-test")) return pilot_test();
+    if (argc > 1 && !strcmp(argv[1], "--menu-test")) return menu_test();
     if (argc > 1 && !strcmp(argv[1], "--render-test")) {
         unsigned seed = argc > 2 ? (unsigned)strtoul(argv[2], NULL, 10) : 1337;
+        if (argc > 3) render_dir = argv[3];   /* default: the current directory */
         return render_test(seed);
     }
     if (argc > 1 && !strcmp(argv[1], "--sound-test")) {
         return sound_test();
     }
     if (argc > 1 && !strcmp(argv[1], "--version")) {
-        printf("terminal-lander 0.1.0\n");
+        printf("terminal-lander 0.2.0\n");
         return 0;
     }
     return run_interactive();

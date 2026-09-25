@@ -1,0 +1,66 @@
+{
+ "artifact": "assets/policy/lander-neural.kxpol",
+ "embedded_header": "src/neural_policy_blob.h",
+ "format": "kilix-game-kit KXPOLICY v1",
+ "sha256": "9d102bf403908b58812a9245bf32888bfe921b58bd899739042bb5ee0ba153ef",
+ "fnv1a64": "cb9d8b35c8b71db9",
+ "widths": [
+  30,
+  16,
+  16,
+  6
+ ],
+ "parameters": 870,
+ "license": "MIT, same as kilix-lander",
+ "origin": "Self-trained in kilix-lander's own simulation (tools/neural/lander_lab.c linked against game.o). No third-party data or weights.",
+ "inputs": "game_policy_features() in src/game.c: 30 scale-invariant floats",
+ "outputs": "6 logits: main thrust {off,on} x side {none,left,right}; argmax each tick",
+ "training": {
+  "method": "evolution strategies (antithetic, rank-shaped, Adam, sigma 0.05, lr 0.02, pop 96, 96 shared levels per generation) optimising the landing outcome directly; no teacher",
+  "stages": [
+   "from scratch, 600 generations, levels 1-12, random terminal sizes 640x400-3840x2160 (selected at generation 420)",
+   "continued 500 generations on levels 1-60 (selected at generation 440)"
+  ],
+  "tool": "tools/neural/lander_lab.c (make lab)"
+ },
+ "evaluation_episode": "seed S+k, difficulty k%4, level 1+(k/4)%60, terminal size k%10 of 1000x640 1280x720 1600x900 1920x1080 800x500 2560x1440 3840x2160 3440x1440 1366x768 2000x600; 90 s limit",
+ "selection": {
+  "seeds": "5100000-5103999",
+  "landing_rate": 0.9852,
+  "rule": "highest selection landing rate; ties go to the smaller network"
+ },
+ "held_out": {
+  "seeds": "9100000-9107999, evaluated once",
+  "neural": {
+   "landed": 7869,
+   "episodes": 8000,
+   "landing_rate": 0.9836,
+   "wilson95": [
+    0.9806,
+    0.9862
+   ],
+   "by_difficulty": {
+    "Easy": 1.0,
+    "Medium": 1.0,
+    "Hard": 0.999,
+    "Extra Hard": 0.9355
+   }
+  },
+  "autopilot": {
+   "landed": 4396,
+   "episodes": 8000,
+   "landing_rate": 0.5495,
+   "wilson95": [
+    0.5386,
+    0.5604
+   ],
+   "by_difficulty": {
+    "Easy": 0.951,
+    "Medium": 0.6865,
+    "Hard": 0.4425,
+    "Extra Hard": 0.118
+   }
+  },
+  "ship_rule": "beat the autopilot overall with non-overlapping Wilson intervals and be no worse on any difficulty: met"
+ }
+}

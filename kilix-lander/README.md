@@ -21,6 +21,12 @@ installations and scripts.
 
 - **Four difficulty presets** - Easy, Medium, Hard, and Extra Hard, with
   Extra Hard preserving the original prototype tuning
+- **Neural pilot** - an 870-parameter network trained in the game's own
+  simulation lands 98.4% of held-out levels 1-60 (the scripted autopilot:
+  55%). Pick it on the menu to watch, press N to take over mid-flight, and
+  press N again to hand back
+- **Menus** - a main menu (start, difficulty, pilot, controls, quit), a pause
+  menu (resume, restart level, main menu, quit) and a game-over menu
 - **Assistive flight model** - lower presets add more fuel, wider pads,
   softer limits, stronger damping, and control stabilization
 - **Retro software renderer** - pixel-art lander, stars, Earth backdrop,
@@ -52,25 +58,51 @@ Sound plays through the first available CLI sink (`pacat`, `pw-play`,
 
 | Key | Action |
 |-----|--------|
-| Up / W | main thrust |
-| Left / A | rotate left + side thrust |
-| Right / D | rotate right + side thrust |
-| Enter / Space | start, advance, restart |
-| Esc | return to title during flight |
-| Left / Right on title | change difficulty |
-| 1-4 on title | Easy / Medium / Hard / Extra Hard |
+| Up / W | main thrust; in a menu, move up |
+| Left / A | rotate left + side thrust; on the main menu, change a setting |
+| Right / D | rotate right + side thrust; on the main menu, change a setting |
+| Down / S | in a menu, move down |
+| Enter / Space | choose a menu item, advance after a landing |
+| Esc / P | pause menu during flight |
+| N | in flight with a computer pilot chosen: take the controls, or hand them back |
+| 1-4 on the main menu | Easy / Medium / Hard / Extra Hard |
 | C | controls screen |
-| Q | quit |
 
-Difficulty presets change fuel, lives, pad width, terrain roughness, landing
-tolerance, damping, and control assistance.
+The game is left through QUIT on the main, pause or game-over menu; Ctrl+C
+also exits. Difficulty presets change fuel, lives, pad width, terrain
+roughness, landing tolerance, damping, and control assistance.
+
+## Neural pilot
+
+The PILOT setting chooses who flies: You, Neural (the trained network), or
+Autopilot (the game's scripted pilot). The network sees 30 screen-independent
+features: the lander, the pad, the terrain around it, the screen edges and
+the difficulty's physics. It picks main thrust and side thrust 60 times a
+second. It was trained with evolution strategies, directly on landing, in
+this game's simulation. Nothing third-party went into it. See
+[tools/neural/README.md](tools/neural/README.md) and
+[docs/neural-policy-provenance.json](docs/neural-policy-provenance.json).
+
+Held-out levels (8,000, evaluated once): levels 1-60, all four difficulties,
+ten terminal sizes from 800x500 to 3840x2160:
+
+| Difficulty | Neural | Autopilot |
+|---|---|---|
+| Easy | 100% | 95.1% |
+| Medium | 100% | 68.7% |
+| Hard | 99.9% | 44.3% |
+| Extra Hard | 93.6% | 11.8% |
+| **All** | **98.4%** | **55.0%** |
 
 ## Development
 
 ```sh
 make test                              # deterministic headless checks
 ./terminal-lander --selftest 42 3600   # specific seed and tick count
-./terminal-lander --render-test 7      # dump render_*.ppm screenshots
+./terminal-lander --render-test 7 DIR  # dump render_*.ppm screenshots into DIR
+./terminal-lander --pilot-test         # neural pilot vs the autopilot, 800 levels
+./terminal-lander --menu-test          # menus, pause, hand-over
+make lab                               # the neural pilot lab (tools/neural)
 ./terminal-lander --sound-test
 ```
 
@@ -82,7 +114,8 @@ packaging and installed-layout tests.
 | File | Role |
 |------|------|
 | `src/term.c` | Kitty keyboard events, compatibility input, thin adapter over the kitty-framebuffer presenter |
-| `src/game.c` | lander physics, terrain generation, pads, particles, difficulty, scoring |
+| `src/game.c` | lander physics, terrain generation, pads, particles, difficulty, scoring, menus, pilot features |
+| `src/pilot.c` | the compiled-in neural pilot (kilix_game_policy) and the per-tick hand-over |
 | `src/render.c` | scene, HUD, and menu drawing over the soft-raster primitives |
 | `src/sound.c` | strict PCM WAV banks, procedural fallback synthesis, playback through the pcm-mixer voices |
 | `src/main.c` | interactive loop, selftest, render-test, sound-test |

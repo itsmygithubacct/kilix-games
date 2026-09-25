@@ -16,6 +16,8 @@ const char *DIFFICULTY_NAMES[DIFF_COUNT] = {
     "Easy", "Medium", "Hard", "Extra Hard"
 };
 
+const char *PILOT_NAMES[PILOT_COUNT] = { "You", "Neural", "Autopilot" };
+
 typedef struct {
     float gravity, thrust, sideThrust;
     float fuel, minFuel, fuelDrop, fuelMainRate, fuelSideRate;
@@ -171,6 +173,7 @@ void game_shutdown(void)
 void game_reset_to_title(void)
 {
     G.state = GS_TITLE;
+    G.menuRow = MENU_START;
     G.holdUp = G.holdLeft = G.holdRight = 0;
     G.levelTimer = G.crashTimer = 0;
     G.screenFlash = G.cameraShake = 0;
@@ -259,6 +262,7 @@ static void generate_terrain(void)
 
 void game_create_level(void)
 {
+    G.levelRng = G.rng;
     configure_physics();
     G.lander.w = clampf(20.0f * G.scale, 14.0f, 34.0f);
     G.lander.h = G.lander.w * 1.06f;
@@ -292,6 +296,8 @@ void game_start_run(void)
     G.lives = difficulty()->lives;
     G.frameCount = 0;
     G.screenFlash = G.cameraShake = 0;
+    if (G.pilot < 0 || G.pilot >= PILOT_COUNT) G.pilot = PILOT_YOU;
+    G.flying = G.pilot;
     game_create_level();
     G.state = GS_PLAYING;
     sound_play(SND_MENU, 0.45f, 1.0f);
@@ -579,6 +585,7 @@ void game_tick(void)
             G.lives--;
             if (G.lives <= 0) {
                 G.state = GS_GAMEOVER;
+                G.overRow = OVER_AGAIN;
             } else {
                 game_create_level();
                 G.state = GS_PLAYING;
@@ -621,36 +628,130 @@ void game_set_held_controls(bool available, bool up, bool left, bool right)
     if (available) G.holdUp = G.holdLeft = G.holdRight = 0;
 }
 
-void game_handle_key(int key)
+static void set_difficulty(int difficulty)
 {
-    if (key == 'q' || key == 'Q') {
-        G.quit = true;
+    G.difficulty = (difficulty + DIFF_COUNT) % DIFF_COUNT;
+    configure_physics();
+    game_create_level();
+}
+
+static bool menu_up(int key)   { return key == KEY_UP || key == 'w' || key == 'W'; }
+static bool menu_down(int key) { return key == KEY_DOWN || key == 's' || key == 'S'; }
+static bool menu_ok(int key)   { return key == KEY_ENTER || key == ' '; }
+
+static void change_menu_row(int step)
+{
+    if (G.menuRow == MENU_DIFFICULTY) {
+        set_difficulty(G.difficulty + step);
+    } else if (G.menuRow == MENU_PILOT) {
+        G.pilot = (G.pilot + PILOT_COUNT + step) % PILOT_COUNT;
+    } else {
         return;
     }
+    sound_play(SND_MENU, 0.4f, step > 0 ? 1.15f : 0.85f);
+}
 
+static void title_key(int key)
+{
+    if (menu_up(key) || menu_down(key)) {
+        G.menuRow = (G.menuRow + MENU_ROWS + (menu_up(key) ? -1 : 1)) % MENU_ROWS;
+        sound_play(SND_MENU, 0.3f, 1.0f);
+    } else if (key == KEY_LEFT || key == 'a' || key == 'A' || key == '[' || key == '-') {
+        change_menu_row(-1);
+    } else if (key == KEY_RIGHT || key == 'd' || key == 'D' || key == ']' || key == '+' ||
+               key == '=') {
+        change_menu_row(1);
+    } else if (key >= '1' && key <= '4') {                /* difficulty shortcuts */
+        set_difficulty(key - '1');
+        sound_play(SND_MENU, 0.4f, 1.0f);
+    } else if (key == 'n' || key == 'N') {                /* pilot shortcut */
+        G.pilot = (G.pilot + 1) % PILOT_COUNT;
+        sound_play(SND_MENU, 0.4f, 1.1f);
+    } else if (key == 'c' || key == 'C') {
+        G.state = GS_CONTROLS;
+        sound_play(SND_MENU, 0.4f, 1.25f);
+    } else if (key == KEY_ESC) {
+        G.menuRow = MENU_QUIT;                            /* never quits by itself */
+        sound_play(SND_MENU, 0.3f, 0.9f);
+    } else if (menu_ok(key)) {
+        switch (G.menuRow) {
+        case MENU_START: game_start_run(); break;
+        case MENU_CONTROLS: G.state = GS_CONTROLS; sound_play(SND_MENU, 0.4f, 1.25f); break;
+        case MENU_QUIT: G.quit = true; break;
+        default: change_menu_row(1); break;
+        }
+    }
+}
+
+static void pause_key(int key)
+{
+    if (menu_up(key) || menu_down(key)) {
+        G.pauseRow = (G.pauseRow + PAUSE_ROWS + (menu_up(key) ? -1 : 1)) % PAUSE_ROWS;
+        sound_play(SND_MENU, 0.3f, 1.0f);
+        return;
+    }
+    int choice = -1;
+    if (key == KEY_ESC || key == 'p' || key == 'P') choice = PAUSE_RESUME;
+    else if (menu_ok(key)) choice = G.pauseRow;
+    switch (choice) {
+    case PAUSE_RESUME:
+        G.state = GS_PLAYING;
+        sound_play(SND_MENU, 0.4f, 1.1f);
+        break;
+    case PAUSE_RESTART:                                   /* the same terrain and start again */
+        G.rng = G.levelRng;
+        game_create_level();
+        G.state = GS_PLAYING;
+        sound_play(SND_MENU, 0.4f, 1.0f);
+        break;
+    case PAUSE_MENU:
+        game_reset_to_title();
+        sound_play(SND_MENU, 0.4f, 0.75f);
+        break;
+    case PAUSE_QUIT:
+        G.quit = true;
+        break;
+    default:
+        break;
+    }
+}
+
+static void gameover_key(int key)
+{
+    if (menu_up(key) || menu_down(key)) {
+        G.overRow = (G.overRow + OVER_ROWS + (menu_up(key) ? -1 : 1)) % OVER_ROWS;
+        sound_play(SND_MENU, 0.3f, 1.0f);
+        return;
+    }
+    if (key == KEY_ESC) {
+        game_reset_to_title();
+        return;
+    }
+    if (!menu_ok(key)) return;
+    switch (G.overRow) {
+    case OVER_AGAIN: game_start_run(); break;
+    case OVER_MENU: game_reset_to_title(); sound_play(SND_MENU, 0.4f, 0.75f); break;
+    default: G.quit = true; break;
+    }
+}
+
+void game_menu_key(int key)
+{
+    switch (G.state) {
+    case GS_TITLE: title_key(key); break;
+    case GS_PAUSED: pause_key(key); break;
+    case GS_GAMEOVER: gameover_key(key); break;
+    default: break;
+    }
+}
+
+void game_handle_key(int key)
+{
     switch (G.state) {
     case GS_TITLE:
-        if (key == KEY_ENTER || key == ' ') game_start_run();
-        else if (key == KEY_LEFT || key == '[' || key == '-') {
-            G.difficulty = (G.difficulty + DIFF_COUNT - 1) % DIFF_COUNT;
-            configure_physics();
-            game_create_level();
-            sound_play(SND_MENU, 0.4f, 0.85f);
-        } else if (key == KEY_RIGHT || key == ']' || key == '+' || key == '=') {
-            G.difficulty = (G.difficulty + 1) % DIFF_COUNT;
-            configure_physics();
-            game_create_level();
-            sound_play(SND_MENU, 0.4f, 1.15f);
-        } else if (key >= '1' && key <= '4') {
-            G.difficulty = key - '1';
-            configure_physics();
-            game_create_level();
-            sound_play(SND_MENU, 0.4f, 1.0f);
-        }
-        else if (key == 'c' || key == 'C') {
-            G.state = GS_CONTROLS;
-            sound_play(SND_MENU, 0.4f, 1.25f);
-        }
+    case GS_PAUSED:
+    case GS_GAMEOVER:
+        game_menu_key(key);
         break;
     case GS_CONTROLS:
         if (key == KEY_ESC || key == KEY_ENTER || key == ' ') {
@@ -659,12 +760,23 @@ void game_handle_key(int key)
         }
         break;
     case GS_PLAYING:
-        if (key == KEY_ESC) {
-            game_reset_to_title();
-            sound_play(SND_MENU, 0.4f, 0.75f);
+        if (key == KEY_ESC || key == 'p' || key == 'P') {
+            G.state = GS_PAUSED;
+            G.pauseRow = PAUSE_RESUME;
+            sound_loop(SND_THRUST_MAIN, false, 0, 1);
+            sound_loop(SND_THRUST_SIDE, false, 0, 1);
+            sound_play(SND_MENU, 0.4f, 0.9f);
             return;
         }
-        thrust_hold_for_key(key);
+        if ((key == 'n' || key == 'N') && G.pilot != PILOT_YOU) {
+            /* hand the controls over, or take them back */
+            G.flying = G.flying == PILOT_YOU ? G.pilot : PILOT_YOU;
+            game_set_held_controls(G.heldControls, false, false, false);
+            G.holdUp = G.holdLeft = G.holdRight = 0;
+            sound_play(SND_MENU, 0.4f, G.flying == PILOT_YOU ? 0.9f : 1.2f);
+            return;
+        }
+        if (G.flying == PILOT_YOU) thrust_hold_for_key(key);
         break;
     case GS_CRASHING:
         break;
@@ -676,12 +788,58 @@ void game_handle_key(int key)
             sound_play(SND_MENU, 0.4f, 1.15f);
         }
         break;
-    case GS_GAMEOVER:
-        if (key == KEY_ENTER || key == ' ') game_start_run();
-        break;
     default:
         break;
     }
+}
+
+/* Everything is in screen-independent units: lengths and speeds divided by
+   G.scale (so a 4K terminal and an 800x500 one look alike), then by a typical
+   magnitude so each feature is roughly -1..1. */
+void game_policy_features(float out[POLICY_FEATURES])
+{
+    static const float probes[6] = { -160, -80, -40, 40, 80, 160 };
+    const Lander *l = &G.lander;
+    float s = G.scale > 0 ? G.scale : 1;
+    float cx = l->x + l->w * 0.5f, bottom = l->y + l->h;
+    float padCenter = G.pad.x + G.pad.width * 0.5f;
+    float ground = fminf(terrain_height_at(cx),
+                         fminf(terrain_height_at(l->x + l->w * 0.18f),
+                               terrain_height_at(l->x + l->w * 0.82f)));
+    int i = 0;
+    out[i++] = (padCenter - cx) / s / 500.0f;
+    out[i++] = (G.pad.y - bottom) / s / 400.0f;
+    out[i++] = l->vx / s / 200.0f;
+    out[i++] = l->vy / s / 200.0f;
+    out[i++] = l->angle / 0.5f;
+    out[i++] = l->angularVelocity / 2.0f;
+    out[i++] = l->fuel / 150.0f;
+    out[i++] = G.pad.width * 0.5f / s / 100.0f;
+    out[i++] = (ground - bottom) / s / 300.0f;
+    for (int p = 0; p < 6; p++)
+        out[i++] = (terrain_height_at(cx + probes[p] * s) - bottom) / s / 300.0f;
+    out[i++] = cx / s / 1000.0f;
+    out[i++] = (G.W - cx) / s / 1000.0f;
+    out[i++] = G.gravity / s / 200.0f;
+    out[i++] = G.thrustPower / s / 450.0f;
+    out[i++] = G.sideThrustPower / s / 200.0f;
+    out[i++] = G.maxSafeSpeed / s / 150.0f;
+    out[i++] = G.maxLandingAngle / 0.3f;
+    out[i++] = G.angularThrustPower / 6.0f;
+    out[i++] = G.stabilizeStrength / 3.0f;
+    out[i++] = G.angularDamping;
+    out[i++] = G.maxSpin / 2.0f;
+    out[i++] = (1.0f - G.dragCoefficient) * 100.0f;
+    out[i++] = G.fuelMainRate / 10.0f;
+    out[i++] = G.fuelSideRate / 4.0f;
+    out[i++] = G.padGrace / s / 12.0f;
+}
+
+void game_apply_action(int action)
+{
+    if (action < 0 || action >= POLICY_ACTIONS) action = 0;
+    int side = action % 3;
+    game_set_held_controls(true, action >= 3, side == 1, side == 2);
 }
 
 void game_autopilot_tick(void)

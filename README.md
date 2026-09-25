@@ -8,7 +8,7 @@ checkout at `third_party/kilix-game-sdk`.
 | Game | What it is | Language |
 |---|---|---|
 | [solitaire-tui](solitaire-tui/) | Klondike solitaire in the terminal, with mouse play, auto-place and a learning interface | Python |
-| [kilix-lander](kilix-lander/) | Lunar lander with a software-rendered framebuffer | C |
+| [kilix-lander](kilix-lander/) | Lunar lander with a software-rendered framebuffer and a trained neural pilot | C |
 | [joustix](joustix/) | Fast flying-joust arcade game | C |
 | [kilix-brokeout](kilix-brokeout/) | Breakout/Arkanoid-style brick breaker | C |
 | [bashed-earth](bashed-earth/) | Turn-based artillery combat | C |

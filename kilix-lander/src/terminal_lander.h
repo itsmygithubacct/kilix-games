@@ -31,8 +31,19 @@ enum {
     GS_PLAYING,
     GS_CRASHING,
     GS_LEVEL_COMPLETE,
-    GS_GAMEOVER
+    GS_GAMEOVER,
+    GS_PAUSED
 };
+
+/* Who flies. YOU is the keyboard; NEURAL is the trained network in
+   pilot.c; AUTOPILOT is the scripted game_autopilot_tick(). */
+enum { PILOT_YOU, PILOT_NEURAL, PILOT_AUTOPILOT, PILOT_COUNT };
+
+/* Menus: the title is a main menu; Esc in flight pauses; game over offers
+   the same way out. The game is left through QUIT, not a key. */
+enum { MENU_START, MENU_DIFFICULTY, MENU_PILOT, MENU_CONTROLS, MENU_QUIT, MENU_ROWS };
+enum { PAUSE_RESUME, PAUSE_RESTART, PAUSE_MENU, PAUSE_QUIT, PAUSE_ROWS };
+enum { OVER_AGAIN, OVER_MENU, OVER_QUIT, OVER_ROWS };
 
 enum {
     DIFF_EASY,
@@ -106,6 +117,9 @@ typedef struct {
 
     int score, level, lives;
     int difficulty;
+    int pilot;              /* PILOT_* chosen on the menu */
+    int flying;             /* PILOT_* flying right now (N swaps YOU and pilot) */
+    int menuRow, pauseRow, overRow;
     int frameCount;
     float levelTimer, crashTimer;
     float holdUp, holdLeft, holdRight;
@@ -129,10 +143,12 @@ typedef struct {
     float padGrace;
 
     uint32_t rng;
+    uint32_t levelRng;      /* rng as the current level was created (restart) */
 } GameState;
 
 extern GameState G;
 extern const char *DIFFICULTY_NAMES[DIFF_COUNT];
+extern const char *PILOT_NAMES[PILOT_COUNT];
 
 /* ---------- utilities / game ---------- */
 void frand_seed(uint32_t seed);
@@ -148,12 +164,31 @@ void game_tick(void);
 void game_handle_key(int key);
 void game_set_held_controls(bool available, bool up, bool left, bool right);
 void game_autopilot_tick(void);
+/* Menu key handling for the title, pause and game-over menus. */
+void game_menu_key(int key);
+
+/* Neural pilot contract, shared by the game and tools/neural/lander_lab.c:
+   scale-invariant features of what a pilot can see, and 6 actions =
+   main thrust {off, on} x side {none, left, right}. */
+#define POLICY_FEATURES 30
+#define POLICY_ACTIONS  6
+void game_policy_features(float out[POLICY_FEATURES]);
+void game_apply_action(int action);
 
 float terrain_height_at(float x);
 float game_lander_speed(void);
 float game_lander_altitude(void);
 bool game_lander_can_land(void);
 int game_landing_bonus(void);
+
+/* ---------- pilot.c ---------- */
+/* The compiled-in network (src/neural_policy_blob.h via kilix_game_policy). */
+bool pilot_neural_ready(void);
+const char *pilot_neural_status(void);
+int  pilot_neural_action(void);
+/* Before each game_tick while playing: lets a computer pilot fly when it has
+   the controls. Returns true when it did (the keyboard is then ignored). */
+bool pilot_tick(void);
 
 /* ---------- render.c ---------- */
 void render_init(int w, int h);

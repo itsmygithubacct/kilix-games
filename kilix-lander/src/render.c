@@ -178,7 +178,7 @@ static void draw_earth(void)
 {
     int block = (int)clampf(H / 360.0f, 1.0f, 2.0f);
     int r = (int)clampf(H * 0.055f, 24.0f, 44.0f);
-    bool hud = G.state == GS_PLAYING || G.state == GS_CRASHING ||
+    bool hud = G.state == GS_PLAYING || G.state == GS_CRASHING || G.state == GS_PAUSED ||
                G.state == GS_LEVEL_COMPLETE || G.state == GS_GAMEOVER;
     int cx = W - (int)(r * 2.45f);
     int cy = hud ? (int)(H * 0.255f) : (int)(r * 2.15f);
@@ -494,9 +494,37 @@ static void draw_hud(void)
         : "SEEK PAD";
     draw_text(W - 286, 110, status, landCol, 1, 1);
 
+    if (G.flying != PILOT_YOU) {
+        snprintf(buf, sizeof buf, "%s PILOT", G.flying == PILOT_NEURAL ? "NEURAL" : "AUTO");
+        fill_rect(W / 2.0f - 110, 8, 220, 30, 0x101015, 0.86f);
+        draw_text_center(W / 2.0f, 16, buf, G.flying == PILOT_NEURAL ? 0xc084fc : 0x7dd3fc, 1, 1);
+    }
     fill_rect(0, H - 40, W, 40, 0x08080c, 0.82f);
-    draw_text(16, H - 28, "UP/W thrust   LEFT/A RIGHT/D rotate   ESC title   Q quit",
-              0x71717a, 1, 1);
+    const char *help = G.pilot == PILOT_YOU
+        ? "UP/W thrust   LEFT/A RIGHT/D rotate   ESC pause"
+        : G.flying == PILOT_YOU
+            ? "UP/W thrust   LEFT/A RIGHT/D rotate   N hand back to the pilot   ESC pause"
+            : "N take the controls   ESC pause";
+    draw_text(16, H - 28, help, 0x71717a, 1, 1);
+}
+
+/* One menu row: the selected row sits on a lit bar with arrows on values. */
+static void menu_row(int px, int pw, float y, const char *label, const char *value,
+                     bool selected)
+{
+    if (selected) {
+        fill_rect(px + 40, y - 7, pw - 80, 28, 0x1e3a5f, 0.95f);
+        fill_rect(px + 40, y + 21, pw - 80, 2, 0xfacc15, 0.8f);
+    }
+    uint32_t color = selected ? 0xfef9c3 : 0xd4d4d8;
+    if (!value) {
+        draw_text_center(px + pw / 2.0f, y, label, color, 1, 1);
+        return;
+    }
+    char shown[64];
+    snprintf(shown, sizeof shown, selected ? "< %s >" : "%s", value);
+    draw_text(px + 70, y, label, selected ? 0xfef9c3 : 0xa1a1aa, 1, 1);
+    draw_text(px + pw - 70 - text_width(shown, 1), y, shown, selected ? 0xfacc15 : 0xf8fafc, 1, 1);
 }
 
 static void panel(int pw, int ph, int *px, int *py)
@@ -510,21 +538,36 @@ static void panel(int pw, int ph, int *px, int *py)
 static void draw_title(void)
 {
     int px, py;
-    panel(700, 348, &px, &py);
+    panel(700, 400, &px, &py);
     draw_text_outlined(W / 2.0f - text_width("KILIX LANDER", 3) / 2.0f,
-                       py + 34, "KILIX LANDER", 0x7dd3fc, 1, 3);
-    draw_text_center(W / 2.0f, py + 94, "lunar landing in a kitty terminal", 0xa1a1aa, 1, 1);
-    char buf[128];
-    snprintf(buf, sizeof buf, "DIFFICULTY      < %s >", DIFFICULTY_NAMES[G.difficulty]);
-    draw_text(px + 112, py + 132, buf, 0xfacc15, 1, 1);
-    draw_text(px + 112, py + 166, "ENTER / SPACE   START", 0xf8fafc, 1, 1);
-    draw_text(px + 112, py + 198, "LEFT / RIGHT    CHANGE DIFFICULTY", 0xf8fafc, 1, 1);
-    draw_text(px + 112, py + 230, "1-4             EASY..EXTRA HARD", 0xf8fafc, 1, 1);
-    draw_text(px + 112, py + 262, "C               CONTROLS", 0xf8fafc, 1, 1);
-    draw_text(px + 112, py + 294, "Q               QUIT", 0xf8fafc, 1, 1);
-    draw_text_center(W / 2.0f, py + 326,
-                     "Extra Hard is the original tuning; lower presets add control assist",
-                     0x52525b, 1, 1);
+                       py + 30, "KILIX LANDER", 0x7dd3fc, 1, 3);
+    draw_text_center(W / 2.0f, py + 90, "lunar landing in a kitty terminal", 0xa1a1aa, 1, 1);
+    static const char *labels[MENU_ROWS] = { "START", "DIFFICULTY", "PILOT", "CONTROLS", "QUIT" };
+    for (int row = 0; row < MENU_ROWS; row++) {
+        const char *value = row == MENU_DIFFICULTY ? DIFFICULTY_NAMES[G.difficulty]
+                          : row == MENU_PILOT ? PILOT_NAMES[G.pilot] : NULL;
+        menu_row(px, 700, py + 134 + row * 42 + (row == MENU_QUIT ? 8 : 0), labels[row],
+                 value, row == G.menuRow);
+    }
+    const char *note = G.pilot == PILOT_NEURAL
+        ? (pilot_neural_ready() ? "a trained network flies; press N in flight to take over"
+                                : "neural pilot unavailable: the autopilot flies instead")
+        : G.pilot == PILOT_AUTOPILOT ? "the scripted autopilot flies; press N in flight to take over"
+        : "Extra Hard is the original tuning; lower presets add control assist";
+    draw_text_center(W / 2.0f, py + 356, note, 0x52525b, 1, 1);
+    draw_text_center(W / 2.0f, py + 378, "UP/DOWN select   LEFT/RIGHT change   ENTER choose",
+                     0x3f3f46, 1, 1);
+}
+
+static void draw_pause(void)
+{
+    static const char *items[PAUSE_ROWS] = { "RESUME", "RESTART LEVEL", "MAIN MENU", "QUIT" };
+    int px, py;
+    panel(460, 280, &px, &py);
+    draw_text_center(W / 2.0f, py + 26, "PAUSED", 0xfacc15, 1, 2);
+    for (int row = 0; row < PAUSE_ROWS; row++)
+        menu_row(px, 460, py + 88 + row * 40, items[row], NULL, row == G.pauseRow);
+    draw_text_center(W / 2.0f, py + 250, "ESC resume", 0x52525b, 1, 1);
 }
 
 static void draw_controls(void)
@@ -535,7 +578,8 @@ static void draw_controls(void)
     draw_text(px + 70, py + 78,  "UP / W       main thrust", 0xf8fafc, 1, 1);
     draw_text(px + 70, py + 108, "LEFT / A     rotate left and push left", 0xf8fafc, 1, 1);
     draw_text(px + 70, py + 138, "RIGHT / D    rotate right and push right", 0xf8fafc, 1, 1);
-    draw_text(px + 70, py + 168, "TITLE: LEFT/RIGHT or 1-4 change difficulty", 0xf8fafc, 1, 1);
+    draw_text(px + 70, py + 168, "ESC / P      pause menu (resume, restart, menu, quit)", 0xf8fafc, 1, 1);
+    draw_text(px + 70, py + 190, "N            swap with the neural or auto pilot", 0xf8fafc, 1, 1);
     draw_text(px + 70, py + 218, "Land fully on the lit pad.", 0xa1a1aa, 1, 1);
     draw_text(px + 70, py + 248, "Speed and angle must both be green.", 0xa1a1aa, 1, 1);
     draw_text(px + 70, py + 278, "Easy and Medium add stronger auto-stabilization.", 0xa1a1aa, 1, 1);
@@ -560,14 +604,16 @@ static void draw_level_complete(void)
 static void draw_gameover(void)
 {
     int px, py;
-    panel(500, 240, &px, &py);
+    panel(500, 300, &px, &py);
     draw_text_center(W / 2.0f, py + 32, "GAME OVER", 0xef4444, 1, 3);
     char buf[96];
     snprintf(buf, sizeof buf, "FINAL SCORE %d", G.score);
     draw_text_center(W / 2.0f, py + 104, buf, 0xf8fafc, 1, 1);
     snprintf(buf, sizeof buf, "REACHED LEVEL %d", G.level);
     draw_text_center(W / 2.0f, py + 134, buf, 0xa1a1aa, 1, 1);
-    draw_text_center(W / 2.0f, py + 186, "ENTER restart   Q quit", 0x71717a, 1, 1);
+    static const char *items[OVER_ROWS] = { "PLAY AGAIN", "MAIN MENU", "QUIT" };
+    for (int row = 0; row < OVER_ROWS; row++)
+        menu_row(px, 500, py + 172 + row * 36, items[row], NULL, row == G.overRow);
 }
 
 static void draw_flash(void)
@@ -608,7 +654,7 @@ void render_frame(void)
     draw_lander();
     OX = OY = 0;
 
-    if (G.state == GS_PLAYING || G.state == GS_CRASHING ||
+    if (G.state == GS_PLAYING || G.state == GS_CRASHING || G.state == GS_PAUSED ||
         G.state == GS_LEVEL_COMPLETE || G.state == GS_GAMEOVER) {
         draw_hud();
     }
@@ -618,6 +664,7 @@ void render_frame(void)
     case GS_CONTROLS: draw_controls(); break;
     case GS_LEVEL_COMPLETE: draw_level_complete(); break;
     case GS_GAMEOVER: draw_gameover(); break;
+    case GS_PAUSED: draw_pause(); break;
     default: break;
     }
 
