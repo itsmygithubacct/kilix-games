@@ -322,15 +322,21 @@ class Game:
             self.message = "neural player: any key stops it"
 
     def autoplay_step(self) -> None:
-        """One neural move; stops on a win or when it has nothing sensible."""
+        """One neural move. Stops on a win, when it has nothing sensible, or
+        when a position comes round a third time: the simulator's repeat rule,
+        so a deal that only cycles the stock ends as it does in `sim.play`."""
         if not self.autoplay:
             return
         move, _ = self.advice()
+        stuck = "the neural player is stuck: undo, restart or a new deal"
         if move is None or not self.play(move, quiet=True):
             self.autoplay = False
-            self.message = "the neural player is stuck: undo, restart or a new deal"
+            self.message = stuck
         elif self.state.won:
             self.autoplay = False
+        elif self.history().visited.get(features.position_key(self.state), 0) > 2:
+            self.autoplay = False
+            self.message = stuck
 
     def button(self, name: str) -> None:
         {"deal": self.deal, "auto": self.auto_place, "home": self.all_home,

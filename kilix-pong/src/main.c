@@ -81,6 +81,7 @@ static void emergency_signal(int signal_number)
 static void install_signal_handlers(void)
 {
     (void)signal(SIGINT, emergency_signal);
+    (void)signal(SIGQUIT, emergency_signal);
     (void)signal(SIGTERM, emergency_signal);
     (void)signal(SIGHUP, emergency_signal);
     (void)signal(SIGSEGV, emergency_signal);

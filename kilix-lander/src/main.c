@@ -409,8 +409,11 @@ static int run_interactive(void)
         fprintf(stderr, "or run --selftest / --render-test.\n");
         return 1;
     }
-    signal(SIGINT, on_signal);
-    signal(SIGTERM, on_signal);
+    /* Restore the terminal on every signal whose default action ends the
+       process, not only Ctrl+C and SIGTERM. */
+    static const int fatal[] = { SIGINT, SIGQUIT, SIGTERM, SIGHUP, SIGSEGV, SIGBUS,
+                                 SIGFPE, SIGABRT };
+    for (size_t i = 0; i < sizeof fatal / sizeof fatal[0]; i++) signal(fatal[i], on_signal);
     atexit(term_shutdown);
 
     game_init(w, h, (uint32_t)time(NULL));

@@ -54,6 +54,8 @@ class Policy:
             raise PolicyError(f"unsupported policy version {version}")
         if not 1 <= layers <= MAX_LAYERS:
             raise PolicyError("layer count out of bounds")
+        if len(blob) < 16 + 4 * (layers + 1) + 4 + 8:
+            raise PolicyError("truncated header")
         widths = list(struct.unpack_from(f"<{layers + 1}I", blob, 16))
         if any(not 1 <= w <= MAX_WIDTH for w in widths):
             raise PolicyError(f"shape out of bounds: {widths}")
@@ -80,8 +82,9 @@ class Policy:
             at += fan_out
 
     @classmethod
-    def load(cls, path: Path = BLOB) -> "Policy":
-        return cls(Path(path).read_bytes())
+    def load(cls, path: Optional[Path] = None) -> "Policy":
+        """Reads `path`, by default the shipped BLOB (looked up at call time)."""
+        return cls(Path(path if path is not None else BLOB).read_bytes())
 
     def forward(self, inputs: Sequence[float]) -> list:
         if len(inputs) != self.widths[0]:

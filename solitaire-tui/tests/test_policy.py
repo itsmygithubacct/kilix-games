@@ -1,7 +1,12 @@
+import os
+import pathlib
 import struct
+import tempfile
 import unittest
+from unittest import mock
 
 from solitaire_tui import engine, features, policy, sim, tui
+from solitaire_tui.agents import GreedyAgent
 from solitaire_tui.engine import Move
 
 
@@ -50,6 +55,13 @@ class ReaderTest(unittest.TestCase):
                     policy.Policy(bad)
         policy.Policy(pack([256, 1], [0.0] * 257))          # the SDK's bound itself loads
 
+    def test_truncated_headers_are_policy_errors(self):
+        shipped = policy.BLOB.read_bytes()
+        for n in (0, 8, 15, 16, 17, 20, 24, 28, 40):
+            with self.subTest(bytes=n):
+                with self.assertRaises(policy.PolicyError):
+                    policy.Policy(shipped[:n])
+
 
 class ShippedPlayerTest(unittest.TestCase):
     @classmethod
@@ -67,6 +79,40 @@ class ShippedPlayerTest(unittest.TestCase):
             agent = policy.NeuralAgent(self.net)
             result = sim.play(agent, seed)                 # apply() checks legality
             self.assertIn(result.reason, ("won", "resigned", "stuck"))
+
+
+def _play(args):
+    kind, seed = args
+    agent = GreedyAgent() if kind == "greedy" else policy.NeuralAgent()
+    return kind, sim.play(agent, seed, False, 1000).won
+
+
+class StrengthGateTest(unittest.TestCase):
+    """The shipped network must still play: on regression deals 700000-700199
+    (used by no training, selection or held-out run) it won 54 against
+    greedy's 28 when shipped, and an all-zero network with a valid digest wins 0.
+    Games are deterministic, so the counts are exact; the margin below leaves
+    room for harmless float drift, not for a broken network."""
+
+    def test_neural_beats_greedy_on_regression_deals(self):
+        from multiprocessing import Pool
+        jobs = [(k, s) for k in ("greedy", "neural") for s in range(700000, 700200)]
+        with Pool(min(8, os.cpu_count() or 1)) as pool:
+            results = pool.map(_play, jobs)
+        wins = {k: sum(w for kind, w in results if kind == k) for k in ("greedy", "neural")}
+        self.assertGreaterEqual(wins["neural"], wins["greedy"] + 15, wins)
+
+
+class DamagedPolicyFallbackTest(unittest.TestCase):
+    def test_a_damaged_blob_falls_back_to_greedy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = pathlib.Path(tmp) / "damaged.kxpol"
+            bad.write_bytes(policy.BLOB.read_bytes()[:20])
+            with mock.patch.object(policy, "BLOB", bad), mock.patch.object(policy, "_cached", None):
+                self.assertIsNone(policy.default_policy())
+                g = tui.Game.new(7)
+                g.show_hint()
+                self.assertTrue(g.message.startswith("hint (greedy): "), g.message)
 
 
 class TuiPlayerTest(unittest.TestCase):
@@ -90,6 +136,21 @@ class TuiPlayerTest(unittest.TestCase):
         self.assertFalse(g.autoplay)
         g.autoplay_step()                                  # stopped: no move
         self.assertEqual(len(g.undo), 1)
+
+    def test_autoplay_stops_on_a_deal_that_only_cycles(self):
+        # Deals 1 and 7 end "stuck" in sim.play after 72 and 92 moves (a
+        # position seen a third time); auto-play must stop at the same point.
+        for seed, moves in ((1, 72), (7, 92)):
+            with self.subTest(seed=seed):
+                g = tui.Game.new(seed)
+                g.toggle_autoplay()
+                steps = 0
+                while g.autoplay and steps < 700:
+                    g.autoplay_step()
+                    steps += 1
+                self.assertFalse(g.autoplay)
+                self.assertEqual(steps, moves)
+                self.assertIn("stuck", g.message)
 
     def test_autoplay_refuses_deal_three(self):
         g = tui.Game.new(7, draw3=True)

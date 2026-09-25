@@ -71,9 +71,15 @@ static int cli[4] = { -1, -1, -1, -1 };   /* X, O, level, first move */
 
 /* A mouse press is turned into what it hit: a board cell (mouse_x) during
    play, or a menu row (mouse_y) on a menu. */
-static void resolve_mouse(const Game *g, Input *in, int w, int h)
+static void resolve_mouse(const Game *g, Input *in, const Screen *s)
 {
-    int x = in->mouse_x, y = in->mouse_y;
+    /* Hit-test against the layout actually drawn: render() clamps the screen
+       to SCREEN_MAX_W x SCREEN_MAX_H, so the terminal's own size is wrong here. */
+    int x = in->mouse_x, y = in->mouse_y, w = s->w, h = s->h;
+    if (w < MIN_W || h < MIN_H) {            /* only the "enlarge" message is drawn */
+        in->key = KEY_NONE;
+        return;
+    }
     if (g->screen == SCREEN_PLAY) {
         in->mouse_x = render_hit_cell(w, h, x, y);
         in->mouse_y = -1;
@@ -114,7 +120,7 @@ static int run_interactive(void)
                 break;
             }
             if (in.key == KEY_RESIZE) continue;
-            if (in.key == KEY_MOUSE) resolve_mouse(&game, &in, w, h);
+            if (in.key == KEY_MOUSE) resolve_mouse(&game, &in, &screen);
             game_input(&game, &in);
             if (game.quit) break;
         }
@@ -449,7 +455,29 @@ static int render_test(void)
     EXPECT(render_hit_cell(80, 24, 40, 11) == 4 && render_hit_cell(80, 24, 27, 5) == 0 &&
            render_hit_cell(80, 24, 33, 11) == -1,
            "board clicks map to squares and grid lines hit nothing");
+    /* wider than the drawing limit: clicks map through the clamped layout */
+    render(&g, &s, 240, 40);
+    {
+        int cx = -1;
+        for (int y = 0; y < s.h && cx < 0; y++) {
+            screen_row_text(&s, y, row, sizeof row);
+            if (strstr(row, "╳")) cx = y;
+        }
+        int hit = -1, drawn_x = -1;
+        for (int x = 0; x < s.w && drawn_x < 0; x++)
+            if (!strcmp(s.cells[cx][x].ch, "╳")) drawn_x = x;
+        Input click = { KEY_MOUSE, drawn_x, cx };
+        resolve_mouse(&g, &click, &s);         /* the interactive path */
+        hit = click.key == KEY_MOUSE ? click.mouse_x : -1;
+        EXPECT(s.w == SCREEN_MAX_W && drawn_x > 0 && hit == 4,
+               "on a 240-column terminal a click on the drawn centre square hits it");
+    }
     render(&g, &s, 30, 10);
+    {
+        Input click = { KEY_MOUSE, 15, 5 };
+        resolve_mouse(&g, &click, &s);
+        EXPECT(click.key == KEY_NONE, "clicks are ignored while the terminal is too small");
+    }
     screen_row_text(&s, 5, row, sizeof row);
     EXPECT(strstr(row, "Enlarge") != NULL, "a small terminal asks to be enlarged");
     key(&g, KEY_ESC);

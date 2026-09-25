@@ -39,22 +39,39 @@ or a timeout earns a shaped 0-0.8 for how close it came (over the pad, then
 speed and tilt), so a generation that lands nothing still has a direction.
 Workers are forked processes, because the game keeps its state in one global.
 
+The shipped pilot was made in two stages, then checked once on held-out
+levels 1-60 (the release protocol):
+
 ```sh
 make lab
-tools/neural/lander-lab --train WORK/run --hidden 32 --gens 400
-tools/neural/lander-lab --pilot neural --weights WORK/run/best.raw --hidden 32 \
-    --seed 9000000 --episodes 8000
-tools/neural/lander-lab --pilot autopilot --seed 9000000 --episodes 8000
-python3 tools/neural/install-policy.py WORK/run/best.raw --hidden 32 \
+# stage 1: from scratch, levels 1-12 (selection 5000000-5003999)
+tools/neural/lander-lab --train WORK/s1 --hidden 16 --gens 600
+# stage 2: continue on levels 1-60 (selection 5100000-5103999)
+tools/neural/lander-lab --train WORK/s2 --hidden 16 --gens 500 --init WORK/s1/best.raw \
+    --train-max-level 60 --max-level 60 --select-seed 5100000
+# the one held-out run, levels 1-60, and the autopilot on the same levels
+tools/neural/lander-lab --pilot neural --weights WORK/s2/best.raw --hidden 16 \
+    --seed 9100000 --episodes 8000 --max-level 60
+tools/neural/lander-lab --pilot autopilot --seed 9100000 --episodes 8000 --max-level 60
+python3 tools/neural/install-policy.py WORK/s2/best.raw --hidden 16 \
     --manifest-extra results.json
 make test
 ```
 
+The shipped blob reproduces the held-out figures exactly:
+
+```sh
+tools/neural/lander-lab --pilot neural --blob assets/policy/lander-neural.kxpol \
+    --seed 9100000 --episodes 8000 --max-level 60     # 7869/8000 landed
+```
+
 One level of evaluation is episode k of a seed range: seed S+k, difficulty
-k % 4, level 1 + (k/4) % 12, and one of ten fixed terminal sizes (k % 10).
-Training, selection (5000000-5003999) and the one-shot held-out range
-(9000000-9007999) never overlap. `make test`'s `--pilot-test` uses a fourth
-range (8000000+).
+k % 4, level 1 + (k/4) % N (N = 60 for the release; the lab's default
+`--max-level` is 12, stage 1's range), and one of ten fixed terminal sizes
+(k % 10). Training (1000000+), selection and the one-shot held-out range
+never overlap; stage 1 used held-out 9000000-9007999 once (99.99% on levels
+1-12) before stage 2 moved to fresh ranges. `make test`'s `--pilot-test`
+uses a fourth range (8000000+).
 
 ## The shipped pilot
 
@@ -63,5 +80,8 @@ generations on levels 1-12 and selected at generation 420, then continued for
 500 generations on levels 1-60 and selected at generation 440 (selection
 98.5%). The single held-out run, 8000 levels 1-60: **98.4%**, against the
 autopilot's 55.0% on the same levels. Easy and Medium land every time; Extra
-Hard lands 93.6%. The full record, including the rejected 32- and 64-wide
-runs, is in the manifest.
+Hard lands 93.6%. The runs not selected: a 32-wide network reached 99.98%
+selection in stage 1 and 96.2% in stage 2; a 64-wide network trained from
+scratch with the same settings never took off (44.9% after 600 generations).
+The manifest records the selected network's training, selection and held-out
+results.

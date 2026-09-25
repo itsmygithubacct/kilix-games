@@ -74,10 +74,11 @@ bool term_init(void)
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) != 0) return false;
     active = true;
     (void)atexit(restore);
-    signal(SIGTERM, on_fatal);
-    signal(SIGHUP, on_fatal);
-    signal(SIGSEGV, on_fatal);
-    signal(SIGABRT, on_fatal);
+    /* Every signal whose default action ends the process: Ctrl+C arrives as a
+       key in raw mode, but an INT or QUIT sent from elsewhere does not. */
+    static const int fatal[] = { SIGINT, SIGQUIT, SIGTERM, SIGHUP, SIGSEGV, SIGBUS,
+                                 SIGFPE, SIGABRT };
+    for (size_t i = 0; i < sizeof fatal / sizeof fatal[0]; i++) signal(fatal[i], on_fatal);
     struct sigaction sa;
     memset(&sa, 0, sizeof sa);
     sa.sa_handler = on_winch;

@@ -43,6 +43,7 @@ test: $(BIN) check-policy
 	./$(BIN) --rules-test
 	./$(BIN) --neural-test
 	./$(BIN) --render-test
+	@PYTHONDONTWRITEBYTECODE=1 $(PYTHON) tests/pty_check.py
 	@set -eu; \
 	root=$$(mktemp -d); trap 'rm -rf "$$root"' EXIT HUP INT TERM; \
 	$(MAKE) --no-print-directory DESTDIR="$$root" PREFIX=/usr/local install; \
