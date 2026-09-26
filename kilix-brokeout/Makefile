@@ -44,24 +44,27 @@ $(LAB): tools/neural/brokeout_lab.c src/game.o src/kitty_brokeout.h $(KILIX_GAME
 
 check-policy:
 	@PYTHONDONTWRITEBYTECODE=1 python3 tools/neural/check-policy.py
-	@PYTHONDONTWRITEBYTECODE=1 $(PYTHON) tools/neural/check-policy.py --self-test
+	@PYTHONDONTWRITEBYTECODE=1 $(PYTHON) tools/neural/test-check-policy.py
 
 # Every headless mode runs against a sentinel store: XDG data and state point
-# at a directory holding a legacy-format high score, and nothing in it (names,
-# modes, sizes, bytes) may change. The game must isolate itself.
+# at a directory holding a legacy-format high score, and after each mode
+# nothing in it (names, modes, sizes, bytes) may have changed. The game must
+# isolate itself. --sound-test runs with an empty PATH, so no audio sink is
+# found and it stays silent.
 test: $(BIN) check-policy
 	@set -eu; store=$$(mktemp -d); dir=$$(mktemp -d); \
 	trap 'rm -rf "$$store" "$$dir"' EXIT HUP INT TERM; \
 	mkdir -p "$$store/kitty-brokeout"; printf '12345\n' > "$$store/kitty-brokeout/highscore"; \
 	snapshot() { (cd "$$store" && find . -printf '%p %m %s\n' | sort && sha256sum kitty-brokeout/highscore); }; \
 	before=$$(snapshot); export XDG_DATA_HOME="$$store" XDG_STATE_HOME="$$store"; \
-	./$(BIN) --input-test; \
-	./$(BIN) --menu-test; \
-	./$(BIN) --player-test; \
-	./$(BIN) --selftest 1337 7200; \
-	./$(BIN) --render-test 42 "$$dir"; \
+	unchanged() { [ "$$before" = "$$(snapshot)" ] || { echo "FAIL: $$1 changed the player's high-score store" >&2; exit 1; }; }; \
+	./$(BIN) --input-test; unchanged --input-test; \
+	./$(BIN) --menu-test; unchanged --menu-test; \
+	./$(BIN) --player-test; unchanged --player-test; \
+	./$(BIN) --selftest 1337 7200; unchanged --selftest; \
+	./$(BIN) --render-test 42 "$$dir"; unchanged --render-test; \
 	[ "$$(ls "$$dir"/render_*.ppm | wc -l)" -eq 6 ] || { echo "expected 6 render fixtures" >&2; exit 1; }; \
-	[ "$$before" = "$$(snapshot)" ] || { echo "FAIL: a headless mode changed the player's high-score store" >&2; exit 1; }; \
+	env PATH=/nonexistent ./$(BIN) --sound-test; unchanged --sound-test; \
 	echo "PASS: no headless mode touched the high-score store"
 
 # The instrumented build uses its own SDK build directory, so the normal

@@ -3,9 +3,9 @@
 manifest describe the same network (run by `make test`): the blob's sha256,
 FNV-1a-64 digest, widths and parameter count must equal the manifest's, the
 widths must fit the game's contract, and the header must embed exactly these
-bytes. `--self-test` mutates each of those manifest fields and the header in
-memory and requires every mutation to be caught."""
-import copy
+bytes. `--manifest PATH` and `--header PATH` check other copies of those
+files; tools/neural/test-check-policy.py uses them to prove each field is
+checked."""
 import hashlib
 import json
 import re
@@ -44,31 +44,16 @@ def problems(blob, info, manifest, header):
 
 
 def main():
+    import argparse
+    ap = argparse.ArgumentParser(description="check the shipped policy against its manifest")
+    ap.add_argument("--manifest", type=Path, default=MANIFEST)
+    ap.add_argument("--header", type=Path, default=HEADER)
+    a = ap.parse_args()
     blob = BLOB.read_bytes()
     info = json.loads(subprocess.run([sys.executable, "-B", str(KIT), "verify", str(BLOB)],
                                      check=True, capture_output=True, text=True).stdout)
-    manifest = json.loads(MANIFEST.read_text())
-    header = HEADER.read_text()
-    if "--self-test" in sys.argv[1:]:
-        mutations = {
-            "sha256": ("sha256", "0" * 64), "fnv1a64": ("fnv1a64", "0" * 16),
-            "widths": ("widths", [1, 1]), "parameters": ("parameters", 1),
-        }
-        missed = []
-        for name, (key, value) in mutations.items():
-            bad = copy.deepcopy(manifest)
-            bad[key] = value
-            if not problems(blob, info, bad, header):
-                missed.append(name)
-        last = header.rfind("0x")
-        tampered = header[:last] + ("0x01" if header[last:last + 4] != "0x01" else "0x02") + header[last + 4:]
-        if not problems(blob, info, manifest, tampered):
-            missed.append("header bytes")
-        if missed:
-            print(f"check-policy self-test: mutations not caught: {', '.join(missed)}", file=sys.stderr)
-            return 1
-        print("check-policy self-test: every manifest field and the header are checked")
-        return 0
+    manifest = json.loads(a.manifest.read_text())
+    header = a.header.read_text()
     found = problems(blob, info, manifest, header)
     if found:
         for line in found:

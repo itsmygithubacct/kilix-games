@@ -788,7 +788,9 @@ void game_shutdown(void)
 void game_tick(void)
 {
     G.frameCount++;
-    G.stateTimer += TICK_DT;
+    /* A pause freezes every state delay (the ball-lost wait, a computer
+       player's level-clear wait): Resume continues where it stopped. */
+    if (G.state != GS_PAUSED) G.stateTimer += TICK_DT;
     if (G.screenFlash > 0.0f) G.screenFlash = fmaxf(0.0f, G.screenFlash - TICK_DT * 1.9f);
     if (G.cameraShake > 0.0f) G.cameraShake = fmaxf(0.0f, G.cameraShake - 34.0f * TICK_DT);
 

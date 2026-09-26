@@ -342,6 +342,24 @@ static int menu_test(void)
     G.controller = PLAYER_NEURAL;
     for (int t = 0; t < 200 && G.state == GS_LEVEL_CLEAR; t++) game_tick();
     EXPECT(G.state == GS_PLAYING && G.level == 2, "a computer player moves on after a clear by itself");
+
+    /* Pausing its clear screen must not use up that wait. */
+    game_init(1000, 640, 5);
+    G.headless = true;
+    G.player = PLAYER_NEURAL;
+    game_start_run();
+    game_force_level_clear();
+    G.controller = PLAYER_NEURAL;
+    for (int t = 0; t < 60; t++) game_tick();         /* 1 s of the 2.2 s wait */
+    game_handle_key('p');
+    for (int t = 0; t < 600; t++) game_tick();        /* 10 s paused */
+    game_handle_key(KEY_ESC);
+    game_tick();
+    EXPECT(G.state == GS_LEVEL_CLEAR, "a long pause on a computer player's clear screen keeps its wait");
+    int waited = 1;
+    while (G.state == GS_LEVEL_CLEAR && waited < 400) { game_tick(); waited++; }
+    EXPECT(G.state == GS_PLAYING && waited >= 60 && waited <= 80,
+           "and the rest of the wait (about 1.2 s) runs after Resume");
 #undef EXPECT
     return failures ? 1 : 0;
 }

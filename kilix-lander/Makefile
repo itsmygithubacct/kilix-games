@@ -56,7 +56,7 @@ validate-audio:
 
 check-policy:
 	@PYTHONDONTWRITEBYTECODE=1 python3 tools/neural/check-policy.py
-	@PYTHONDONTWRITEBYTECODE=1 $(PYTHON) tools/neural/check-policy.py --self-test
+	@PYTHONDONTWRITEBYTECODE=1 $(PYTHON) tools/neural/test-check-policy.py
 
 test: $(BIN) validate-audio check-policy
 	./$(BIN) --input-test
