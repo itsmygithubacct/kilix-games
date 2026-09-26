@@ -50,22 +50,29 @@ check-policy:
 # at a directory holding a legacy-format high score, and after each mode
 # nothing in it (names, modes, sizes, bytes) may have changed. The game must
 # isolate itself. --sound-test runs with an empty PATH, so no audio sink is
-# found and it stays silent.
-test: $(BIN) check-policy
+# found and it stays silent. GAME is the binary under test;
+# tests/sentinel_coverage.py swaps in wrappers that tamper with the store to
+# prove this recipe catches it.
+GAME ?= ./$(BIN)
+sentinel: $(BIN)
 	@set -eu; store=$$(mktemp -d); dir=$$(mktemp -d); \
 	trap 'rm -rf "$$store" "$$dir"' EXIT HUP INT TERM; \
 	mkdir -p "$$store/kitty-brokeout"; printf '12345\n' > "$$store/kitty-brokeout/highscore"; \
 	snapshot() { (cd "$$store" && find . -printf '%p %m %s\n' | sort && sha256sum kitty-brokeout/highscore); }; \
 	before=$$(snapshot); export XDG_DATA_HOME="$$store" XDG_STATE_HOME="$$store"; \
 	unchanged() { [ "$$before" = "$$(snapshot)" ] || { echo "FAIL: $$1 changed the player's high-score store" >&2; exit 1; }; }; \
-	./$(BIN) --input-test; unchanged --input-test; \
-	./$(BIN) --menu-test; unchanged --menu-test; \
-	./$(BIN) --player-test; unchanged --player-test; \
-	./$(BIN) --selftest 1337 7200; unchanged --selftest; \
-	./$(BIN) --render-test 42 "$$dir"; unchanged --render-test; \
+	$(GAME) --input-test; unchanged --input-test; \
+	$(GAME) --menu-test; unchanged --menu-test; \
+	$(GAME) --player-test; unchanged --player-test; \
+	$(GAME) --selftest 1337 7200; unchanged --selftest; \
+	$(GAME) --render-test 42 "$$dir"; unchanged --render-test; \
 	[ "$$(ls "$$dir"/render_*.ppm | wc -l)" -eq 6 ] || { echo "expected 6 render fixtures" >&2; exit 1; }; \
-	env PATH=/nonexistent ./$(BIN) --sound-test; unchanged --sound-test; \
+	env PATH=/nonexistent $(GAME) --sound-test; unchanged --sound-test; \
 	echo "PASS: no headless mode touched the high-score store"
+
+test: $(BIN) check-policy
+	@$(MAKE) --no-print-directory sentinel
+	@PYTHONDONTWRITEBYTECODE=1 $(PYTHON) tests/sentinel_coverage.py
 
 # The instrumented build uses its own SDK build directory, so the normal
 # SDK archive never holds sanitizer objects and a later plain make links.
@@ -83,4 +90,4 @@ sanitize:
 clean:
 	rm -f $(OBJ) $(BIN) $(LAB) render_*.ppm render_*.png
 
-.PHONY: all lab check-policy test sanitize clean
+.PHONY: all lab check-policy sentinel test sanitize clean
