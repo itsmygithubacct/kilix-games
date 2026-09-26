@@ -3,13 +3,14 @@
 sentinel must catch a headless mode that touches the high-score store.
 
 It runs the sentinel target with GAME set to a wrapper around the real
-binary. A clean wrapper must pass. A wrapper that appends to the store's
-legacy high-score file after one mode must make the target fail and name that
-mode; this is tried after the first mode (--input-test) and after the last
-(--sound-test, which runs with an empty PATH). A recipe that stopped
-checking after every mode, dropped a mode, or stopped honouring GAME fails
-here. The wrapper only runs the real game for the tampered mode and for
---render-test, whose output the recipe checks, so this stays fast."""
+binary. A clean wrapper must pass. For each of the six headless modes, a
+wrapper that overwrites the store's legacy high score with different bytes of
+the same length (12345 -> 92345) during that mode must make the target fail
+and name that mode. Only a content hash sees a same-length overwrite, so a
+recipe that drops a mode, stops checking after every mode, stops hashing the
+file, or stops honouring GAME fails here. The wrappers do not run the real
+game except for --render-test, whose output the recipe checks, so this stays
+fast."""
 import os
 import stat
 import subprocess
@@ -20,15 +21,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 REAL = ROOT / "kitty-brokeout"
 
+MODES = ("--input-test", "--menu-test", "--player-test", "--selftest", "--render-test",
+         "--sound-test")
+
 WRAPPER = """#!/bin/sh
 mode="$1"
+rc=0
+if [ "$mode" = "--render-test" ]; then "{real}" "$@"; rc=$?; fi
 if [ "$mode" = "{mutate}" ]; then
-    "{real}" "$@"; rc=$?
-    printf 'x' >> "$XDG_DATA_HOME/kitty-brokeout/highscore"
-    exit $rc
+    printf '92345\\n' > "$XDG_DATA_HOME/kitty-brokeout/highscore"
 fi
-if [ "$mode" = "--render-test" ]; then exec "{real}" "$@"; fi
-exit 0
+exit $rc
 """
 
 
@@ -40,7 +43,7 @@ def sentinel(wrapper):
 def main():
     failures = []
     with tempfile.TemporaryDirectory() as tmp:
-        for mutate in ("none", "--input-test", "--sound-test"):
+        for mutate in ("none",) + MODES:
             wrapper = Path(tmp) / f"game-{mutate.strip('-') or 'none'}"
             wrapper.write_text(WRAPPER.format(mutate=mutate, real=REAL))
             wrapper.chmod(wrapper.stat().st_mode | stat.S_IXUSR)
