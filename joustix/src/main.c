@@ -349,6 +349,32 @@ static int menu_test(void)
     EXPECT(G.gameover_choice == GAMEOVER_QUIT, "game over offers QUIT");
     game_handle_key(KEY_ENTER);
     EXPECT(G.quit, "the game-over menu's QUIT exits");
+
+    /* Pausing during the between-waves pause must resume into it: the
+       field is empty, so resuming into play would pay the bonus again. */
+    game_init(960, 540, 5);
+    G.headless = true;
+    game_start();
+    for (int i = 0; i < MAX_ENEMIES; i++) G.enemies[i].rider.active = false;
+    for (int i = 0; i < MAX_EGGS; i++) G.eggs[i].active = false;
+    game_tick();
+    int wave = G.wave, score = G.score;
+    float timer = G.wave_timer;
+    EXPECT(G.state == GS_WAVE && timer > 0, "clearing the field starts the wave break");
+    game_handle_key(KEY_ESC);
+    for (int t = 0; t < 30; t++) game_tick();
+    EXPECT(G.state == GS_PAUSED && G.wave_timer == timer, "the wave break waits while paused");
+    game_handle_key(KEY_ESC);
+    EXPECT(G.state == GS_WAVE, "Esc resumes into the wave break");
+    game_tick();
+    EXPECT(G.state == GS_WAVE && G.score == score && G.wave_timer < timer,
+           "the wave break runs on after resuming, with no second bonus");
+    game_handle_key('p');
+    game_handle_key(KEY_ENTER);                   /* RESUME */
+    EXPECT(G.state == GS_WAVE, "the pause menu's RESUME returns to the wave break");
+    for (int t = 0; t < 200 && G.state == GS_WAVE; t++) game_tick();
+    EXPECT(G.state == GS_PLAYING && G.wave == wave + 1 && G.score == score,
+           "the next wave starts once, without a repeated bonus");
 #undef EXPECT
     return failures ? 1 : 0;
 }
