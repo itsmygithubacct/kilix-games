@@ -358,6 +358,11 @@ static void draw_hud(void)
     text_px((int)sx(315) - text_width_px(b, size), (int)sy(4.2f), b,
             G.lives > 1 ? 0xb9f6c7 : 0xff7770, 1, size);
     if (!G.sound_on) text_l(5, 17, "SOUND OFF", 0x94a3b8, .85f, .55f);
+    if (G.flying != PILOT_YOU)
+        text_center_l(160, 17, G.flying == PILOT_NEURAL ? "NEURAL RIDER   N TAKE OVER" : "AUTOPILOT   N TAKE OVER",
+                      G.flying == PILOT_NEURAL ? 0xc084fc : 0x7dd3fc, .9f, .5f);
+    else if (G.pilot != PILOT_YOU)
+        text_center_l(160, 17, "N HAND BACK", 0x94a3b8, .8f, .5f);
 }
 
 static void panel(float x, float y, float w, float h)
@@ -397,28 +402,48 @@ static void draw_title(void)
     Rider b = { .x = 245 - sinf(G.scene_time * .7f) * 10, .y = 89 + cosf(G.scene_time * 1.2f) * 8,
                 .dir = -1, .active = true, .flap_anim = fmodf(G.scene_time + .2f, .55f) < .2f ? .18f : 0 };
     draw_rider(&a, true, 0); draw_rider(&b, false, EN_BOUNDER);
-    rect_l(42, 22, 216, 105, 0x030714, .72f);
-    text_center_l(160.8f, 32.8f, "JOUSTIX", 0x4b2808, .85f, 3.05f);
-    text_center_l(160, 31, "JOUSTIX", 0xffd84d, 1, 3.05f);
-    text_center_l(160, 60, "FLY HIGH. STRIKE HIGHER.", 0xc9d8f2, .92f, .75f);
-    panel(91, 75, 138, 37);
-    text_center_l(160, 80, "DIFFICULTY", 0x94a3b8, 1, .62f);
-    static const char *names[] = { "< SQUIRE >", "< KNIGHT >", "< BLACK KNIGHT >" };
-    text_center_l(160, 91, names[G.difficulty], 0xf8fafc, 1, .84f);
+    rect_l(42, 12, 236, 134, 0x030714, .74f);
+    text_center_l(160.8f, 18.8f, "JOUSTIX", 0x4b2808, .85f, 2.6f);
+    text_center_l(160, 17, "JOUSTIX", 0xffd84d, 1, 2.6f);
+    text_center_l(160, 41, "FLY HIGH. STRIKE HIGHER.", 0xc9d8f2, .92f, .64f);
+    static const char *diff[] = { "SQUIRE", "KNIGHT", "BLACK KNIGHT" };
+    static const char *labels[MENU_ROWS] = { "RIDE", "DIFFICULTY", "PLAYER", "SOUND", "QUIT" };
+    float blink = .6f + .4f * sinf(G.scene_time * 4.0f);
+    for (int row = 0; row < MENU_ROWS; row++) {
+        float y = 54 + row * 14 + (row == MENU_QUIT ? 3 : 0);
+        bool sel = row == G.menu_row;
+        if (sel) rect_l(72, y - 2.5f, 176, 11, 0x1b2a4a, .95f);
+        const char *value = row == MENU_DIFFICULTY ? diff[G.difficulty]
+                          : row == MENU_PILOT ? PILOT_NAMES[G.pilot]
+                          : row == MENU_SOUND ? (G.sound_on ? "ON" : "OFF") : NULL;
+        char line[64];
+        if (value) snprintf(line, sizeof line, sel ? "%s  < %s >" : "%s  %s", labels[row], value);
+        else snprintf(line, sizeof line, "%s", labels[row]);
+        text_center_l(160, y, line, sel ? 0xffe888 : 0xcbd5e1, sel ? (row == MENU_START ? blink : 1) : .8f,
+                      row == MENU_START ? .78f : .62f);
+    }
     char best[32];
     snprintf(best, sizeof best, "BEST %06d", G.high_score);
-    text_center_l(160, 104, best, 0x94a3b8, 1, .50f);
-    float blink = .55f + .45f * sinf(G.scene_time * 3.5f);
-    text_center_l(160, 119, "PRESS ENTER TO RIDE", 0xffe888, blink, .78f);
-    text_center_l(160, 133, "LEFT RIGHT CHOOSE   M SOUND   Q QUIT", 0x94a3b8, .9f, .51f);
+    text_center_l(160, 128, best, 0x94a3b8, 1, .48f);
+    const char *note = G.pilot == PILOT_NEURAL
+        ? (pilot_neural_ready() ? "A TRAINED NETWORK RIDES   N TAKES OVER" : "NEURAL UNAVAILABLE: AUTOPILOT RIDES")
+        : G.pilot == PILOT_AUTOPILOT ? "THE AUTOPILOT RIDES   N TAKES OVER"
+        : "UP DOWN SELECT   LEFT RIGHT CHANGE   ENTER";
+    text_center_l(160, 138, note, 0x94a3b8, .9f, .44f);
 }
 
 static void draw_overlay(void)
 {
     if (G.state == GS_PAUSED) {
-        panel(88, 66, 144, 51);
-        text_center_l(160, 75, "PAUSED", 0xffdb58, 1, 1.45f);
-        text_center_l(160, 98, "P OR ESC TO RESUME", 0xcbd5e1, 1, .62f);
+        static const char *items[PAUSE_ROWS] = { "RESUME", "RESTART", "MAIN MENU", "QUIT" };
+        panel(96, 46, 128, 86);
+        text_center_l(160, 54, "PAUSED", 0xffdb58, 1, 1.35f);
+        for (int row = 0; row < PAUSE_ROWS; row++) {
+            bool sel = row == G.pause_row;
+            char line[32];
+            snprintf(line, sizeof line, sel ? "> %s <" : "%s", items[row]);
+            text_center_l(160, 76 + row * 12, line, sel ? 0xffdd67 : 0x94a3b8, 1, .66f);
+        }
     } else if (G.state == GS_GAMEOVER) {
         rect_l(0, 0, 320, 180, 0x280506, .18f);
         panel(74, 33, 172, 114);
@@ -428,13 +453,14 @@ static void draw_overlay(void)
         text_center_l(160, 68, b, 0xf8fafc, 1, .64f);
         snprintf(b, sizeof b, "BEST  %06d", G.high_score);
         text_center_l(160, 80, b, 0xcbd5e1, 1, .60f);
-        bool restart = G.gameover_choice == GAMEOVER_RESTART;
-        text_center_l(160, 99, restart ? "> RIDE AGAIN <" : "RIDE AGAIN",
-                      restart ? 0xffdd67 : 0x94a3b8, 1, .70f);
-        text_center_l(160, 114, restart ? "MAIN MENU" : "> MAIN MENU <",
-                      restart ? 0x94a3b8 : 0xffdd67, 1, .70f);
-        text_center_l(160, 135, "ARROWS CHOOSE   ENTER SELECT",
-                      0x94a3b8, 1, .46f);
+        static const char *items[GAMEOVER_OPTION_COUNT] = { "RIDE AGAIN", "MAIN MENU", "QUIT" };
+        for (int row = 0; row < GAMEOVER_OPTION_COUNT; row++) {
+            bool sel = row == G.gameover_choice;
+            char line[32];
+            snprintf(line, sizeof line, sel ? "> %s <" : "%s", items[row]);
+            text_center_l(160, 96 + row * 12, line, sel ? 0xffdd67 : 0x94a3b8, 1, .66f);
+        }
+        text_center_l(160, 137, "ARROWS CHOOSE   ENTER SELECT", 0x94a3b8, 1, .44f);
     }
 }
 

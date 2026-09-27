@@ -1,0 +1,85 @@
+{
+ "artifact": "assets/policy/joustix-neural.kxpol",
+ "embedded_header": "src/neural_policy_blob.h",
+ "format": "kilix-game-kit KXPOLICY v1",
+ "sha256": "a24081bd9bfee31dcdfc153d71c6c27a61c8b1016ff6870da19a678ce6fd526d",
+ "fnv1a64": "b7ab9869752730fd",
+ "widths": [
+  47,
+  32,
+  32,
+  6
+ ],
+ "parameters": 2790,
+ "license": "MIT, same as joustix",
+ "origin": "Self-trained in joustix's own simulation (tools/neural/joustix_lab.c linked against game.o). No third-party data or weights.",
+ "inputs": "game_policy_features() in src/game.c: 47 floats in the fixed 320x180 logical units",
+ "outputs": "6 logits: direction {left, none, right} x flap {no, yes}; argmax each tick",
+ "training": {
+  "method": "evolution strategies (antithetic, rank-shaped, Adam, sigma 0.05, lr 0.02, pop 64, 48 shared waves per generation, difficulty and wave 1-12 drawn from the seed)",
+  "stages": [
+   "from scratch, 60 s episodes, death penalty 1.0: selected generation 75 (selection 85.2%)",
+   "continued 200 generations, 120 s episodes, death penalty 3.0, after a diagnosis showed every death was a joust lost to a higher enemy: selected generation 150"
+  ],
+  "reward": "share of the wave's points earned + (1 + up to 0.5 for a faster clear) - death penalty",
+  "tool": "tools/neural/joustix_lab.c (make lab)"
+ },
+ "evaluation_episode": "seed S+k, difficulty k%3, wave 1+(k/3)%12; ends on a clear, a lost rider or 120 s",
+ "selection": {
+  "seeds": "5000000-5002399",
+  "clean_clear": 0.8946,
+  "rider_lost": 0.1054,
+  "progress": 0.9495,
+  "rule": "highest clean-clear rate; progress breaks ties; then the smaller network"
+ },
+ "held_out": {
+  "seeds": "9000000-9004799, evaluated once",
+  "neural": {
+   "episodes": 4800,
+   "cleared": 4284,
+   "clear_rate": 0.8925,
+   "wilson95": [
+    0.8834,
+    0.901
+   ],
+   "rider_lost": 515,
+   "loss_rate": 0.1073,
+   "loss_wilson95": [
+    0.0988,
+    0.1164
+   ],
+   "mean_progress": 0.9419,
+   "mean_clear_seconds": 31.79,
+   "by_waves": {
+    "1-3": 0.9668,
+    "4-6": 0.9158,
+    "7-9": 0.883,
+    "10-12": 0.8037
+   }
+  },
+  "autopilot": {
+   "episodes": 4800,
+   "cleared": 48,
+   "clear_rate": 0.01,
+   "wilson95": [
+    0.0076,
+    0.0132
+   ],
+   "rider_lost": 4743,
+   "loss_rate": 0.9881,
+   "loss_wilson95": [
+    0.9846,
+    0.9908
+   ],
+   "mean_progress": 0.0172,
+   "mean_clear_seconds": 7.45,
+   "by_waves": {
+    "1-3": 0.0357,
+    "4-6": 0.0033,
+    "7-9": 0.0008,
+    "10-12": 0.0
+   }
+  },
+  "ship_rule": "clean-clear rate beats the autopilot with non-overlapping Wilson intervals, rider-loss rate not worse (non-overlapping), no wave band worse: met"
+ }
+}

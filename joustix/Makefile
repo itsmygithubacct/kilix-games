@@ -3,6 +3,7 @@
 .DEFAULT_GOAL := all
 
 CC      ?= cc
+PYTHON  ?= python3
 KILIX_GAME_KIT_DIR ?= third_party/kilix-game-kit
 # In the kilix-games monorepo the SDK is shared; build the kit per game so
 # games never share objects built with different flags.
@@ -16,7 +17,7 @@ LDLIBS  ?= $(KILIX_GAME_KIT_LDLIBS)
 PREFIX  ?= /usr/local
 DESTDIR ?=
 
-SRC = src/main.c src/game.c src/render.c src/term.c src/sound.c
+SRC = src/main.c src/game.c src/pilot.c src/render.c src/term.c src/sound.c
 OBJ = $(SRC:.c=.o)
 BIN = joustix
 ASSET_FILES = assets/stage.ppm assets/gameover.ppm assets/player.ppm assets/bounder.ppm \
@@ -34,14 +35,29 @@ src/%.o: src/%.c src/joustix.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
 
 src/sound.o: $(PCM_MIXER_DIR)/include/pcmmix_bank.h
+src/pilot.o: src/neural_policy_blob.h
 src/render.o: $(SOFT_RASTER_DIR)/include/soft_raster.h
 src/term.o: $(KITTY_TERMINAL_SESSION_DIR)/include/kitty_terminal_session.h \
 	$(KITTY_KEYBOARD_DIR)/include/kitty_keyboard.h \
 	$(KITTY_KEYBOARD_DIR)/include/kitty_keyboard_posix.h \
 	$(KITTY_FRAMEBUFFER_DIR)/include/kitty_framebuffer.h
 
-test: $(BIN) validate-assets validate-audio
+# Headless training/evaluation lab for the neural rider (not part of `all`);
+# see tools/neural/README.md.
+LAB = tools/neural/joustix-lab
+lab: $(LAB)
+$(LAB): tools/neural/joustix_lab.c src/game.o src/joustix.h $(KILIX_GAME_KIT_LIB)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -Isrc -o $@ tools/neural/joustix_lab.c src/game.o \
+		$(KILIX_GAME_KIT_LIB) $(LDLIBS)
+
+check-policy:
+	@PYTHONDONTWRITEBYTECODE=1 $(PYTHON) tools/neural/check-policy.py
+	@PYTHONDONTWRITEBYTECODE=1 $(PYTHON) tools/neural/test-check-policy.py
+
+test: $(BIN) validate-assets validate-audio check-policy
 	./$(BIN) --rules-test
+	./$(BIN) --menu-test
+	./$(BIN) --pilot-test
 	./$(BIN) --selftest 1337 12000
 	./$(BIN) --selftest 42 12000
 	@render_dir=$$(mktemp -d); \
@@ -96,7 +112,22 @@ uninstall:
 	rm -f "$(DESTDIR)$(PREFIX)/share/man/man6/joustix.6"
 	rm -rf "$(DESTDIR)$(PREFIX)/share/joustix"
 
-clean:
-	rm -f $(OBJ) $(BIN) render_*.ppm
+# The instrumented build uses its own SDK build directory, so the normal
+# SDK archive never holds sanitizer objects and a later plain make links.
+sanitize:
+	$(MAKE) clean
+	$(MAKE) KILIX_GAME_KIT_BUILD_DIR=$(CURDIR)/build/kilix-game-kit-sanitize \
+		CFLAGS='-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -Wall -Wextra -Werror -std=c11' \
+		LDLIBS='$(KILIX_GAME_KIT_LDLIBS) -fsanitize=address,undefined' $(BIN)
+	./$(BIN) --rules-test
+	./$(BIN) --menu-test
+	./$(BIN) --pilot-test
+	./$(BIN) --selftest 1337 12000
+	@render_dir=$$(mktemp -d); trap 'rm -rf "$$render_dir"' EXIT HUP INT TERM; \
+		JOUSTIX_RENDER_DIR="$$render_dir" ./$(BIN) --render-test 7 >/dev/null
+	$(MAKE) clean
 
-.PHONY: all test validate-assets validate-audio install uninstall clean
+clean:
+	rm -f $(OBJ) $(BIN) $(LAB) render_*.ppm
+
+.PHONY: all test validate-assets validate-audio install uninstall clean lab check-policy sanitize

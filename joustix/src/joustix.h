@@ -24,7 +24,14 @@ enum {
 
 enum { GS_TITLE, GS_PLAYING, GS_WAVE, GS_PAUSED, GS_GAMEOVER };
 enum { EN_BOUNDER, EN_HUNTER, EN_SHADOW, EN_TYPE_COUNT };
-enum { GAMEOVER_RESTART, GAMEOVER_MENU, GAMEOVER_OPTION_COUNT };
+enum { GAMEOVER_RESTART, GAMEOVER_MENU, GAMEOVER_QUIT, GAMEOVER_OPTION_COUNT };
+/* Who rides. YOU is the keyboard, NEURAL the trained network in pilot.c,
+   AUTOPILOT the scripted game_autopilot(). */
+enum { PILOT_YOU, PILOT_NEURAL, PILOT_AUTOPILOT, PILOT_COUNT };
+/* The title is a main menu and P/Esc opens a pause menu; the game is left
+   through QUIT (or Ctrl+C), not a key. */
+enum { MENU_START, MENU_DIFFICULTY, MENU_PILOT, MENU_SOUND, MENU_QUIT, MENU_ROWS };
+enum { PAUSE_RESUME, PAUSE_RESTART, PAUSE_MENU, PAUSE_QUIT, PAUSE_ROWS };
 enum {
     SFX_MENU, SFX_FLAP, SFX_STEP, SFX_LAND, SFX_JOUST, SFX_HURT, SFX_EGG,
     SFX_HATCH, SFX_WAVE, SFX_LAVA, SFX_COUNT
@@ -82,6 +89,9 @@ typedef struct {
 
     int wave, score, high_score, lives;
     int difficulty, gameover_choice;
+    int pilot;              /* PILOT_* chosen on the menu */
+    int flying;             /* PILOT_* riding now (N swaps YOU and the pilot) */
+    int menu_row, pause_row, paused_from;
     float wave_timer, respawn_timer, left_input, right_input;
     float shake, flash, message_timer, lava_troll_timer, lava_troll_phase;
     float step_sound_timer;
@@ -92,6 +102,7 @@ typedef struct {
 } GameState;
 
 extern GameState G;
+extern const char *PILOT_NAMES[PILOT_COUNT];
 
 float clampf(float v, float lo, float hi);
 float game_randf(void);
@@ -103,9 +114,28 @@ void game_tick(void);
 void game_handle_key(int key);
 void game_set_held_controls(bool available, bool left, bool right, bool flap);
 void game_autopilot(void);
+/* A game that begins at `wave` (tests and the neural lab). */
+void game_start_wave(int wave);
+
+/* Neural player contract, shared by the game and tools/neural/joustix_lab.c:
+   features of what a rider can see, in the fixed 320x180 logical units, and
+   6 actions = direction {left, none, right} x flap {no, yes}. */
+#define POLICY_FEATURES 47
+#define POLICY_ACTIONS  6
+void game_policy_features(float out[POLICY_FEATURES]);
+void game_apply_action(int action);
 bool game_validate(char *error, size_t error_len);
 int game_active_enemies(void);
 int game_active_eggs(void);
+
+/* pilot.c: the compiled-in network (src/neural_policy_blob.h via
+   kilix_game_policy) and the per-tick hand-off to a computer rider. */
+bool pilot_neural_ready(void);
+const char *pilot_neural_status(void);
+int  pilot_neural_action(void);
+/* Before each game_tick: lets a computer rider act when it has the controls.
+   Returns true when it did (the keyboard is then ignored). */
+bool pilot_tick(void);
 
 void render_init(int w, int h);
 void render_resize(int w, int h);

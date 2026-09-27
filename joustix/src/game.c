@@ -1,6 +1,7 @@
 #include "joustix.h"
 
 #include <math.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -14,6 +15,8 @@
 #define DIRECTION_LATCH 0.26f
 
 GameState G;
+
+const char *PILOT_NAMES[PILOT_COUNT] = { "YOU", "NEURAL", "AUTOPILOT" };
 
 static const float enemy_speed[EN_TYPE_COUNT] = { 32.0f, 43.0f, 54.0f };
 static const float enemy_flap_delay[EN_TYPE_COUNT] = { 0.62f, 0.45f, 0.30f };
@@ -219,6 +222,7 @@ void game_start(void)
 {
     int high = G.high_score;
     int difficulty = G.difficulty;
+    int pilot = G.pilot;
     bool sound_on = G.sound_on;
     int w = G.W, h = G.H;
     uint32_t rng = G.rng;
@@ -228,6 +232,8 @@ void game_start(void)
     G.rng = rng ? rng : 1;
     G.high_score = high;
     G.difficulty = difficulty;
+    G.pilot = pilot >= 0 && pilot < PILOT_COUNT ? pilot : PILOT_YOU;
+    G.flying = G.pilot;
     G.sound_on = sound_on;
     G.lives = 3;
     G.state = GS_PLAYING;
@@ -592,67 +598,129 @@ void game_tick(void)
     }
 }
 
+static bool menu_up(int key)   { return key == KEY_UP || key == 'w' || key == 'W'; }
+static bool menu_down(int key) { return key == KEY_DOWN || key == 's' || key == 'S'; }
+static bool menu_left(int key) { return key == KEY_LEFT || key == 'a' || key == 'A'; }
+static bool menu_right(int key) { return key == KEY_RIGHT || key == 'd' || key == 'D'; }
+static bool menu_ok(int key)   { return key == KEY_ENTER || key == ' '; }
+/* Space is the flap key, pressed constantly in play, so the in-game menus
+   (pause, game over) confirm with Enter only. */
+static bool confirm_in_game(int key) { return key == KEY_ENTER; }
+
+static void toggle_sound(void)
+{
+    G.sound_on = !G.sound_on;
+    sound_set_enabled(G.sound_on);
+    if (G.sound_on) sound_play(SFX_MENU, 0.65f, 1.2f);
+}
+
+static void go_to_title(void)
+{
+    G.state = GS_TITLE;
+    G.menu_row = MENU_START;
+    G.player.active = false;
+    memset(G.enemies, 0, sizeof G.enemies);
+    memset(G.eggs, 0, sizeof G.eggs);
+    memset(G.particles, 0, sizeof G.particles);
+    G.left_input = G.right_input = 0;
+    G.wave_timer = G.respawn_timer = 0;
+    set_message("", 0);
+}
+
+static void change_row(int step)
+{
+    if (G.menu_row == MENU_DIFFICULTY) G.difficulty = (G.difficulty + 3 + step) % 3;
+    else if (G.menu_row == MENU_PILOT) G.pilot = (G.pilot + PILOT_COUNT + step) % PILOT_COUNT;
+    else if (G.menu_row == MENU_SOUND) { toggle_sound(); return; }
+    else return;
+    sound_play(SFX_MENU, 0.5f, step > 0 ? 1.1f : 0.9f);
+}
+
+static void title_key(int key)
+{
+    if (menu_up(key) || menu_down(key)) {
+        G.menu_row = (G.menu_row + MENU_ROWS + (menu_up(key) ? -1 : 1)) % MENU_ROWS;
+        sound_play(SFX_MENU, 0.4f, 1.0f);
+    } else if (menu_left(key) || menu_right(key)) {
+        change_row(menu_left(key) ? -1 : 1);
+    } else if (key == 'n' || key == 'N') {
+        G.pilot = (G.pilot + 1) % PILOT_COUNT;
+        sound_play(SFX_MENU, 0.5f, 1.1f);
+    } else if (key == KEY_ESC) {
+        G.menu_row = MENU_QUIT;                       /* never quits by itself */
+        sound_play(SFX_MENU, 0.4f, 0.9f);
+    } else if (menu_ok(key)) {
+        if (G.menu_row == MENU_START) { sound_play(SFX_MENU, 0.7f, 1.35f); game_start(); }
+        else if (G.menu_row == MENU_QUIT) G.quit = true;
+        else change_row(1);
+    }
+}
+
+static void pause_key(int key)
+{
+    if (menu_up(key) || menu_down(key)) {
+        G.pause_row = (G.pause_row + PAUSE_ROWS + (menu_up(key) ? -1 : 1)) % PAUSE_ROWS;
+        sound_play(SFX_MENU, 0.4f, 1.0f);
+        return;
+    }
+    int choice = -1;
+    if (key == 'p' || key == 'P' || key == KEY_ESC) choice = PAUSE_RESUME;
+    else if (confirm_in_game(key)) choice = G.pause_row;
+    switch (choice) {
+    case PAUSE_RESUME:
+        G.state = G.paused_from == GS_WAVE ? GS_WAVE : GS_PLAYING;
+        set_message("", 0);
+        sound_play(SFX_MENU, 0.55f, 1.0f);
+        break;
+    case PAUSE_RESTART: sound_play(SFX_MENU, 0.7f, 1.25f); game_start(); break;
+    case PAUSE_MENU: sound_play(SFX_MENU, 0.55f, 0.9f); go_to_title(); break;
+    case PAUSE_QUIT: G.quit = true; break;
+    default: break;
+    }
+}
+
+static void gameover_key(int key)
+{
+    if (menu_up(key) || menu_down(key) || menu_left(key) || menu_right(key)) {
+        int step = menu_up(key) || menu_left(key) ? -1 : 1;
+        G.gameover_choice = (G.gameover_choice + GAMEOVER_OPTION_COUNT + step) % GAMEOVER_OPTION_COUNT;
+        sound_play(SFX_MENU, 0.5f, 1.0f);
+        return;
+    }
+    if (key == KEY_ESC) { go_to_title(); return; }
+    if (!confirm_in_game(key)) return;
+    sound_play(SFX_MENU, 0.7f, 1.25f);
+    if (G.gameover_choice == GAMEOVER_RESTART) game_start();
+    else if (G.gameover_choice == GAMEOVER_MENU) go_to_title();
+    else G.quit = true;
+}
+
 void game_handle_key(int key)
 {
-    if (key == 'q' || key == 'Q') { G.quit = true; return; }
-    if (key == 'm' || key == 'M') {
-        G.sound_on = !G.sound_on;
-        sound_set_enabled(G.sound_on);
-        if (G.sound_on) sound_play(SFX_MENU, 0.65f, 1.2f);
-        return;
-    }
-    if (G.state == GS_TITLE) {
-        if (key == KEY_LEFT || key == 'a' || key == 'A') {
-            G.difficulty = (G.difficulty + 2) % 3;
-            sound_play(SFX_MENU, 0.5f, 0.9f);
-        } else if (key == KEY_RIGHT || key == 'd' || key == 'D') {
-            G.difficulty = (G.difficulty + 1) % 3;
-            sound_play(SFX_MENU, 0.5f, 1.1f);
-        } else if (key == KEY_ENTER || key == ' ') {
-            sound_play(SFX_MENU, 0.7f, 1.35f);
-            game_start();
-        }
-        return;
-    }
-    if (G.state == GS_GAMEOVER) {
-        int previous = G.gameover_choice;
-        if (key == KEY_UP || key == KEY_LEFT || key == 'w' || key == 'W' ||
-            key == 'a' || key == 'A') {
-            G.gameover_choice = GAMEOVER_RESTART;
-        } else if (key == KEY_DOWN || key == KEY_RIGHT || key == 's' || key == 'S' ||
-                   key == 'd' || key == 'D') {
-            G.gameover_choice = GAMEOVER_MENU;
-        } else if (key == KEY_ENTER) {
-            sound_play(SFX_MENU, 0.7f, 1.25f);
-            if (G.gameover_choice == GAMEOVER_RESTART) {
-                game_start();
-            } else {
-                G.state = GS_TITLE;
-                G.player.active = false;
-                memset(G.enemies, 0, sizeof G.enemies);
-                memset(G.eggs, 0, sizeof G.eggs);
-                memset(G.particles, 0, sizeof G.particles);
-                G.left_input = G.right_input = 0;
-                G.wave_timer = G.respawn_timer = 0;
-                set_message("", 0);
-            }
-            return;
-        }
-        if (G.gameover_choice != previous) sound_play(SFX_MENU, 0.5f, 1.0f);
-        return;
-    }
+    if (key == 'm' || key == 'M') { toggle_sound(); return; }
+    if (G.state == GS_TITLE) { title_key(key); return; }
+    if (G.state == GS_GAMEOVER) { gameover_key(key); return; }
+    if (G.state == GS_PAUSED) { pause_key(key); return; }
     if (key == 'p' || key == 'P' || key == KEY_ESC) {
-        if (G.state == GS_PAUSED) {
-            G.state = G.wave_timer > 0 ? GS_WAVE : GS_PLAYING;
-            set_message("", 0);
-        } else if (G.state == GS_PLAYING || G.state == GS_WAVE) {
+        if (G.state == GS_PLAYING || G.state == GS_WAVE) {
+            G.paused_from = G.state;
             G.state = GS_PAUSED;
+            G.pause_row = PAUSE_RESUME;
             set_message("PAUSED", 99.0f);
+            sound_play(SFX_MENU, 0.55f, 1.0f);
         }
-        sound_play(SFX_MENU, 0.55f, 1.0f);
         return;
     }
-    if (G.state != GS_PLAYING) return;
+    if ((key == 'n' || key == 'N') && G.pilot != PILOT_YOU &&
+        (G.state == GS_PLAYING || G.state == GS_WAVE)) {
+        /* hand the rider over, or take it back */
+        G.flying = G.flying == PILOT_YOU ? G.pilot : PILOT_YOU;
+        game_set_held_controls(G.held_controls, false, false, false);
+        G.left_input = G.right_input = 0;
+        sound_play(SFX_MENU, 0.5f, G.flying == PILOT_YOU ? 0.9f : 1.2f);
+        return;
+    }
+    if (G.state != GS_PLAYING || G.flying != PILOT_YOU) return;
     if (key == KEY_LEFT || key == 'a' || key == 'A') {
         G.left_input = DIRECTION_LATCH;
         G.right_input = 0;
@@ -696,6 +764,109 @@ void game_autopilot(void)
     float dx = wrapped_dx(G.player.x, tx);
     game_set_held_controls(true, dx < -2, dx > 2,
                            G.player.y > ty || G.player.y > 132.0f);
+}
+
+void game_start_wave(int wave)
+{
+    game_start();
+    if (wave <= 1) return;
+    memset(G.enemies, 0, sizeof G.enemies);
+    memset(G.eggs, 0, sizeof G.eggs);
+    G.wave = wave - 1;
+    begin_wave();
+}
+
+/* Nearest active objects by wrapped horizontal distance plus half the
+   vertical distance (the same measure the autopilot uses). */
+static float nearness(float x, float y)
+{
+    return fabsf(wrapped_dx(G.player.x, x)) + fabsf(G.player.y - y) * 0.5f;
+}
+
+static float surface_below(void)
+{
+    const Rider *p = &G.player;
+    float feet = p->y + RIDER_H, best = LAVA_TOP;
+    for (int i = 0; i < PLATFORM_COUNT; i++) {
+        const Platform *pl = &G.platforms[i];
+        if (horizontal_overlap(p->x + 2, RIDER_W - 4, pl->x, pl->w) && pl->y >= feet - 0.5f &&
+            pl->y < best)
+            best = pl->y;
+    }
+    return best - feet;
+}
+
+void game_policy_features(float out[POLICY_FEATURES])
+{
+    const Rider *p = &G.player;
+    int i = 0;
+    out[i++] = p->x / LOGICAL_W * 2.0f - 1.0f;
+    out[i++] = p->y / LOGICAL_H * 2.0f - 1.0f;
+    out[i++] = p->vx / PLAYER_MAX_SPEED;
+    out[i++] = p->vy / 82.0f;
+    out[i++] = p->on_platform ? 1.0f : 0.0f;
+    out[i++] = p->flap_cooldown <= 0.0f ? 1.0f : 0.0f;
+    out[i++] = p->invuln > 0.0f ? 1.0f : 0.0f;
+    out[i++] = p->spawn_timer > 0.0f || !p->active ? 1.0f : 0.0f;
+    out[i++] = (LAVA_TOP - (p->y + RIDER_H)) / LOGICAL_H;
+    out[i++] = surface_below() / LOGICAL_H;
+
+    int pick[3] = { -1, -1, -1 };
+    for (int slot = 0; slot < 3; slot++) {
+        float best = 1e9f;
+        for (int e = 0; e < MAX_ENEMIES; e++) {
+            const Rider *r = &G.enemies[e].rider;
+            if (!r->active || e == pick[0] || e == pick[1]) continue;
+            float d = nearness(r->x, r->y);
+            if (d < best) { best = d; pick[slot] = e; }
+        }
+    }
+    for (int slot = 0; slot < 3; slot++) {
+        if (pick[slot] < 0) { for (int k = 0; k < 7; k++) out[i++] = 0.0f; continue; }
+        const Enemy *e = &G.enemies[pick[slot]];
+        out[i++] = 1.0f;
+        out[i++] = wrapped_dx(p->x, e->rider.x) / (LOGICAL_W * 0.5f);
+        out[i++] = (e->rider.y - p->y) / (LOGICAL_H * 0.5f);   /* < 0: the enemy is higher */
+        out[i++] = e->rider.vx / 60.0f;
+        out[i++] = e->rider.vy / 82.0f;
+        out[i++] = (float)e->type / (EN_TYPE_COUNT - 1);
+        out[i++] = e->rider.spawn_timer > 0.0f ? 1.0f : 0.0f;
+    }
+
+    int egg[2] = { -1, -1 };
+    for (int slot = 0; slot < 2; slot++) {
+        float best = 1e9f;
+        for (int e = 0; e < MAX_EGGS; e++) {
+            if (!G.eggs[e].active || e == egg[0]) continue;
+            float d = nearness(G.eggs[e].x, G.eggs[e].y);
+            if (d < best) { best = d; egg[slot] = e; }
+        }
+    }
+    for (int slot = 0; slot < 2; slot++) {
+        if (egg[slot] < 0) { for (int k = 0; k < 5; k++) out[i++] = 0.0f; continue; }
+        const Egg *e = &G.eggs[egg[slot]];
+        out[i++] = 1.0f;
+        out[i++] = wrapped_dx(p->x, e->x) / (LOGICAL_W * 0.5f);
+        out[i++] = (e->y - p->y) / (LOGICAL_H * 0.5f);
+        out[i++] = e->grounded ? 1.0f : 0.0f;
+        out[i++] = fmaxf(0.0f, e->hatch_timer) / 5.5f;
+    }
+
+    bool troll = G.lava_troll_phase > 0.0f;
+    out[i++] = troll ? 1.0f : 0.0f;
+    out[i++] = troll ? wrapped_dx(p->x + RIDER_W * 0.5f, G.lava_troll_x) / (LOGICAL_W * 0.5f) : 0.0f;
+    out[i++] = troll ? clampf(0.9f - G.lava_troll_phase, -1.0f, 1.0f) : 1.0f;  /* <= 0: grabbing */
+    out[i++] = (float)game_active_enemies() / 10.0f;
+    out[i++] = (float)game_active_eggs() / 10.0f;
+    out[i++] = (float)G.difficulty / 2.0f;
+    if (i != POLICY_FEATURES) abort();     /* the contract and this list must agree */
+}
+
+void game_apply_action(int action)
+{
+    if (action < 0 || action >= POLICY_ACTIONS) action = 2;   /* hold still */
+    int axis = action / 2 - 1;
+    game_set_held_controls(true, axis < 0, axis > 0, action % 2 == 1);
 }
 
 bool game_validate(char *error, size_t error_len)

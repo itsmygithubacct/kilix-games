@@ -1,5 +1,10 @@
 #include "joustix.h"
 
+/* --pilot-test regression waves 8000000+: the shipped network cleared 529 of
+   600 and the autopilot 3. Games are deterministic; half that margin catches a
+   broken or foreign network. */
+#define PILOT_TEST_CLEAR_MARGIN 260
+
 #include <errno.h>
 #include <limits.h>
 #include <math.h>
@@ -118,6 +123,7 @@ static int run_interactive(void)
         return 1;
     }
     signal(SIGINT, on_signal);
+    signal(SIGQUIT, on_signal);
     signal(SIGTERM, on_signal);
     signal(SIGHUP, on_signal);
     signal(SIGSEGV, on_signal);
@@ -159,19 +165,20 @@ static int run_interactive(void)
             game_handle_key(key);
         }
         if (G.quit) break;
-        game_set_held_controls(
-            held_input,
-            term_key_down('a') || term_key_down(KITTYKB_KEY_LEFT),
-            term_key_down('d') || term_key_down(KITTYKB_KEY_RIGHT),
-            term_key_down('w') || term_key_down(' ') ||
-                term_key_down(KITTYKB_KEY_UP));
+        bool left = term_key_down('a') || term_key_down(KITTYKB_KEY_LEFT);
+        bool right = term_key_down('d') || term_key_down(KITTYKB_KEY_RIGHT);
+        bool flap_key = term_key_down('w') || term_key_down(' ') || term_key_down(KITTYKB_KEY_UP);
         int nw, nh;
         if (term_check_resize(&nw, &nh) && (nw != G.W || nh != G.H)) {
             G.W = nw; G.H = nh;
             render_resize(nw, nh);
         }
-        game_tick();
-        game_tick();
+        /* Two simulation ticks per frame; a computer rider decides on each
+           one, exactly as it was trained. */
+        for (int tick = 0; tick < 2; tick++) {
+            if (!pilot_tick()) game_set_held_controls(held_input, left, right, flap_key);
+            game_tick();
+        }
         render_frame();
         term_present(render_fb(), G.W, G.H);
         next_frame += frame_ms;
@@ -223,6 +230,127 @@ static int selftest(unsigned seed, int ticks)
            seed, ticks, max_wave, max_score, saw_egg ? "yes" : "no",
            saw_hatch ? "yes" : "no", restarts);
     return 0;
+}
+
+/* ---------- pilot and menu tests ---------- */
+
+/* One wave flown from its start by `pilot`, as tools/neural/joustix_lab.c
+   plays it: 0 cleared, 1 rider lost, 2 time up. */
+static int fly_wave(int pilot, unsigned seed, int k)
+{
+    game_init(960, 540, seed);
+    G.headless = true;
+    G.difficulty = k % 3;
+    G.pilot = pilot;
+    game_start_wave(1 + (k / 3) % 12);
+    int lives = G.lives;
+    for (int t = 0; t < 120 * 60; t++) {
+        pilot_tick();
+        game_tick();
+        if (G.lives < lives || G.state == GS_GAMEOVER) return 1;
+        if (G.state == GS_WAVE) return 0;
+    }
+    return 2;
+}
+
+static int pilot_test(void)
+{
+    int failures = 0;
+#define EXPECT(condition, label) do { \
+    if (!(condition)) { fprintf(stderr, "FAIL: %s\n", label); failures++; } \
+    else printf("PASS: %s\n", label); \
+} while (0)
+    EXPECT(pilot_neural_ready(), "the compiled-in neural rider loads");
+    printf("pilot-test: %s\n", pilot_neural_status());
+    enum { N = 600 };                       /* regression seeds 8000000.. */
+    int nc = 0, nl = 0, ac = 0, al = 0;
+    for (int k = 0; k < N; k++) {
+        int n = fly_wave(PILOT_NEURAL, 8000000u + (unsigned)k, k);
+        int a = fly_wave(PILOT_AUTOPILOT, 8000000u + (unsigned)k, k);
+        nc += n == 0; nl += n == 1;
+        ac += a == 0; al += a == 1;
+    }
+    printf("pilot-test: %d waves: neural cleared %d, lost a rider %d; autopilot cleared %d, lost %d\n",
+           N, nc, nl, ac, al);
+    EXPECT(nc >= ac + PILOT_TEST_CLEAR_MARGIN, "the neural rider clears far more waves than the autopilot");
+    EXPECT(nl <= al, "and loses no more riders");
+
+    game_init(960, 540, 99);
+    G.headless = true;
+    G.pilot = PILOT_NEURAL;
+    game_start();
+    for (int t = 0; t < 900; t++) { pilot_tick(); game_tick(); }
+    float x1 = G.player.x;
+    int s1 = G.score;
+    game_init(960, 540, 99);
+    G.headless = true;
+    G.pilot = PILOT_NEURAL;
+    game_start();
+    for (int t = 0; t < 900; t++) { pilot_tick(); game_tick(); }
+    EXPECT(G.player.x == x1 && G.score == s1, "neural games replay exactly");
+#undef EXPECT
+    return failures ? 1 : 0;
+}
+
+static int menu_test(void)
+{
+    int failures = 0;
+#define EXPECT(condition, label) do { \
+    if (!(condition)) { fprintf(stderr, "FAIL: %s\n", label); failures++; } \
+    else printf("PASS: %s\n", label); \
+} while (0)
+    game_init(960, 540, 5);
+    G.headless = true;
+    EXPECT(G.state == GS_TITLE && G.menu_row == MENU_START, "the game opens on the main menu");
+    game_handle_key('q');
+    EXPECT(!G.quit, "Q does not quit");
+    game_handle_key(KEY_ESC);
+    EXPECT(!G.quit && G.menu_row == MENU_QUIT, "Esc on the menu selects QUIT without quitting");
+    game_handle_key(KEY_DOWN);                    /* wraps to RIDE */
+    game_handle_key(KEY_DOWN);                    /* DIFFICULTY */
+    game_handle_key(KEY_RIGHT);                   /* KNIGHT -> BLACK KNIGHT */
+    game_handle_key(KEY_DOWN);                    /* PLAYER */
+    game_handle_key(KEY_RIGHT);                   /* YOU -> NEURAL */
+    EXPECT(G.difficulty == 2 && G.pilot == PILOT_NEURAL && G.state == GS_TITLE,
+           "menu rows change difficulty and player");
+    G.menu_row = MENU_START;
+    game_handle_key(KEY_ENTER);
+    EXPECT(G.state == GS_PLAYING && G.flying == PILOT_NEURAL && G.pilot == PILOT_NEURAL,
+           "RIDE plays with the chosen player");
+    game_handle_key('n');
+    EXPECT(G.flying == PILOT_YOU, "N takes the rider");
+    game_handle_key('n');
+    EXPECT(G.flying == PILOT_NEURAL, "N hands it back");
+    for (int t = 0; t < 30; t++) { pilot_tick(); game_tick(); }
+    game_handle_key(KEY_ESC);
+    EXPECT(G.state == GS_PAUSED && G.pause_row == PAUSE_RESUME, "Esc opens the pause menu");
+    float px = G.player.x;
+    game_tick();
+    EXPECT(G.player.x == px, "nothing moves while paused");
+    game_handle_key(' ');
+    EXPECT(G.state == GS_PAUSED, "Space (the flap key) does not choose in the pause menu");
+    game_handle_key(KEY_ESC);
+    EXPECT(G.state == GS_PLAYING, "Esc resumes");
+    game_handle_key('p');
+    game_handle_key(KEY_DOWN);
+    game_handle_key(KEY_DOWN);                    /* MAIN MENU */
+    game_handle_key(KEY_ENTER);
+    EXPECT(G.state == GS_TITLE, "the pause menu's MAIN MENU returns to the main menu");
+    G.menu_row = MENU_QUIT;
+    game_handle_key(KEY_ENTER);
+    EXPECT(G.quit, "the main menu's QUIT exits");
+
+    game_init(960, 540, 5);
+    G.headless = true;
+    game_start();
+    G.state = GS_GAMEOVER;
+    G.gameover_choice = GAMEOVER_RESTART;
+    game_handle_key(KEY_UP);                      /* wraps to QUIT */
+    EXPECT(G.gameover_choice == GAMEOVER_QUIT, "game over offers QUIT");
+    game_handle_key(KEY_ENTER);
+    EXPECT(G.quit, "the game-over menu's QUIT exits");
+#undef EXPECT
+    return failures ? 1 : 0;
 }
 
 static int rules_test(void)
@@ -549,6 +677,8 @@ int main(int argc, char **argv)
         return render_test(seed);
     }
     if (!strcmp(argv[1], "--sound-test")) return sound_test();
+    if (!strcmp(argv[1], "--pilot-test")) return pilot_test();
+    if (!strcmp(argv[1], "--menu-test")) return menu_test();
     fprintf(stderr, "joustix: unknown option '%s'\n", argv[1]);
     usage();
     return 2;

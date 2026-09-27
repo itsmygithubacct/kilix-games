@@ -30,6 +30,12 @@ waves while avoiding the lava below.
 - Independent held-key input through the Kitty keyboard protocol, including
   simultaneous direction and flap controls
 - Deterministic headless game and render tests
+- **Neural rider** - a 2,790-parameter network trained in the game's own
+  simulation cleanly clears 89% of held-out waves (the scripted autopilot:
+  1%). Pick it on the menu to watch, and press N to take the rider or hand it
+  back
+- **Menus** - main (ride, difficulty, player, sound, quit), pause (resume,
+  restart, main menu, quit) and game over (ride again, main menu, quit)
 
 ## Build and run
 
@@ -60,11 +66,38 @@ runs silently.
 | Left / A | Fly left |
 | Right / D | Fly right |
 | Up / W / Space | Flap |
-| P / Esc | Pause / resume |
+| P / Esc | Pause menu |
+| N | With a computer rider chosen: take the rider, or hand it back |
 | M | Toggle sound |
-| Arrow keys / W/S/A/D (menus) | Change the selected option |
-| Enter | Start or confirm the selected option |
-| Q | Quit |
+| Arrow keys / W/S/A/D (menus) | Move and change the selected option |
+| Enter | Confirm (Space also works on the main menu) |
+
+The game is left through QUIT on the main, pause or game-over menu; Ctrl+C
+also exits. In the pause and game-over menus only Enter confirms, since Space
+is the flap key.
+
+## Neural rider
+
+The PLAYER setting chooses who rides: You, Neural (the trained network) or
+Autopilot (the game's scripted rider). Every tick the network reads 47
+features: the rider, the three nearest enemies, the two nearest eggs, the
+lava troll and the wave's state. It chooses a direction and whether to flap.
+It was trained with evolution strategies, directly on clearing waves without
+losing the rider, in this game's simulation; nothing third-party went into
+it. See [tools/neural/README.md](tools/neural/README.md) and
+[docs/neural-policy-provenance.json](docs/neural-policy-provenance.json).
+
+Held-out waves (4,800, evaluated once): waves 1-12 at all three difficulties,
+two minutes per wave:
+
+| | Neural | Autopilot |
+|---|---|---|
+| Wave cleared without losing a rider | **89.3%** | 1.0% |
+| Rider lost | 10.7% | 98.8% |
+| Waves 1-3 / 4-6 / 7-9 / 10-12 cleared | 96.7 / 91.6 / 88.3 / 80.4% | 3.6 / 0.3 / 0.1 / 0% |
+
+Every rider it loses is jousted by a higher enemy, mostly in the crowded late
+waves.
 
 Joustix requests the Kitty keyboard protocol's press, repeat, and release
 events. Opposite directions cancel while both are held, and releasing either
@@ -75,6 +108,10 @@ a short press-latch fallback.
 
 ```sh
 make test
+make sanitize
+./joustix --menu-test
+./joustix --pilot-test                 # neural vs autopilot, 600 waves
+make lab                               # the neural rider lab (tools/neural)
 ./joustix --selftest 1337 12000
 JOUSTIX_RENDER_DIR=/tmp/joustix-shots ./joustix --render-test 7
 ./joustix --sound-test
@@ -93,7 +130,8 @@ automatically.
 
 | File | Role |
 |---|---|
-| `src/game.c` | physics, AI, collision, waves, eggs, hazards, input |
+| `src/game.c` | physics, AI, collision, waves, eggs, hazards, input, menus, rider features |
+| `src/pilot.c` | the compiled-in neural rider (kilix_game_policy) and the per-tick hand-over |
 | `src/render.c` | game drawing over `soft-raster`, with keyed sprite atlases |
 | `src/term.c` | game adapter over `kitty-terminal-session` |
 | `src/sound.c` | PCM WAV banks and procedural fallback routed through `pcm-mixer` |

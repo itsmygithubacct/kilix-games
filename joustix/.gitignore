@@ -5,3 +5,4 @@ render_*.ppm
 
 # per-game kit build (kilix-games shared SDK)
 /build/
+/tools/neural/joustix-lab
