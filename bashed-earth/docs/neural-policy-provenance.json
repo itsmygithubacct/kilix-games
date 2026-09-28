@@ -21,7 +21,7 @@
   "weapon_labels": "72,939 classic-AI decisions in 2,000 whole matches (seeds 2,000,000+)",
   "tool": "tools/neural/bashed_earth_lab.c (make lab) --oracle / --dump; tools/neural/fit-demos.py"
  },
- "target_rule": "classic: weakest living opponent, ties to the nearest",
+ "target_rule": "ai_pick_target(), shared with the classic AIs: weakest living opponent, lowest seat on ties",
  "shopping": "fixed list, Balanced's without Dirt",
  "duel": "duel k of seed S: match S+k vs personality k%5, gunner first when k/5 even; field 700-2000 px and settings drawn from the seed",
  "selection": {
@@ -104,24 +104,47 @@
    }
   },
   "turns": {
-   "bank": "heldout-1000 (seeds 9,500,000+)",
-   "neural": {
-    "mean_reward": 0.2623,
-    "hit_rate": 0.751,
-    "hit_wilson95": [
-     0.7233,
-     0.7768
-    ]
+   "corrected_rule": {
+    "bank": "heldout2-1000 (seeds 9,600,000+), measured once after review K1",
+    "neural": {
+     "mean_reward": 0.2825,
+     "hit_rate": 0.783,
+     "hit_wilson95": [
+      0.7564,
+      0.8074
+     ]
+    },
+    "classic": {
+     "mean_reward": 0.1588,
+     "hit_rate": 0.436,
+     "hit_wilson95": [
+      0.4056,
+      0.4669
+     ]
+    }
    },
-   "classic": {
-    "mean_reward": 0.168,
-    "hit_rate": 0.437,
-    "hit_wilson95": [
-     0.4066,
-     0.4679
-    ]
+   "before_review": {
+    "bank": "heldout-1000 (seeds 9,500,000+)",
+    "neural": {
+     "mean_reward": 0.2623,
+     "hit_rate": 0.751,
+     "hit_wilson95": [
+      0.7233,
+      0.7768
+     ]
+    },
+    "classic": {
+     "mean_reward": 0.168,
+     "hit_rate": 0.437,
+     "hit_wilson95": [
+      0.4066,
+      0.4679
+     ]
+    },
+    "note": "measured with Neural breaking health ties by distance (three- and four-tank turns only); corrected in review K1 to the classic seat rule its training labels used"
    }
   },
-  "ship_rule": "pooled Wilson lower bound > 0.50 and >= 0.50 against each personality: passed"
+  "ship_rule": "pooled Wilson lower bound > 0.50 and >= 0.50 against each personality: passed",
+  "duels_note": "one-on-one, unaffected by the tie rule; the first 200 replay identically after the fix"
  }
 }

@@ -49,12 +49,13 @@ check-policy:
 # The test modes keep their options file in a private directory; running
 # them under a sentinel HOME and XDG_CONFIG_HOME proves they never write to
 # the ones they are given.
-test: $(BIN) check-policy
+test: $(BIN) $(LAB) check-policy
 	@sentinel=$$(mktemp -d); trap 'rm -rf "$$sentinel"' EXIT HUP INT TERM; \
 	mkdir "$$sentinel/home" "$$sentinel/config"; \
 	run() { echo "./$(BIN) $$*"; \
 		HOME="$$sentinel/home" XDG_CONFIG_HOME="$$sentinel/config" ./$(BIN) "$$@"; }; \
-	run --menu-test && run --neural-test && run --selftest 1337 3 && run --selftest 42 2 && \
+	run --menu-test && run --neural-test && \
+		echo "$(LAB) --self-test" && $(LAB) --self-test && run --selftest 1337 3 && run --selftest 42 2 && \
 		run --selftest 7 2 || exit 1; \
 	if [ -n "$$(find "$$sentinel/home" "$$sentinel/config" -mindepth 1 -print -quit)" ]; then \
 		echo "FAIL: a test mode wrote to HOME or XDG_CONFIG_HOME:" >&2; \
@@ -67,7 +68,8 @@ sanitize:
 	$(MAKE) clean
 	$(MAKE) KILIX_GAME_KIT_BUILD_DIR=$(CURDIR)/build/kilix-game-kit-sanitize \
 		CFLAGS='-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -Wall -Wextra -Werror -std=c11' \
-		LDLIBS='$(KILIX_GAME_KIT_LDLIBS) -fsanitize=address,undefined' $(BIN)
+		LDLIBS='$(KILIX_GAME_KIT_LDLIBS) -fsanitize=address,undefined' $(BIN) $(LAB)
+	$(LAB) --self-test
 	./$(BIN) --menu-test
 	./$(BIN) --neural-test
 	./$(BIN) --selftest 1337 1

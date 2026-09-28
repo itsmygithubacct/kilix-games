@@ -209,6 +209,20 @@ static int neural_test(void)
     EXPECT(G.tanks[1].strategy >= 0 && G.tanks[1].strategy < STRAT_CLASSIC_COUNT,
            "Random picks among the five classic personalities");
 
+    /* every AI, neural or classic, aims at the weakest tank, lowest seat on ties */
+    {
+        GameState keep = G;
+        G.numPlayers = 4;
+        for (int i = 0; i < 4; i++) G.tanks[i].hp = 100;
+        EXPECT(ai_pick_target(3) == 0, "tied health: the target is the lowest seat, not the nearest");
+        G.tanks[2].hp = 40;
+        EXPECT(ai_pick_target(3) == 2, "otherwise the weakest tank");
+        G.tanks[0].hp = 0;
+        G.tanks[2].hp = 100;
+        EXPECT(ai_pick_target(3) == 1, "and never a dead one");
+        G = keep;
+    }
+
     /* one neural turn aims from the policy and fires after the usual pause */
     for (long t = 0; t < 600 && G.gameState == GS_PLAYING; t++) game_tick();
     EXPECT(G.gameState == GS_ANIMATING || G.gameState == GS_TURN_ENDING,

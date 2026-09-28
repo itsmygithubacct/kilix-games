@@ -53,6 +53,8 @@ void terrain_serialize(uint8_t *out)
         if (span) memcpy(out, spans[i], span);
 }
 
+/* Rejects (returning false, the live terrain untouched) any buffer that is
+ * not a snapshot this module could have written. */
 bool terrain_deserialize(const uint8_t *in, size_t size)
 {
     int32_t dims[2];
@@ -61,6 +63,20 @@ bool terrain_deserialize(const uint8_t *in, size_t size)
     if (dims[0] <= 0 || dims[1] <= 0 || dims[0] > 8192 || dims[1] > 8192) return false;
     size_t cells = (size_t)dims[0] * (size_t)dims[1], span = (size_t)dims[1] * sizeof(int16_t);
     if (size != 9 + cells + 4 * span) return false;
+    /* Validate before installing: every material must be known, and every
+     * active span must keep min in [0, cols] and max in [-1, cols - 1], so
+     * the automaton (and any span it later widens) stays inside the grid. */
+    const uint8_t *materials = in + 9;
+    for (size_t i = 0; i < cells; i++)
+        if (materials[i] >= M_COUNT) return false;
+    const uint8_t *spanBytes = materials + cells;
+    for (int a = 0; a < 4; a += 2)
+        for (int32_t r = 0; r < dims[1]; r++) {
+            int16_t lo, hi;
+            memcpy(&lo, spanBytes + ((size_t)a * dims[1] + r) * sizeof(int16_t), sizeof lo);
+            memcpy(&hi, spanBytes + ((size_t)(a + 1) * dims[1] + r) * sizeof(int16_t), sizeof hi);
+            if (lo < 0 || lo > dims[0] || hi < -1 || hi > dims[0] - 1) return false;
+        }
     if (dims[0] != cols || dims[1] != rows || !grid) {
         free(grid); free(rowMinX); free(rowMaxX); free(nextMinX); free(nextMaxX);
         cols = dims[0];

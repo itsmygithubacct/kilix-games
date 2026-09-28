@@ -955,19 +955,26 @@ static bool predict_landing(float lx, float ly, float angleDeg, float power,
     return false;
 }
 
+/* Every AI's target, classic and neural alike: the weakest living opponent,
+ * the lowest seat on ties. -1 if nobody is left. */
+int ai_pick_target(int shooter)
+{
+    int best = -1;
+    for (int i = 0; i < G.numPlayers; i++) {
+        const Tank *t = &G.tanks[i];
+        if (i == shooter || t->hp <= 0) continue;
+        if (best < 0 || t->hp < G.tanks[best].hp) best = i;
+    }
+    return best;
+}
+
 void ai_do_turn(void)
 {
     if (G.gameState != GS_PLAYING) return;
     Tank *tank = &G.tanks[G.currentPlayer];
-
-    /* pick target: lowest hp among living others */
-    Tank *target = NULL;
-    for (int i = 0; i < G.numPlayers; i++) {
-        Tank *t = &G.tanks[i];
-        if (t->hp <= 0 || t->id == tank->id) continue;
-        if (!target || t->hp < target->hp) target = t;
-    }
-    if (!target) return;
+    int targetSeat = ai_pick_target(G.currentPlayer);
+    if (targetSeat < 0) return;
+    Tank *target = &G.tanks[targetSeat];
 
     if (frandf() < 0.3f)
         add_damage_text(tank->x, tank->y - 60, AI_TAUNTS[rand() % 10], 0xff88ff);

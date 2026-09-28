@@ -20,6 +20,7 @@
  *   bashed-earth-lab --duels N --seed S [--seat NAME | NET] [--jsonl F]
  * Duel k is match seed S+k against personality k % 5, the gunner seated
  * first when (k / 5) is even. NET is --weights F.raw --hidden H or --blob F.
+ * Self-test (banks round-trip; damaged banks are refused): --self-test
  * Train (evolution strategies, antithetic, rank-shaped, Adam):
  *   bashed-earth-lab --train OUTDIR --bank F --select-bank F [--hidden H]
  *     [--gens G] [--pop P] [--batch B] [--sigma S] [--lr L] [--workers W]
@@ -168,48 +169,106 @@ static bool at_decision(void)
            G.pendingAIStart - TICK_MS <= 0;
 }
 
-/* ---------- scenario banks ---------- */
+/* ---------- scenario banks ----------
+ * File: magic "BANK", format version, sizeof(GameState) of the build that
+ * wrote it, record count. Per record: seed, frand state, shooter, compressed
+ * size, raw size, FNV-1a-64 of the raw bytes (low, high), then
+ * zlib(GameState, terrain snapshot). A bank belongs to the build that wrote
+ * it (the GameState layout); for another build, rebuild it from its seed
+ * range, which replays the same matches while the game rules are unchanged.
+ * Loading bounds every size and count, verifies each record's checksum, and
+ * range-checks the state and terrain before installing them. */
+#define BANK_MAGIC 0x4b4e4142u
+#define BANK_VERSION 2u
+#define BANK_MAX_RECORDS 1000000u
+#define BANK_HEAD_WORDS 7
+/* the largest snapshot terrain_deserialize accepts */
+#define BANK_MAX_RAW (sizeof(GameState) + 9u + 8192u * 8192u + 4u * 8192u * sizeof(int16_t))
 
 typedef struct {
     uint32_t seed, frand, shooter;
-    uint32_t packed;              /* compressed bytes */
+    uint32_t packed, raw;         /* compressed and raw bytes */
+    uint64_t fnv;                 /* FNV-1a-64 of the raw bytes */
     uint8_t *data;                /* zlib(GameState, terrain) */
 } Scenario;
 
 typedef struct { int count; Scenario *s; } Bank;
 
-static uint8_t *capture(uLongf *packed)
+static void capture(Scenario *sc)
 {
     size_t tsize = terrain_serialized_size(), raw = sizeof G + tsize;
     uint8_t *buf = malloc(raw);
-    memcpy(buf, &G, sizeof G);
-    terrain_serialize(buf + sizeof G);
     uLongf cap = compressBound((uLong)raw);
     uint8_t *out = malloc(cap);
+    if (!buf || !out) { perror("malloc"); exit(1); }
+    memcpy(buf, &G, sizeof G);
+    terrain_serialize(buf + sizeof G);
     if (compress2(out, &cap, buf, (uLong)raw, 1) != Z_OK) { fprintf(stderr, "compress failed\n"); exit(1); }
+    free(sc->data);
+    sc->data = out;
+    sc->packed = (uint32_t)cap;
+    sc->raw = (uint32_t)raw;
+    sc->fnv = kilix_policy_fnv1a64(buf, raw);
     free(buf);
-    *packed = cap;
-    return out;
+}
+
+/* A replayable decision point: an AI about to aim in a live match. */
+static bool state_ok(const GameState *s, uint32_t shooter, char *err, size_t n)
+{
+    if (s->numPlayers < 2 || s->numPlayers > MAX_PLAYERS) { snprintf(err, n, "%d players", s->numPlayers); return false; }
+    if (shooter >= (uint32_t)s->numPlayers || s->currentPlayer != (int)shooter) { snprintf(err, n, "bad shooter"); return false; }
+    if (s->gameState != GS_PLAYING) { snprintf(err, n, "not at a turn (state %d)", s->gameState); return false; }
+    if (s->currentWeapon < 0 || s->currentWeapon >= WEAPON_COUNT) { snprintf(err, n, "bad weapon"); return false; }
+    if (s->W < 1 || s->W > 8192 || s->H < 1 || s->H > 8192) { snprintf(err, n, "bad field %dx%d", s->W, s->H); return false; }
+    for (int i = 0; i < s->numPlayers; i++) {
+        const Tank *t = &s->tanks[i];
+        if (t->hp < 0 || t->hp > MAX_HP || t->strategy < -1 || t->strategy >= STRAT_COUNT ||
+            t->selectedWeapon < 0 || t->selectedWeapon >= WEAPON_COUNT ||
+            !isfinite(t->x) || !isfinite(t->y) || !isfinite(t->angle) || !isfinite(t->power) ||
+            !isfinite(t->maxPower)) { snprintf(err, n, "bad tank %d", i); return false; }
+    }
+    for (int i = 0; i < MAX_PROJECTILES; i++) {
+        const Projectile *p = &s->projectiles[i];
+        if (p->active && (p->weapon < 0 || p->weapon >= WEAPON_COUNT || !isfinite(p->x) || !isfinite(p->y))) {
+            snprintf(err, n, "bad projectile %d", i);
+            return false;
+        }
+    }
+    return true;
+}
+
+/* Install a scenario, or explain why not (the live state is then unchanged). */
+static bool scenario_restore(const Scenario *sc, char *err, size_t n)
+{
+    static uint8_t *buf;
+    static GameState state;
+    if (!buf && !(buf = malloc(BANK_MAX_RAW))) { snprintf(err, n, "out of memory"); return false; }
+    if (sc->raw < sizeof G + 9 || sc->raw > BANK_MAX_RAW) { snprintf(err, n, "raw size %u out of range", sc->raw); return false; }
+    uLongf got = (uLongf)BANK_MAX_RAW;
+    if (uncompress(buf, &got, sc->data, sc->packed) != Z_OK || got != sc->raw) {
+        snprintf(err, n, "payload does not decompress to %u bytes", sc->raw);
+        return false;
+    }
+    if (kilix_policy_fnv1a64(buf, got) != sc->fnv) { snprintf(err, n, "checksum mismatch"); return false; }
+    memcpy(&state, buf, sizeof state);
+    if (!state_ok(&state, sc->shooter, err, n)) return false;
+    int32_t dims[2];
+    memcpy(dims, buf + sizeof G, sizeof dims);
+    if (dims[0] != state.W || dims[1] != state.H) { snprintf(err, n, "terrain is not the field's size"); return false; }
+    if (!terrain_deserialize(buf + sizeof G, got - sizeof G)) { snprintf(err, n, "terrain rejected"); return false; }
+    memcpy(&G, &state, sizeof G);
+    frand_seed(sc->frand);
+    srand(sc->seed);
+    return true;
 }
 
 static void restore(const Scenario *sc)
 {
-    static uint8_t *buf;
-    static size_t cap;
-    size_t need = sizeof G + 9 + 8192u * 8192u;       /* the largest field terrain accepts */
-    if (!buf) { cap = need; buf = malloc(cap); if (!buf) { perror("malloc"); exit(1); } }
-    uLongf raw = (uLongf)cap;
-    if (uncompress(buf, &raw, sc->data, sc->packed) != Z_OK || raw < sizeof G) {
-        fprintf(stderr, "scenario %u is damaged\n", sc->seed);
+    char err[160];
+    if (!scenario_restore(sc, err, sizeof err)) {
+        fprintf(stderr, "scenario %u: %s\n", sc->seed, err);
         exit(1);
     }
-    memcpy(&G, buf, sizeof G);
-    if (!terrain_deserialize(buf + sizeof G, raw - sizeof G)) {
-        fprintf(stderr, "scenario %u terrain is damaged\n", sc->seed);
-        exit(1);
-    }
-    frand_seed(sc->frand);
-    srand(sc->seed);
 }
 
 /* Play match `seed` between classic AIs until the decision on turn T (drawn
@@ -222,16 +281,13 @@ static Scenario make_scenario(unsigned seed)
     for (int i = 0; i < MAX_PLAYERS; i++) strategies[i] = (int)(mix32(r + (uint32_t)i + 1) % STRAT_CLASSIC_COUNT);
     int turn = (int)(mix32(r ^ 0x165667b1u) % 25u);
     setup_match(seed, players, strategies);
-    Scenario sc = { seed, 0, 0, 0, NULL };
+    Scenario sc = { seed, 0, 0, 0, 0, 0, NULL };
     int seen = 0;
     for (long t = 0; t < MAX_MATCH_TICKS && G.gameState != GS_GAMEOVER; t++) {
         if (at_decision()) {
             G.pendingAIStart = 0;
             if (G.tanks[G.currentPlayer].hp > 0) {
-                free(sc.data);
-                uLongf packed;
-                sc.data = capture(&packed);
-                sc.packed = (uint32_t)packed;
+                capture(&sc);
                 sc.frand = frand_state();
                 sc.shooter = (uint32_t)G.currentPlayer;
                 if (seen++ == turn) break;
@@ -243,34 +299,36 @@ static Scenario make_scenario(unsigned seed)
     return sc;
 }
 
-static bool bank_write_one(FILE *f, const Scenario *sc)
+static bool record_write(FILE *f, const Scenario *sc)
 {
-    uint32_t head[4] = { sc->seed, sc->frand, sc->shooter, sc->packed };
+    uint32_t head[BANK_HEAD_WORDS] = { sc->seed, sc->frand, sc->shooter, sc->packed, sc->raw,
+                                       (uint32_t)sc->fnv, (uint32_t)(sc->fnv >> 32) };
     return fwrite(head, sizeof head, 1, f) == 1 && fwrite(sc->data, 1, sc->packed, f) == sc->packed;
 }
 
-static Bank bank_read(const char *path)
+/* Read one record; false at a clean end of file (*eof) or on damage (err). */
+static bool record_read(FILE *f, Scenario *sc, bool *eof, char *err, size_t n)
 {
-    Bank b = { 0, NULL };
-    FILE *f = fopen(path, "rb");
-    if (!f) { perror(path); exit(1); }
-    uint32_t magic[3];
-    if (fread(magic, sizeof magic, 1, f) != 1 || magic[0] != 0x4b4e4142u || magic[1] != (uint32_t)sizeof G) {
-        fprintf(stderr, "%s: not a bank for this build\n", path);
-        exit(1);
+    uint32_t head[BANK_HEAD_WORDS];
+    size_t got = fread(head, 1, sizeof head, f);
+    *eof = got == 0 && feof(f);
+    if (got != sizeof head) { if (!*eof) snprintf(err, n, "truncated record header"); return false; }
+    sc->seed = head[0]; sc->frand = head[1]; sc->shooter = head[2];
+    sc->packed = head[3]; sc->raw = head[4];
+    sc->fnv = (uint64_t)head[5] | (uint64_t)head[6] << 32;
+    if (sc->shooter >= MAX_PLAYERS || sc->raw < sizeof G + 9 || sc->raw > BANK_MAX_RAW ||
+        sc->packed == 0 || sc->packed > compressBound((uLong)BANK_MAX_RAW)) {
+        snprintf(err, n, "record %u has impossible sizes", sc->seed);
+        return false;
     }
-    b.count = (int)magic[2];
-    b.s = calloc((size_t)b.count, sizeof *b.s);
-    for (int i = 0; i < b.count; i++) {
-        uint32_t head[4];
-        if (fread(head, sizeof head, 1, f) != 1) { fprintf(stderr, "%s: truncated\n", path); exit(1); }
-        Scenario *sc = &b.s[i];
-        sc->seed = head[0]; sc->frand = head[1]; sc->shooter = head[2]; sc->packed = head[3];
-        sc->data = malloc(sc->packed);
-        if (fread(sc->data, 1, sc->packed, f) != sc->packed) { fprintf(stderr, "%s: truncated\n", path); exit(1); }
+    if (!(sc->data = malloc(sc->packed))) { snprintf(err, n, "out of memory"); return false; }
+    if (fread(sc->data, 1, sc->packed, f) != sc->packed) {
+        free(sc->data);
+        sc->data = NULL;
+        snprintf(err, n, "truncated record %u", sc->seed);
+        return false;
     }
-    fclose(f);
-    return b;
+    return true;
 }
 
 static void bank_free(Bank *b)
@@ -281,9 +339,59 @@ static void bank_free(Bank *b)
     b->count = 0;
 }
 
+static bool bank_load(const char *path, Bank *b, char *err, size_t n)
+{
+    b->count = 0;
+    b->s = NULL;
+    FILE *f = fopen(path, "rb");
+    if (!f) { snprintf(err, n, "%s", strerror(errno)); return false; }
+    uint32_t head[4];
+    bool ok = false;
+    if (fread(head, sizeof head, 1, f) != 1 || head[0] != BANK_MAGIC)
+        snprintf(err, n, "not a scenario bank");
+    else if (head[1] != BANK_VERSION)
+        snprintf(err, n, "bank format %u, this lab reads %u", head[1], BANK_VERSION);
+    else if (head[2] != (uint32_t)sizeof G)
+        snprintf(err, n, "written by a build with a %u-byte GameState (this one: %zu); "
+                         "rebuild it from its seed range", head[2], sizeof G);
+    else if (head[3] == 0 || head[3] > BANK_MAX_RECORDS)
+        snprintf(err, n, "record count %u out of range", head[3]);
+    else if (!(b->s = calloc(head[3], sizeof *b->s)))
+        snprintf(err, n, "out of memory");
+    else {
+        ok = true;
+        for (uint32_t i = 0; ok && i < head[3]; i++) {
+            bool eof;
+            if (!record_read(f, &b->s[i], &eof, err, n)) {
+                if (eof) snprintf(err, n, "%u of %u records", i, head[3]);
+                ok = false;
+            } else {
+                b->count = (int)i + 1;
+            }
+        }
+        if (ok && fgetc(f) != EOF) { snprintf(err, n, "trailing bytes after the last record"); ok = false; }
+    }
+    fclose(f);
+    if (!ok) bank_free(b);
+    return ok;
+}
+
+static Bank bank_read(const char *path)
+{
+    Bank b;
+    char err[200];
+    if (!bank_load(path, &b, err, sizeof err)) {
+        fprintf(stderr, "%s: %s\n", path, err);
+        exit(1);
+    }
+    return b;
+}
+
 static int build_bank(const char *path, unsigned seed, int count, int workers)
 {
+    if (count < 1 || (uint32_t)count > BANK_MAX_RECORDS) { fprintf(stderr, "--count out of range\n"); return 2; }
     if (workers < 1) workers = 1;
+    if (workers > count) workers = count;
     char part[1100];
     pid_t pids[64];
     if (workers > 64) workers = 64;
@@ -296,7 +404,7 @@ static int build_bank(const char *path, unsigned seed, int count, int workers)
             if (!f) _exit(1);
             for (int k = w; k < count; k += workers) {
                 Scenario sc = make_scenario(seed + (unsigned)k);
-                if (!sc.data || !bank_write_one(f, &sc)) _exit(1);
+                if (!sc.data || !record_write(f, &sc)) _exit(1);
                 free(sc.data);
             }
             _exit(fclose(f) == 0 ? 0 : 1);
@@ -318,28 +426,30 @@ static int build_bank(const char *path, unsigned seed, int count, int workers)
     snprintf(tmp, sizeof tmp, "%s.tmp", path);
     FILE *out = fopen(tmp, "wb");
     if (!out) { perror(tmp); return 1; }
-    uint32_t magic[3] = { 0x4b4e4142u, (uint32_t)sizeof G, (uint32_t)count };
-    fwrite(magic, sizeof magic, 1, out);
+    uint32_t head[4] = { BANK_MAGIC, BANK_VERSION, (uint32_t)sizeof G, (uint32_t)count };
+    bool ok = fwrite(head, sizeof head, 1, out) == 1;
     size_t total = 0;
-    for (int k = 0; k < count; k++) {
-        FILE *f = parts[k % workers];
-        uint32_t head[4];
-        if (fread(head, sizeof head, 1, f) != 1) { fprintf(stderr, "short part\n"); return 1; }
-        uint8_t *data = malloc(head[3]);
-        if (fread(data, 1, head[3], f) != head[3]) { fprintf(stderr, "short part\n"); return 1; }
-        fwrite(head, sizeof head, 1, out);
-        fwrite(data, 1, head[3], out);
-        total += head[3];
-        free(data);
+    for (int k = 0; ok && k < count; k++) {
+        Scenario sc = { 0, 0, 0, 0, 0, 0, NULL };
+        bool eof;
+        char err[160];
+        if (!record_read(parts[k % workers], &sc, &eof, err, sizeof err)) {
+            fprintf(stderr, "short part: %s\n", eof ? "end of file" : err);
+            ok = false;
+            break;
+        }
+        ok = record_write(out, &sc);
+        total += sc.packed;
+        free(sc.data);
     }
     for (int w = 0; w < workers; w++) {
         fclose(parts[w]);
         snprintf(part, sizeof part, "%s.part%d", path, w);
         unlink(part);
     }
-    if (fclose(out) != 0 || rename(tmp, path) != 0) { perror(path); return 1; }
+    if (fclose(out) != 0 || !ok || rename(tmp, path) != 0) { perror(path); unlink(tmp); return 1; }
     printf("{\"bank\":\"%s\",\"seed\":%u,\"count\":%d,\"mean_packed_bytes\":%zu}\n",
-           path, seed, count, count ? total / (size_t)count : 0);
+           path, seed, count, total / (size_t)count);
     return 0;
 }
 
@@ -361,7 +471,7 @@ static Turn play_turn(const Scenario *sc, int shooter_kind)
     int me = (int)sc->shooter;
     int hp0[MAX_PLAYERS], shield0[MAX_PLAYERS];
     for (int i = 0; i < G.numPlayers; i++) { hp0[i] = G.tanks[i].hp; shield0[i] = G.tanks[i].shield; }
-    int target = neural_pick_target(me);
+    int target = ai_pick_target(me);
     if (target < 0) return out;
     float tx = G.tanks[target].x, ty = G.tanks[target].y - TANK_HEIGHT / 2.0f;
     if (shooter_kind == SHOOT_NEURAL) {
@@ -408,16 +518,6 @@ static Turn play_turn(const Scenario *sc, int shooter_kind)
 typedef void (*JobFn)(int index, float *out, void *ctx);
 static void parallel_map(int n, int width, int workers, JobFn job, void *ctx, float *results);
 
-/* The classic AIs' own target rule: weakest living opponent, first seat on ties. */
-static int classic_target(int shooter)
-{
-    int best = -1;
-    for (int i = 0; i < G.numPlayers; i++)
-        if (i != shooter && G.tanks[i].hp > 0 && (best < 0 || G.tanks[i].hp < G.tanks[best].hp))
-            best = i;
-    return best;
-}
-
 #define DEMO_WIDTH (POLICY_FEATURES + 5)   /* features, weapon slot, angle, power, dealt, self */
 
 /* The classic shooter's choice on one scenario, with what it achieved. */
@@ -426,7 +526,7 @@ static void demo_job(int i, float *out, void *vctx)
     const Bank *b = vctx;
     const Scenario *sc = &b->s[i];
     restore(sc);
-    int me = (int)sc->shooter, target = classic_target(me);
+    int me = (int)sc->shooter, target = ai_pick_target(me);
     memset(out, 0, sizeof(float) * DEMO_WIDTH);
     if (target < 0) { out[POLICY_FEATURES] = -1; return; }
     neural_features(me, target, out);
@@ -494,7 +594,7 @@ static void match_demo_job(int k, float *out, void *vctx)
         if (decide && n < MATCH_DEMOS) {
             G.pendingAIStart = 0;
             me = G.currentPlayer;
-            int target = classic_target(me);
+            int target = ai_pick_target(me);
             if (target >= 0) {
                 row = out + 1 + (size_t)n * DEMO_WIDTH;
                 neural_features(me, target, row);
@@ -593,7 +693,7 @@ static void oracle_job(int i, float *out, void *vctx)
         float *row = out + (size_t)v * DEMO_WIDTH;
         restore(sc);
         uint32_t r = mix32(sc->seed * 747796405u + (uint32_t)v * 2891336453u + 1);
-        int me = (int)sc->shooter, target = classic_target(me);
+        int me = (int)sc->shooter, target = ai_pick_target(me);
         row[POLICY_FEATURES] = -2;                       /* unusable unless filled below */
         if (target < 0) continue;
         G.wind = ((float)(r % 10001u) / 10000.0f - 0.5f) * 40.0f;
@@ -1024,6 +1124,172 @@ static void remove_scratch(void)
     rmdir(scratch_dir);
 }
 
+/* ---------- self-test: banks round-trip, and damaged banks are refused ---------- */
+
+static bool write_bytes(const char *path, const uint8_t *data, size_t size)
+{
+    FILE *f = fopen(path, "wb");
+    if (!f) return false;
+    bool ok = fwrite(data, 1, size, f) == size;
+    return (fclose(f) == 0) && ok;
+}
+
+/* Re-pack scenario `sc` after `mutate` edits its raw bytes, with a correct
+ * size and checksum, so only the content checks can refuse it. */
+typedef void (*Mutate)(uint8_t *raw, size_t size);
+
+static Scenario repack(const Scenario *sc, Mutate mutate)
+{
+    Scenario out = *sc;
+    uint8_t *raw = malloc(sc->raw);
+    uLongf got = sc->raw;
+    if (!raw || uncompress(raw, &got, sc->data, sc->packed) != Z_OK) { fprintf(stderr, "repack\n"); exit(1); }
+    mutate(raw, got);
+    uLongf cap = compressBound(got);
+    out.data = malloc(cap);
+    if (!out.data || compress2(out.data, &cap, raw, got, 1) != Z_OK) { fprintf(stderr, "repack\n"); exit(1); }
+    out.packed = (uint32_t)cap;
+    out.fnv = kilix_policy_fnv1a64(raw, got);
+    free(raw);
+    return out;
+}
+
+static void wide_span(uint8_t *raw, size_t size)
+{
+    (void)size;
+    int32_t dims[2];
+    memcpy(dims, raw + sizeof G, sizeof dims);
+    int16_t lo = -32768, hi = 32767;
+    uint8_t *spans = raw + sizeof G + 9 + (size_t)dims[0] * (size_t)dims[1];
+    memcpy(spans, &lo, sizeof lo);                                   /* rowMinX[0] */
+    memcpy(spans + (size_t)dims[1] * sizeof(int16_t), &hi, sizeof hi); /* rowMaxX[0] */
+}
+
+static void empty_but_negative(uint8_t *raw, size_t size)
+{
+    (void)size;
+    int32_t dims[2];
+    memcpy(dims, raw + sizeof G, sizeof dims);
+    int16_t lo = -5, hi = -10;               /* "empty", but widening it would go below 0 */
+    uint8_t *next = raw + sizeof G + 9 + (size_t)dims[0] * (size_t)dims[1] + 2 * (size_t)dims[1] * sizeof(int16_t);
+    memcpy(next, &lo, sizeof lo);
+    memcpy(next + (size_t)dims[1] * sizeof(int16_t), &hi, sizeof hi);
+}
+
+static void bad_material(uint8_t *raw, size_t size) { (void)size; raw[sizeof G + 9 + 7] = 250; }
+
+static void bad_players(uint8_t *raw, size_t size)
+{
+    (void)size;
+    GameState s;
+    memcpy(&s, raw, sizeof s);
+    s.numPlayers = 99;
+    memcpy(raw, &s, sizeof s);
+}
+
+static void bad_projectile(uint8_t *raw, size_t size)
+{
+    (void)size;
+    GameState s;
+    memcpy(&s, raw, sizeof s);
+    s.projectiles[0].active = true;
+    s.projectiles[0].weapon = 1000;
+    memcpy(raw, &s, sizeof s);
+}
+
+static void wrong_field(uint8_t *raw, size_t size)
+{
+    (void)size;
+    GameState s;
+    memcpy(&s, raw, sizeof s);
+    s.W += 1;
+    memcpy(raw, &s, sizeof s);
+}
+
+static int self_test(void)
+{
+    int failures = 0;
+#define EXPECT(condition, label) do { \
+    if (!(condition)) { printf("FAIL: %s\n", label); failures++; } \
+    else printf("PASS: %s\n", label); \
+} while (0)
+    setvbuf(stdout, NULL, _IONBF, 0);
+    char path[sizeof scratch_dir + 64], bad[sizeof scratch_dir + 64], err[200];
+    snprintf(path, sizeof path, "%s/test.bank", scratch_dir);
+    snprintf(bad, sizeof bad, "%s/bad.bank", scratch_dir);
+    EXPECT(build_bank(path, 424242u, 3, 2) == 0, "a three-turn bank builds");
+    Bank b;
+    EXPECT(bank_load(path, &b, err, sizeof err) && b.count == 3, "and loads back");
+    if (b.count != 3) return 1;
+    bool replay = true;
+    for (int i = 0; i < b.count; i++) {
+        replay &= scenario_restore(&b.s[i], err, sizeof err);
+        neural_use_policy(NULL);
+        Turn t1 = play_turn(&b.s[i], SHOOT_NEURAL), t2 = play_turn(&b.s[i], SHOOT_NEURAL);
+        replay &= t1.reward == t2.reward && t1.weapon == t2.weapon;
+    }
+    EXPECT(replay, "every turn restores and replays identically");
+
+    /* file-level damage */
+    FILE *f = fopen(path, "rb");
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    uint8_t *file = malloc((size_t)size + 16);
+    if (fread(file, 1, (size_t)size, f) != (size_t)size) size = 0;
+    fclose(f);
+    uint8_t *copy = malloc((size_t)size + 16);
+    Bank x;
+    struct { const char *label; size_t at; uint32_t value; long length; } cases[] = {
+        { "a foreign magic is refused", 0, 0x12345678u, size },
+        { "another format version is refused", 4, 1u, size },
+        { "another GameState size is refused", 8, 1234u, size },
+        { "an absurd record count is refused", 12, 0xffffffffu, size },
+        { "a record size beyond any snapshot is refused", 16 + 4 * 4, 0xfffffff0u, size },
+        { "a truncated bank is refused", 0, 0, size - 100 },
+        { "trailing bytes are refused", 0, 0, size + 16 },
+    };
+    for (size_t c = 0; c < sizeof cases / sizeof cases[0]; c++) {
+        memcpy(copy, file, (size_t)size);
+        memset(copy + size, 0xab, 16);
+        if (cases[c].value) memcpy(copy + cases[c].at, &cases[c].value, 4);
+        write_bytes(bad, copy, (size_t)cases[c].length);
+        bool loaded = bank_load(bad, &x, err, sizeof err);
+        if (loaded) bank_free(&x);
+        EXPECT(!loaded, cases[c].label);
+    }
+    /* a flipped payload byte loads (sizes are fine) but cannot be installed */
+    memcpy(copy, file, (size_t)size);
+    copy[16 + BANK_HEAD_WORDS * 4 + 40] ^= 0x5a;
+    write_bytes(bad, copy, (size_t)size);
+    bool loaded = bank_load(bad, &x, err, sizeof err);
+    EXPECT(loaded && !scenario_restore(&x.s[0], err, sizeof err), "a flipped payload byte is refused on restore");
+    if (loaded) bank_free(&x);
+
+    /* content damage behind a correct size and checksum */
+    struct { const char *label; Mutate m; } content[] = {
+        { "an active span outside the grid is refused", wide_span },
+        { "an empty span that would widen below column 0 is refused", empty_but_negative },
+        { "an unknown terrain material is refused", bad_material },
+        { "an impossible player count is refused", bad_players },
+        { "a projectile with an unknown weapon is refused", bad_projectile },
+        { "terrain of the wrong size for the field is refused", wrong_field },
+    };
+    for (size_t c = 0; c < sizeof content / sizeof content[0]; c++) {
+        Scenario sc = repack(&b.s[0], content[c].m);
+        EXPECT(!scenario_restore(&sc, err, sizeof err), content[c].label);
+        free(sc.data);
+    }
+    EXPECT(scenario_restore(&b.s[0], err, sizeof err), "the undamaged turn still restores");
+    free(file);
+    free(copy);
+    bank_free(&b);
+    unlink(path);
+    unlink(bad);
+#undef EXPECT
+    return failures ? 1 : 0;
+}
+
 int main(int argc, char **argv)
 {
     int hidden = 32, workers = 12, gens = 300, pop = 64, batch = 64, count = 1000, duels = 0;
@@ -1071,6 +1337,7 @@ int main(int argc, char **argv)
     setenv("HOME", scratch_dir, 1);
     atexit(remove_scratch);
 
+    if (argc == 2 && !strcmp(argv[1], "--self-test")) return self_test();
     if (build) return build_bank(build, seed, count, workers);
     if (oracle) {
         if (!scenarios) { fprintf(stderr, "--oracle needs --scenarios BANK\n"); return 2; }

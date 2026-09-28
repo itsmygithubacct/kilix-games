@@ -1,6 +1,6 @@
 /* The neural gunner: a kilix-game-kit policy compiled in from
  * src/neural_policy_blob.h (tools/neural/install-policy.py regenerates it).
- * Each turn it looks at one target, as the classic AIs do, and chooses a
+ * Each turn it aims at ai_pick_target(), as the classic AIs do, and chooses a
  * weapon, a barrel angle and a power in one forward pass: no trajectory
  * search. tools/neural/bashed_earth_lab.c trains and evaluates it through
  * these same functions. */
@@ -20,22 +20,6 @@ const int NEURAL_WEAPONS[NEURAL_WEAPON_COUNT] = {
 #define SCALE 1000.0f            /* pixels per feature unit */
 #define PROFILE_SAMPLES 16       /* terrain samples between shooter and target */
 #define BEYOND_SAMPLES 4         /* and past the target, 40 px apart */
-
-/* The classic AIs' rule: the weakest living opponent; ties go to the nearest. */
-int neural_pick_target(int shooter)
-{
-    const Tank *me = &G.tanks[shooter];
-    int best = -1;
-    for (int i = 0; i < G.numPlayers; i++) {
-        const Tank *t = &G.tanks[i];
-        if (i == shooter || t->hp <= 0) continue;
-        if (best < 0 || t->hp < G.tanks[best].hp ||
-            (t->hp == G.tanks[best].hp &&
-             fabsf(t->x - me->x) < fabsf(G.tanks[best].x - me->x)))
-            best = i;
-    }
-    return best;
-}
 
 static float pivot_y(const Tank *t) { return t->y - TANK_HEIGHT / 2.0f; }
 
@@ -144,7 +128,7 @@ const char *neural_status(void)
 bool neural_do_turn(void)
 {
     if (!neural_ready()) return false;
-    int shooter = G.currentPlayer, target = neural_pick_target(shooter);
+    int shooter = G.currentPlayer, target = ai_pick_target(shooter);
     if (target < 0) return false;
     float x[POLICY_FEATURES], y[POLICY_OUTPUTS];
     neural_features(shooter, target, x);

@@ -35,8 +35,8 @@ divided by 1000 (the field is the terminal's pixel size, so it varies):
 
 The 14 outputs are 12 weapon scores (argmax over the weapons in stock), the
 barrel angle `5 + 83*sigmoid` degrees and the power `10 + 90*sigmoid`,
-clamped to the tank's max power. The target is chosen by the classic rule
-(weakest living opponent, ties to the nearest).
+clamped to the tank's max power. The target is `ai_pick_target()`, the rule
+every AI shares: the weakest living opponent, the lowest seat on ties.
 
 ## Data
 
@@ -45,6 +45,16 @@ tanks; personalities, a 700-2000 px field, terrain, wind, precipitation and
 wall bounce all drawn from the seed), stopped where an AI is about to aim.
 Replaying it with a different shooter gives a turn reward: damage dealt, plus
 20 per enemy shield broken, minus damage taken, plus 25 per kill, over 100.
+
+Banks are compressed game snapshots with a format version, per-record
+checksums and the `GameState` size of the build that wrote them. The loader
+bounds every size and count and range-checks each snapshot (players, weapons,
+projectiles, terrain materials and active spans) before installing it, and
+`bashed-earth-lab --self-test` (run by `make test` and, under ASan+UBSan, by
+`make sanitize`) proves damaged banks are refused. A bank only loads in a build
+with the same `GameState` layout; rebuild it from its seed range instead, which
+replays the same matches while the rules are unchanged (the rebuilt 9,500,000
+bank reproduces the classic shooter's original held-out numbers exactly).
 
 A **duel** is one whole match against one classic personality: duel k of a
 range starting at seed S is match seed S+k against personality k % 5, the
@@ -98,10 +108,17 @@ mean 8.3 turns per duel. The classic rows are the same 2,000 duels with that
 personality in the gunner's seat. They show what an even match looks like
 on these seeds.
 
-On 1,000 held-out turns (bank seeds 9,500,000+), replayed with each
-shooter: Neural's mean turn reward was 0.262 and it damaged someone on 75.1%
-of turns [72.3, 77.7]; the classic shooter's figures were 0.168 and 43.7%
-[40.7, 46.8].
+Held-out turns, replayed with each shooter. The first bank (seeds
+9,500,000+) was measured before review K1 made Neural break health ties by
+seat as the classic AIs (and its training labels) do; it had broken them by
+distance, which only matters with three or four tanks. A fresh bank (seeds
+9,600,000+) was measured once with the corrected rule. Duels are one-on-one,
+so they are unaffected (the first 200 held-out duels replay identically).
+
+| Bank | Neural reward, hit rate [Wilson 95%] | Classic reward, hit rate |
+|---|---|---|
+| 9,600,000+, corrected rule | 0.283, 78.3% [75.6, 80.7] | 0.159, 43.6% [40.6, 46.7] |
+| 9,500,000+, before review | 0.262, 75.1% [72.3, 77.7] | 0.168, 43.7% [40.7, 46.8] |
 
 The shipped blob reproduces the duel run exactly:
 
@@ -128,5 +145,6 @@ $L --duels 1000 --seed 5100000 --weights gunner.raw --hidden 64
 python3 tools/neural/install-policy.py gunner.raw --hidden 64 --manifest-extra extra.json
 ```
 
-Every lab mode points `HOME` and `XDG_CONFIG_HOME` at a private scratch
+`make lab` then `tools/neural/bashed-earth-lab --self-test` checks the bank
+format. Every lab mode points `HOME` and `XDG_CONFIG_HOME` at a private scratch
 directory, so none can touch a player's saved setup.

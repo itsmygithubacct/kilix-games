@@ -229,20 +229,20 @@ void game_handle_key(int key);        /* routed by current state */
 int  game_player_ammo(int player, int w);
 int  game_money_left(int player);
 void ai_buy_weapons(int player);
+int  ai_pick_target(int shooter);      /* weakest living opponent, lowest seat on ties */
 void ai_do_turn(void);
 void create_explosion(float x, float y, float radius, float damage, int weaponType);
 void add_damage_text(float x, float y, const char *text, uint32_t color);
 
 /* ---------- neural.c ---------- */
 /* The neural gunner's contract, shared by the game and tools/neural's lab.
- * Features are shooter-centred and mirrored so the target is always to the
+ * It aims at ai_pick_target(), as the classic AIs do. Features are shooter-centred and mirrored so the target is always to the
  * right; outputs are 12 weapon scores (NEURAL_WEAPONS order) then the
  * mirrored barrel angle and the power, both squashed by a sigmoid. */
 #define POLICY_FEATURES 44
 #define POLICY_OUTPUTS  14
 #define NEURAL_WEAPON_COUNT 12
 extern const int NEURAL_WEAPONS[NEURAL_WEAPON_COUNT];
-int  neural_pick_target(int shooter);             /* -1 if nobody is left */
 void neural_features(int shooter, int target, float *out);
 /* Select the weapon and set the barrel from policy outputs. */
 void neural_aim(int shooter, int target, const float *outputs);
