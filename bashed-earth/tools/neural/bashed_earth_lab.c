@@ -212,6 +212,15 @@ static void capture(Scenario *sc)
     free(buf);
 }
 
+static bool in_range(float v, float lo, float hi) { return v >= lo && v <= hi; }   /* false for NaN */
+
+/* Positions within a generous margin of any field, speeds far above any shot. */
+static bool position_ok(float x, float y, float vx, float vy)
+{
+    return in_range(x, -1e5f, 1e5f) && in_range(y, -1e5f, 1e5f) &&
+           in_range(vx, -1e4f, 1e4f) && in_range(vy, -1e4f, 1e4f);
+}
+
 /* A replayable decision point: an AI about to aim in a live match. */
 static bool state_ok(const GameState *s, uint32_t shooter, char *err, size_t n)
 {
@@ -225,10 +234,10 @@ static bool state_ok(const GameState *s, uint32_t shooter, char *err, size_t n)
     for (int i = 0; i < s->numPlayers; i++) {
         const Tank *t = &s->tanks[i];
         if (t->id != i || t->hp < 0 || t->hp > MAX_HP || t->strategy < -1 || t->strategy >= STRAT_COUNT ||
-            t->selectedWeapon < 0 || t->selectedWeapon >= WEAPON_COUNT || t->shield < 0 ||
-            !isfinite(t->x) || !isfinite(t->y) || !isfinite(t->vx) || !isfinite(t->vy) ||
-            !isfinite(t->angle) || !isfinite(t->power) || !isfinite(t->maxPower) ||
-            !isfinite(t->groundAngle)) { snprintf(err, n, "bad tank %d", i); return false; }
+            t->selectedWeapon < 0 || t->selectedWeapon >= WEAPON_COUNT || t->shield < 0 || t->shield > 99 ||
+            !position_ok(t->x, t->y, t->vx, t->vy) || !in_range(t->angle, 0, 180) ||
+            !in_range(t->maxPower, 10, 100) || !in_range(t->power, 0, 100) ||
+            !in_range(t->groundAngle, -360, 360)) { snprintf(err, n, "bad tank %d", i); return false; }
     }
     for (int i = 0; i < MAX_PLAYERS; i++)
         if (s->pStrategy[i] < -1 || s->pStrategy[i] >= STRAT_COUNT) { snprintf(err, n, "bad seat strategy"); return false; }
@@ -242,20 +251,37 @@ static bool state_ok(const GameState *s, uint32_t shooter, char *err, size_t n)
     if (s->terrainType < 0 || s->terrainType > TERRAIN_ICE || s->terrainSetting < 0 || s->terrainSetting > 3 ||
         s->windSetting < 0 || s->windSetting > SET_STRONG || s->precipSetting < 0 || s->precipSetting > SET_STRONG ||
         s->precipMaterial < 0 || s->precipMaterial >= M_COUNT) { snprintf(err, n, "bad terrain or weather code"); return false; }
-    if (!isfinite(s->wind) || !isfinite(s->precipRate) || !isfinite(s->damageMultiplier) ||
-        !isfinite(s->pendingNextTurn) || !isfinite(s->pendingAIStart) || !isfinite(s->pendingAIFire) ||
-        !isfinite(s->autoplayTimer)) { snprintf(err, n, "bad timer or weather value"); return false; }
+    /* Floats must lie in the ranges the game produces: loop counts (explosion
+     * particles, precipitation drops) and float-to-int conversions derive
+     * from them, and a huge finite value would spin or overflow them. */
+    if (!in_range(s->wind, -20, 20) || !in_range(s->precipRate, 0, 0.009f) ||
+        s->precipBudget < 0 || s->precipBudget > 8000 || !in_range(s->damageMultiplier, 0.5f, 2.0f) ||
+        !in_range(s->pendingNextTurn, 0, 10000) || !in_range(s->pendingAIStart, 0, 10000) ||
+        !in_range(s->pendingAIFire, 0, 10000) || !in_range(s->autoplayTimer, 0, AUTOPLAY_MS) ||
+        !in_range(s->cameraShake, 0, 1000) || !in_range(s->screenFlash, 0, 10)) {
+        snprintf(err, n, "bad timer or weather value");
+        return false;
+    }
+    for (int i = 0; i < MAX_PARTICLES; i++) {
+        const Particle *q = &s->particles[i];
+        if (q->active && !position_ok(q->x, q->y, q->vx, q->vy)) { snprintf(err, n, "bad particle %d", i); return false; }
+    }
+    for (int i = 0; i < MAX_DEBRIS; i++) {
+        const Debris *d = &s->debris[i];
+        if (d->active && !position_ok(d->x, d->y, d->vx, d->vy)) { snprintf(err, n, "bad debris %d", i); return false; }
+    }
     for (int i = 0; i < MAX_FLAMES; i++) {
         const Flame *fl = &s->flames[i];
-        if (fl->active && (!isfinite(fl->x) || !isfinite(fl->y) || !isfinite(fl->vx) || !isfinite(fl->vy))) {
+        if (fl->active && (!position_ok(fl->x, fl->y, fl->vx, fl->vy) || !in_range(fl->life, -10, 100))) {
             snprintf(err, n, "bad flame %d", i);
             return false;
         }
     }
     for (int i = 0; i < MAX_PROJECTILES; i++) {
         const Projectile *p = &s->projectiles[i];
-        if (p->active && (p->weapon < 0 || p->weapon >= WEAPON_COUNT || !isfinite(p->x) || !isfinite(p->y) ||
-                          !isfinite(p->vx) || !isfinite(p->vy) || !isfinite(p->radius))) {
+        if (p->active && (p->weapon < 0 || p->weapon >= WEAPON_COUNT ||
+                          !position_ok(p->x, p->y, p->vx, p->vy) || !in_range(p->rvx, -1e4f, 1e4f) ||
+                          !in_range(p->radius, 0, 100))) {
             snprintf(err, n, "bad projectile %d", i);
             return false;
         }
@@ -1243,6 +1269,11 @@ STATE_MUTATOR(bad_store_cursor, s.storeCursor = 99)
 STATE_MUTATOR(bad_selected_weapon, s.tanks[1].selectedWeapon = -3)
 STATE_MUTATOR(nan_wind, s.wind = NAN)
 STATE_MUTATOR(nan_flame, s.flames[0].active = true; s.flames[0].x = NAN)
+STATE_MUTATOR(flood_precip, s.precipRate = 3.4e38f; s.precipBudget = 1)
+STATE_MUTATOR(huge_radius, s.projectiles[0].active = true; s.projectiles[0].weapon = W_NORMAL;
+              s.projectiles[0].x = s.projectiles[0].y = 10; s.projectiles[0].radius = 1e30f)
+STATE_MUTATOR(far_tank, s.tanks[0].x = 1e30f)
+STATE_MUTATOR(gale, s.wind = 1e9f)
 
 static void wrong_field(uint8_t *raw, size_t size)
 {
@@ -1329,6 +1360,10 @@ static int self_test(void)
         { "an unknown selected weapon is refused", bad_selected_weapon },
         { "a non-finite wind is refused", nan_wind },
         { "a non-finite flame is refused", nan_flame },
+        { "a precipitation rate beyond the game's is refused", flood_precip },
+        { "a blast radius beyond any weapon's is refused", huge_radius },
+        { "a tank far off any field is refused", far_tank },
+        { "a wind beyond the strongest setting is refused", gale },
     };
     for (size_t c = 0; c < sizeof content / sizeof content[0]; c++) {
         Scenario sc = repack(&b.s[0], content[c].m);

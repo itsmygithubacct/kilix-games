@@ -210,7 +210,10 @@ void terrain_tick_precipitation(void)
 {
     if (!grid || G.precipRate <= 0 || G.precipMaterial == 0 || G.precipBudget <= 0)
         return;
+    /* at most one drop attempt per column per tick (the game's own rates stay
+     * far below that), so no rate, however large, can spin this loop */
     float n = cols * G.precipRate;
+    if (!(n <= (float)cols)) n = (float)cols;
     while (n > 0 && G.precipBudget > 0) {
         if (n < 1 && frandf() > n) break;
         int gx = (int)(frandf() * cols);

@@ -192,6 +192,8 @@ static int neural_test(void)
     /* the start menu offers Neural for player 1 and for every opponent */
     set_defaults();
     G.headless = true;
+    G.W = 1000;
+    G.H = 640;
     game_reset_to_start();
     G.startCursor = 0;
     game_handle_key(KEY_RIGHT);
@@ -220,6 +222,29 @@ static int neural_test(void)
         G.tanks[0].hp = 0;
         G.tanks[2].hp = 100;
         EXPECT(ai_pick_target(3) == 1, "and never a dead one");
+        G = keep;
+    }
+
+    /* precipitation is bounded per tick, whatever rate a state carries: with
+     * the top row full no drop can land, so only the cap ends the loop */
+    {
+        GameState keep = G;
+        size_t size = terrain_serialized_size();
+        uint8_t *snap = malloc(size);
+        terrain_serialize(snap);
+        memset(snap + 9, M_DIRT, (size_t)G.W);                /* the top row */
+        bool full = terrain_deserialize(snap, size);
+        free(snap);
+        for (int x = 0; x < G.W; x++) full &= terrain_is_ground((float)x, 0);
+        G.precipMaterial = M_WATER;
+        G.precipRate = 3.4e38f;
+        G.precipBudget = 1;
+        signal(SIGALRM, watchdog);
+        alarm(5);
+        terrain_tick_precipitation();
+        alarm(0);
+        EXPECT(G.W > 0 && full && G.precipBudget == 1,
+               "an absurd precipitation rate over a full top row returns");
         G = keep;
     }
 
