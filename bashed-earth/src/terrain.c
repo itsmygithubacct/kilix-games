@@ -32,6 +32,60 @@ static inline int idx(int gx, int gy) { return gy * cols + gx; }
 
 const uint8_t *terrain_grid(void) { return grid; }
 
+/* Layout: int32 cols, int32 rows, uint8 anyActive, the grid, then the four
+ * active-span arrays (rowMinX, rowMaxX, nextMinX, nextMaxX). */
+size_t terrain_serialized_size(void)
+{
+    return 9 + (size_t)cols * (size_t)rows + 4 * (size_t)rows * sizeof(int16_t);
+}
+
+void terrain_serialize(uint8_t *out)
+{
+    int32_t dims[2] = { cols, rows };
+    size_t cells = (size_t)cols * (size_t)rows, span = (size_t)rows * sizeof(int16_t);
+    memcpy(out, dims, 8);
+    out[8] = anyActive;
+    out += 9;
+    if (cells) memcpy(out, grid, cells);
+    out += cells;
+    int16_t *spans[4] = { rowMinX, rowMaxX, nextMinX, nextMaxX };
+    for (int i = 0; i < 4; i++, out += span)
+        if (span) memcpy(out, spans[i], span);
+}
+
+bool terrain_deserialize(const uint8_t *in, size_t size)
+{
+    int32_t dims[2];
+    if (size < 9) return false;
+    memcpy(dims, in, 8);
+    if (dims[0] <= 0 || dims[1] <= 0 || dims[0] > 8192 || dims[1] > 8192) return false;
+    size_t cells = (size_t)dims[0] * (size_t)dims[1], span = (size_t)dims[1] * sizeof(int16_t);
+    if (size != 9 + cells + 4 * span) return false;
+    if (dims[0] != cols || dims[1] != rows || !grid) {
+        free(grid); free(rowMinX); free(rowMaxX); free(nextMinX); free(nextMaxX);
+        cols = dims[0];
+        rows = dims[1];
+        grid = malloc(cells);
+        rowMinX = malloc(span);
+        rowMaxX = malloc(span);
+        nextMinX = malloc(span);
+        nextMaxX = malloc(span);
+        if (!grid || !rowMinX || !rowMaxX || !nextMinX || !nextMaxX) {
+            free(grid); free(rowMinX); free(rowMaxX); free(nextMinX); free(nextMaxX);
+            grid = NULL; rowMinX = rowMaxX = nextMinX = nextMaxX = NULL;
+            cols = rows = 0;
+            return false;
+        }
+    }
+    anyActive = in[8] != 0;
+    in += 9;
+    memcpy(grid, in, cells);
+    in += cells;
+    int16_t *spans[4] = { rowMinX, rowMaxX, nextMinX, nextMaxX };
+    for (int i = 0; i < 4; i++, in += span) memcpy(spans[i], in, span);
+    return true;
+}
+
 static inline void span_add(int16_t *minA, int16_t *maxA, int gy, int x0, int x1)
 {
     if (gy < 0 || gy >= rows) return;

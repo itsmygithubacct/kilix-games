@@ -27,6 +27,11 @@ kitty-protocol terminal: kitty, ghostty, wezterm...). **Linux only.**
 - **5 AI personalities** — Aggressive, Defensive, Tactical, Balanced,
   Trickster; each with its own shopping list, weapon priorities, aim
   accuracy, taunts, and name pool
+- **A neural gunner** — a sixth opponent, Neural, whose weapon, barrel angle
+  and power come from a small trained network in one step, with no
+  trajectory search. It won 93.7% of 2,000 held-out duels against the five
+  classic personalities. Set Player 1 to Neural to watch it play
+  ([below](#neural-gunner))
 - **Weather** — wind that pushes shells, rain that fills craters, snow
   that buries ice worlds
 - **Hazards** — fall damage (parachutes save you), buried-alive damage,
@@ -63,12 +68,28 @@ Sound plays through the first available CLI sink (`pacat`, `pw-play`,
 | Q | quit |
 
 Menus: arrows to navigate, Left/Right to change values, Enter to confirm.
-Options persist to `~/.config/bashed-earth.conf`.
+Options persist to `~/.config/bashed-earth.conf` (`$XDG_CONFIG_HOME` if set).
+
+## Neural gunner
+
+Each opponent row cycles Off, AI: Random, the five classic personalities and
+**Neural**; the Player 1 row switches between You and **Neural (watch)**,
+which plays every seat by itself. Random still picks among the five classic
+personalities only.
+
+On its turn Neural picks its target by the classic rule (the weakest tank),
+reads 44 numbers about the shot (the target's offset, the wind, 20 terrain
+heights along and past the line of fire, both tanks' health and cover, its
+ammo) and a 44-64-64-14 network answers with a weapon, an angle and a power.
+It shops like Balanced. If its policy ever failed to load it would play as
+Balanced. The network, how it was trained, and the full evaluation are in
+[tools/neural/README.md](tools/neural/README.md).
 
 ## Development
 
 ```sh
-make test                          # headless AI-vs-AI selftest matches
+make test                          # neural checks + headless AI-vs-AI selftests
+./bashed-earth --neural-test       # the gunner loads, plays and replays; fixed duels
 ./bashed-earth --selftest 42 3     # specific seed, 3 matches
 ./bashed-earth --render-test 7     # dump render_*.ppm screenshots
 BE_DEBUG=1 ./bashed-earth --selftest 1 1   # tick-by-tick state trace
@@ -76,6 +97,10 @@ BE_DEBUG=1 ./bashed-earth --selftest 1 1   # tick-by-tick state trace
 
 The selftest plays full 4-AI matches headlessly (store, combat, economy,
 carry-over) and checks invariants — no terminal needed, so it runs in CI.
+Test modes keep their options file in a private temporary directory, and
+`make test` runs them under a sentinel `HOME` and `XDG_CONFIG_HOME` and fails
+if anything is written there. `make sanitize` repeats the checks under
+ASan+UBSan.
 
 ## Architecture
 
@@ -84,10 +109,12 @@ carry-over) and checks invariants — no terminal needed, so it runs in CI.
 | `src/term.c` | key decoding around the vendored `kitty-framebuffer` session |
 | `src/terrain.c` | falling-sand automaton with per-row active-span tracking |
 | `src/game.c` | tanks, projectiles, flames, explosions, AI, store, turn flow |
+| `src/neural.c` | the neural gunner: features, aim, and the embedded policy (`src/neural_policy_blob.h`) |
 | `src/render.c` | scene, HUD, menus, and Scale2x/3x text over vendored `soft-raster` primitives |
 | `src/sound.c` | reviewed WAV bank + procedural fallback routed through vendored `pcm-mixer` |
 | `src/config.c` | weapon/AI/color data tables |
-| `src/main.c` | 30 fps loop (60 Hz logic), selftest, render-test |
+| `src/main.c` | 30 fps loop (60 Hz logic), selftest, render-test, neural-test |
+| `tools/neural/` | the gunner's training and evaluation lab and policy tooling |
 
 The four shared runtime libraries are pinned under `third_party/`, so a
 normal checkout remains self-contained.

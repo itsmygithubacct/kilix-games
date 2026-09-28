@@ -12,6 +12,7 @@ const char *g_phase = "init";   /* selftest watchdog marker */
  * second, so libc rand() is too slow for it */
 static uint32_t xs_state = 0x9e3779b9u;
 void frand_seed(uint32_t s) { xs_state = s ? s : 0x9e3779b9u; }
+uint32_t frand_state(void) { return xs_state; }
 float frandf(void)
 {
     xs_state ^= xs_state << 13;
@@ -960,10 +961,12 @@ void ai_do_turn(void)
 
     if (frandf() < 0.3f)
         add_damage_text(tank->x, tank->y - 60, AI_TAUNTS[rand() % 10], 0xff88ff);
+    if (tank->strategy == STRAT_NEURAL && neural_do_turn()) return;
 
     float dist = fabsf(target->x - tank->x);
     const int *ammo = G.ammo[G.currentPlayer];
-    int strat = tank->strategy >= 0 && tank->strategy < STRAT_COUNT
+    /* Neural without a usable policy falls back to Balanced's aim */
+    int strat = tank->strategy >= 0 && tank->strategy < STRAT_CLASSIC_COUNT
               ? tank->strategy : STRAT_BALANCED;
     const AIStrategy *strategy = &AI_STRATEGIES[strat];
 
@@ -1157,9 +1160,10 @@ void game_start_from_menu(void)
         Tank *t = &G.tanks[G.numPlayers];
         memset(t, 0, sizeof *t);
         t->id = G.numPlayers;
-        t->isAI = (i > 0) || G.headless;
+        t->isAI = (i > 0) || G.headless || G.p1Neural;
         if (t->isAI) {
-            int strat = G.pStrategy[i] >= 0 ? G.pStrategy[i] : rand() % STRAT_COUNT;
+            int strat = i == 0 && G.p1Neural ? STRAT_NEURAL
+                      : G.pStrategy[i] >= 0 ? G.pStrategy[i] : rand() % STRAT_CLASSIC_COUNT;
             t->strategy = strat;
             int pick = rand() % 7, tries = 0;
             while (usedName[strat][pick] && tries++ < 7) pick = (pick + 1) % 7;
@@ -1277,8 +1281,8 @@ static void handle_key_playing(int key)
         sound_play(SFX_MENU_MOVE, 0.4f, 1.4f);
 }
 
-/* start menu rows: 0..2 opponents, 3 terrain, 4 wind, 5 precip, 6 damage,
- * 7 wall bounce, 8 sound, 9 START */
+/* start menu rows: 0 player 1, 1..3 opponents, 4 terrain, 5 wind, 6 precip,
+ * 7 damage, 8 wall bounce, 9 sound, 10 START */
 static void try_start(void)
 {
     game_start_from_menu();
@@ -1307,27 +1311,30 @@ static void handle_key_start(int key)
     }
     if (!dir) return;
     int row = G.startCursor;
-    if (row >= 0 && row <= 2) {           /* opponent slots P2..P4 */
-        int p = row + 1;
-        /* cycle: off, random, 5 strategies */
+    if (row == 0) {                       /* P1: you, or watch the neural gunner */
+        G.p1Neural = !G.p1Neural;
+    } else if (row >= 1 && row <= 3) {    /* opponent slots P2..P4 */
+        int p = row;
+        /* cycle: off, random, the 5 classic strategies, neural */
+        int values = STRAT_COUNT + 2;
         int v = !G.pEnabled[p] ? 0 : G.pStrategy[p] < 0 ? 1 : G.pStrategy[p] + 2;
-        v = (v + dir + 7) % 7;
+        v = (v + dir + values) % values;
         G.pEnabled[p] = v != 0;
         G.pStrategy[p] = v <= 1 ? -1 : v - 2;
-    } else if (row == 3) {
-        G.terrainSetting = (G.terrainSetting + dir + 4) % 4;
     } else if (row == 4) {
-        G.windSetting = (G.windSetting + dir + 5) % 5;
+        G.terrainSetting = (G.terrainSetting + dir + 4) % 4;
     } else if (row == 5) {
-        G.precipSetting = (G.precipSetting + dir + 5) % 5;
+        G.windSetting = (G.windSetting + dir + 5) % 5;
     } else if (row == 6) {
+        G.precipSetting = (G.precipSetting + dir + 5) % 5;
+    } else if (row == 7) {
         const float steps[4] = { 0.5f, 1.0f, 1.5f, 2.0f };
         int cur = 1;
         for (int i = 0; i < 4; i++) if (fabsf(G.damageMultiplier - steps[i]) < 0.01f) cur = i;
         G.damageMultiplier = steps[(cur + dir + 4) % 4];
-    } else if (row == 7) {
-        G.wallBounce = !G.wallBounce;
     } else if (row == 8) {
+        G.wallBounce = !G.wallBounce;
+    } else if (row == 9) {
         G.soundOn = !G.soundOn;
         sound_set_enabled(G.soundOn);
     } else {
@@ -1472,8 +1479,10 @@ static void conf_path(char *buf, size_t n)
     snprintf(buf, n, "%s/bashed-earth.conf", dir);
 }
 
+/* Headless runs (tests, the neural lab) never read or write the user's file. */
 void options_load(void)
 {
+    if (G.headless) return;
     char path[512];
     conf_path(path, sizeof path);
     FILE *f = fopen(path, "r");
@@ -1487,6 +1496,7 @@ void options_load(void)
         else if (!strcmp(key, "damage")) G.damageMultiplier = clampf(val, 0.5f, 2.0f);
         else if (!strcmp(key, "wallBounce")) G.wallBounce = val != 0;
         else if (!strcmp(key, "sound")) G.soundOn = val != 0;
+        else if (!strcmp(key, "p1")) G.p1Neural = val >= 1;
         else if (!strcmp(key, "p2")) { G.pEnabled[1] = val >= 0; G.pStrategy[1] = val >= 1 ? ((int)val - 1) % STRAT_COUNT : -1; }
         else if (!strcmp(key, "p3")) { G.pEnabled[2] = val >= 0; G.pStrategy[2] = val >= 1 ? ((int)val - 1) % STRAT_COUNT : -1; }
         else if (!strcmp(key, "p4")) { G.pEnabled[3] = val >= 0; G.pStrategy[3] = val >= 1 ? ((int)val - 1) % STRAT_COUNT : -1; }
@@ -1496,6 +1506,7 @@ void options_load(void)
 
 void options_save(void)
 {
+    if (G.headless) return;
     char dir[448], path[512];
     conf_dir(dir, sizeof dir);
     mkdir(dir, 0755);            /* ensure the config dir exists */
@@ -1508,6 +1519,7 @@ void options_save(void)
     fprintf(f, "damage=%g\n", G.damageMultiplier);
     fprintf(f, "wallBounce=%d\n", G.wallBounce ? 1 : 0);
     fprintf(f, "sound=%d\n", G.soundOn ? 1 : 0);
+    fprintf(f, "p1=%d\n", G.p1Neural ? 1 : 0);
     for (int p = 1; p < MAX_PLAYERS; p++)
         fprintf(f, "p%d=%d\n", p + 1,
                 !G.pEnabled[p] ? -1 : G.pStrategy[p] < 0 ? 0 : G.pStrategy[p] + 1);

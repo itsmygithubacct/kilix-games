@@ -57,8 +57,11 @@ typedef struct {
 extern const Weapon WEAPONS[WEAPON_COUNT];
 
 /* ---------- AI ---------- */
+/* The five classic personalities come first; "Random" picks among them.
+ * Neural aims and chooses its weapon with a trained policy (neural.c). */
 enum { STRAT_AGGRESSIVE, STRAT_DEFENSIVE, STRAT_TACTICAL, STRAT_BALANCED,
-       STRAT_TRICKSTER, STRAT_COUNT };
+       STRAT_TRICKSTER, STRAT_NEURAL, STRAT_COUNT };
+#define STRAT_CLASSIC_COUNT STRAT_NEURAL
 
 typedef struct {
     const char *name;
@@ -81,6 +84,10 @@ enum {
 enum { TERRAIN_GRASS, TERRAIN_SAND, TERRAIN_ICE };
 
 void terrain_generate(int width, int height, const float *surfaceYs);
+/* The whole automaton as bytes, for the neural lab's replayable turns. */
+size_t terrain_serialized_size(void);
+void terrain_serialize(uint8_t *out);             /* terrain_serialized_size() bytes */
+bool terrain_deserialize(const uint8_t *in, size_t size);
 void terrain_update(void);               /* STEPS_PER_FRAME automaton steps */
 void terrain_tick_precipitation(void);
 int  terrain_check_ice_stability(void);
@@ -181,6 +188,7 @@ typedef struct {
     /* menus */
     int startCursor;                  /* start-menu row */
     bool pEnabled[MAX_PLAYERS];       /* [0] always true (P1) */
+    bool p1Neural;                    /* P1 is the neural gunner: watch it play */
     int pStrategy[MAX_PLAYERS];       /* STRAT_* or -1 = random */
     int storePlayer, storeCursor;
     int gameoverCursor;
@@ -198,7 +206,7 @@ extern GameState G;
 /* store display order (game.c) */
 extern const int STORE_ORDER[];
 extern const int STORE_ITEMS;
-#define START_ROWS 10  /* start-menu rows incl. START button */
+#define START_ROWS 11  /* start-menu rows incl. START button */
 
 /* ---------- game.c ---------- */
 void game_reset_to_start(void);
@@ -217,6 +225,26 @@ void ai_buy_weapons(int player);
 void ai_do_turn(void);
 void create_explosion(float x, float y, float radius, float damage, int weaponType);
 void add_damage_text(float x, float y, const char *text, uint32_t color);
+
+/* ---------- neural.c ---------- */
+/* The neural gunner's contract, shared by the game and tools/neural's lab.
+ * Features are shooter-centred and mirrored so the target is always to the
+ * right; outputs are 12 weapon scores (NEURAL_WEAPONS order) then the
+ * mirrored barrel angle and the power, both squashed by a sigmoid. */
+#define POLICY_FEATURES 44
+#define POLICY_OUTPUTS  14
+#define NEURAL_WEAPON_COUNT 12
+extern const int NEURAL_WEAPONS[NEURAL_WEAPON_COUNT];
+int  neural_pick_target(int shooter);             /* -1 if nobody is left */
+void neural_features(int shooter, int target, float *out);
+/* Select the weapon and set the barrel from policy outputs. */
+void neural_aim(int shooter, int target, const float *outputs);
+bool neural_ready(void);
+const char *neural_status(void);
+bool neural_do_turn(void);            /* the in-game turn; false = no policy */
+struct kilix_policy;
+/* The lab's candidate network in place of the shipped one; NULL restores it. */
+void neural_use_policy(const struct kilix_policy *policy);
 
 /* ---------- render.c ---------- */
 void render_init(int w, int h);
@@ -248,6 +276,7 @@ enum { KEY_UP = 1000, KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_ESC, KEY_ENTER,
 /* ---------- util ---------- */
 float frandf(void);                   /* [0,1), fast xorshift */
 void frand_seed(uint32_t s);
+uint32_t frand_state(void);
 float clampf(float v, float lo, float hi);
 void options_load(void);
 void options_save(void);

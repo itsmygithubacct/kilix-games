@@ -150,6 +150,118 @@ static int selftest(unsigned seed, int matches)
     return 0;
 }
 
+/* ---------- neural test: the gunner loads, plays, and replays exactly ---------- */
+/* One headless duel to the end: seat 0 plays strategy a, seat 1 strategy b.
+ * Returns the winner's seat, -1 for a draw, -2 if it never finished. */
+static int play_duel(unsigned seed, int a, int b, int *turns)
+{
+    srand(seed);
+    frand_seed(seed * 2654435761u + 1);
+    set_defaults();
+    G.headless = true;
+    G.W = 1000;
+    G.H = 640;
+    G.pStrategy[0] = a;
+    G.pStrategy[1] = b;
+    game_reset_to_start();
+    game_start_from_menu();
+    int shots = 0;
+    for (long t = 0; t < 60L * 60 * 30 && G.gameState != GS_GAMEOVER; t++) {
+        int before = G.gameState;
+        game_tick();
+        shots += before == GS_PLAYING && G.gameState == GS_ANIMATING;
+    }
+    if (turns) *turns = shots;
+    return G.gameState == GS_GAMEOVER ? G.lastWinnerId : -2;
+}
+
+#define NEURAL_TEST_DUELS 10
+#define NEURAL_TEST_EXPECTED 10   /* set when the policy was installed */
+
+static int neural_test(void)
+{
+    int failures = 0;
+#define EXPECT(condition, label) do { \
+    if (!(condition)) { printf("FAIL: %s\n", label); failures++; } \
+    else printf("PASS: %s\n", label); \
+} while (0)
+    setvbuf(stdout, NULL, _IONBF, 0);
+    printf("neural gunner: %s\n", neural_status());
+    EXPECT(neural_ready(), "the shipped policy loads with the game's shape");
+
+    /* the start menu offers Neural for player 1 and for every opponent */
+    set_defaults();
+    G.headless = true;
+    game_reset_to_start();
+    G.startCursor = 0;
+    game_handle_key(KEY_RIGHT);
+    EXPECT(G.p1Neural, "the Player 1 row switches to the neural gunner");
+    G.startCursor = 1;                            /* Player 2, on Random */
+    for (int i = 0; i < STRAT_COUNT; i++) game_handle_key(KEY_RIGHT);
+    EXPECT(G.pEnabled[1] && G.pStrategy[1] == STRAT_NEURAL, "an opponent row reaches Neural");
+    game_handle_key(KEY_RIGHT);
+    EXPECT(!G.pEnabled[1], "and wraps back to Off");
+    G.pEnabled[1] = true;
+    G.pStrategy[1] = -1;
+    game_start_from_menu();
+    EXPECT(G.tanks[0].isAI && G.tanks[0].strategy == STRAT_NEURAL,
+           "a neural Player 1 takes its turns itself");
+    EXPECT(G.tanks[1].strategy >= 0 && G.tanks[1].strategy < STRAT_CLASSIC_COUNT,
+           "Random picks among the five classic personalities");
+
+    /* one neural turn aims from the policy and fires after the usual pause */
+    for (long t = 0; t < 600 && G.gameState == GS_PLAYING; t++) game_tick();
+    EXPECT(G.gameState == GS_ANIMATING || G.gameState == GS_TURN_ENDING,
+           "the neural gunner fires on its turn");
+    const Tank *me = &G.tanks[0];
+    EXPECT(me->angle >= 5 && me->angle <= 175 && me->power >= 10 && me->power <= me->maxPower,
+           "its barrel stays inside the game's limits");
+
+    int turns1 = 0, turns2 = 0;
+    int w1 = play_duel(20260927u, STRAT_NEURAL, STRAT_BALANCED, &turns1);
+    int w2 = play_duel(20260927u, STRAT_NEURAL, STRAT_BALANCED, &turns2);
+    EXPECT(w1 != -2, "a duel against Balanced finishes");
+    EXPECT(w1 == w2 && turns1 == turns2, "the same seed replays the same duel");
+
+    /* Regression: fixed duels against every classic personality, the gunner
+     * in each seat. The shipped policy won NEURAL_TEST_EXPECTED of these when
+     * it was installed; a policy or rules change that costs more than two
+     * of them fails here. */
+    int won = 0;
+    for (int k = 0; k < NEURAL_TEST_DUELS; k++) {
+        int opponent = k % STRAT_CLASSIC_COUNT, seat = (k / STRAT_CLASSIC_COUNT) % 2;
+        int winner = seat == 0 ? play_duel(8000000u + (unsigned)k, STRAT_NEURAL, opponent, NULL)
+                               : play_duel(8000000u + (unsigned)k, opponent, STRAT_NEURAL, NULL);
+        won += winner == seat;
+    }
+    char label[96];
+    snprintf(label, sizeof label, "the gunner wins %d of %d fixed duels (at least %d)",
+             won, NEURAL_TEST_DUELS, NEURAL_TEST_EXPECTED - 2);
+    EXPECT(won >= NEURAL_TEST_EXPECTED - 2, label);
+#undef EXPECT
+    return failures ? 1 : 0;
+}
+
+/* Test modes keep their options file in a private directory, so no test can
+ * change the player's saved setup. */
+static char config_scratch[] = "/tmp/bashed-earth-test-XXXXXX";
+
+static void remove_config_scratch(void)
+{
+    char path[sizeof config_scratch + 32];
+    snprintf(path, sizeof path, "%s/bashed-earth.conf", config_scratch);
+    unlink(path);
+    rmdir(config_scratch);
+}
+
+static void isolate_config(void)
+{
+    if (!mkdtemp(config_scratch)) { perror("mkdtemp"); exit(1); }
+    setenv("XDG_CONFIG_HOME", config_scratch, 1);
+    setenv("HOME", config_scratch, 1);
+    atexit(remove_config_scratch);
+}
+
 /* ---------- render test: dump framebuffer screenshots as PPM ---------- */
 static void dump_ppm(const char *path)
 {
@@ -268,6 +380,9 @@ static int run(void)
 
 int main(int argc, char **argv)
 {
+    if (argc > 1 && strcmp(argv[1], "--version") && !strncmp(argv[1], "--", 2))
+        isolate_config();
+    if (argc > 1 && !strcmp(argv[1], "--neural-test")) return neural_test();
     if (argc > 1 && !strcmp(argv[1], "--selftest")) {
         unsigned seed = argc > 2 ? (unsigned)strtoul(argv[2], NULL, 10) : 1337;
         int matches = argc > 3 ? atoi(argv[3]) : 3;

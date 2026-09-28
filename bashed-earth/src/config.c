@@ -42,6 +42,14 @@ const AIStrategy AI_STRATEGIES[STRAT_COUNT] = {
                  [W_NAPALM]=4, [W_MIRV]=2 },
         .priority = { W_ROLLER, W_BOUNCY, W_DIRT, W_DIGGER, W_MIRV,
                       W_NAPALM, W_NORMAL, -1 } },
+    /* Shops like Balanced (without Dirt); the policy picks weapon and aim.
+     * Priority and accuracy only matter if the policy cannot load, when it
+     * plays as Balanced. */
+    [STRAT_NEURAL] = { "Neural", 0.70f,
+        .buy = { [W_NUKE]=1, [W_BIG]=6, [W_TRIPLE]=5, [W_ROLLER]=2,
+                 [W_MISSILE]=12, [W_DRILL]=3 },
+        .priority = { W_NUKE, W_BIG, W_ROLLER, W_TRIPLE, W_MISSILE,
+                      W_DRILL, W_NORMAL, -1 } },
 };
 
 const char *AI_TAUNTS[10] = {
@@ -76,6 +84,7 @@ const char *AI_NAMES[STRAT_COUNT][7] = {
     [STRAT_TACTICAL]   = { "Ghost", "Viper", "Sniper", "Fox", "Hawk", "Spectre", "Cipher" },
     [STRAT_BALANCED]   = { "Atlas", "Titan", "Nomad", "Rex", "Storm", "Bolt", "Tank" },
     [STRAT_TRICKSTER]  = { "Jinx", "Chaos", "Prank", "Rascal", "Mayhem", "Joker", "Wildcard" },
+    [STRAT_NEURAL]     = { "Synapse", "Axon", "Neuron", "Cortex", "Dendrite", "Relay", "Tensor" },
 };
 
 const uint32_t TANK_COLORS[MAX_PLAYERS] = { 0xef4444, 0x3b82f6, 0x22c55e, 0xf59e0b };

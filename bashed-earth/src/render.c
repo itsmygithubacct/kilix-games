@@ -429,7 +429,8 @@ static void draw_hud(void)
     fill_rect(8, 8, 300, 56, 0x18181b, 0.85f);
     snprintf(buf, sizeof buf, "MATCH %d - ROUND %d", G.matchNumber, G.roundCount + 1);
     draw_text(18, 14, buf, 0x71717a, 1, 1);
-    snprintf(buf, sizeof buf, "%s%s", tank->name, tank->isAI ? " (AI)" : "");
+    snprintf(buf, sizeof buf, "%s%s", tank->name,
+             !tank->isAI ? "" : tank->strategy == STRAT_NEURAL ? " (Neural)" : " (AI)");
     draw_text(18, 34, buf, tank->color, 1, 1);
 
     /* top-right: wind */
@@ -473,39 +474,40 @@ static void draw_start_menu(void)
 {
     char buf[128];
     int px, py;
-    panel(620, 516, &px, &py);
+    panel(620, 566, &px, &py);
     draw_text_center(W / 2.0f, py + 18, "BASHED EARTH", 0x3b82f6, 1, 3);
     draw_text_center(W / 2.0f, py + 68, "turn-based artillery in your terminal", 0x71717a, 1, 1);
 
     const char *rows[START_ROWS];
     char rowbuf[START_ROWS][96];
+    snprintf(rowbuf[0], 96, "Player 1          < %s >", G.p1Neural ? "Neural (watch)" : "You");
     for (int p = 1; p <= 3; p++) {
         const char *v = !G.pEnabled[p] ? "Off"
             : G.pStrategy[p] < 0 ? "AI: Random"
             : AI_STRATEGIES[G.pStrategy[p]].name;
-        snprintf(rowbuf[p - 1], 96, "Player %d          < %s >", p + 1, v);
+        snprintf(rowbuf[p], 96, "Player %d          < %s >", p + 1, v);
     }
-    snprintf(rowbuf[3], 96, "Terrain           < %s >", TERRAIN_NAMES[G.terrainSetting]);
-    snprintf(rowbuf[4], 96, "Wind              < %s >", SETTING_NAMES[G.windSetting]);
-    snprintf(rowbuf[5], 96, "Precipitation     < %s >", SETTING_NAMES[G.precipSetting]);
-    snprintf(rowbuf[6], 96, "Damage            < %.1fx >", G.damageMultiplier);
-    snprintf(rowbuf[7], 96, "Wall bounce       < %s >", G.wallBounce ? "On" : "Off");
-    snprintf(rowbuf[8], 96, "Sound             < %s >", G.soundOn ? "On" : "Off");
-    snprintf(rowbuf[9], 96, "        START  ");
+    snprintf(rowbuf[4], 96, "Terrain           < %s >", TERRAIN_NAMES[G.terrainSetting]);
+    snprintf(rowbuf[5], 96, "Wind              < %s >", SETTING_NAMES[G.windSetting]);
+    snprintf(rowbuf[6], 96, "Precipitation     < %s >", SETTING_NAMES[G.precipSetting]);
+    snprintf(rowbuf[7], 96, "Damage            < %.1fx >", G.damageMultiplier);
+    snprintf(rowbuf[8], 96, "Wall bounce       < %s >", G.wallBounce ? "On" : "Off");
+    snprintf(rowbuf[9], 96, "Sound             < %s >", G.soundOn ? "On" : "Off");
+    snprintf(rowbuf[10], 96, "        START  ");
     for (int i = 0; i < START_ROWS; i++) rows[i] = rowbuf[i];
 
     int last = START_ROWS - 1;
     for (int i = 0; i < START_ROWS; i++) {
-        int ry = py + 110 + i * 34;
+        int ry = py + 126 + i * 34;
         bool sel = G.startCursor == i;
         if (sel) fill_rect(px + 40, ry - 4, 540, 26, 0x27272a, 1);
         draw_text(px + 60, ry, rows[i], i == last ? 0x22c55e : sel ? 0xfafafa : 0xa1a1aa,
                   1, i == last ? 2 : 1);
     }
-    draw_text_center(W / 2.0f, py + 488,
+    draw_text_center(W / 2.0f, py + 538,
                      "UP/DOWN select  LEFT/RIGHT change  ENTER start  Q quit",
                      0x71717a, 1, 1);
-    snprintf(buf, sizeof buf, "up to 4 tanks, 5 AI personalities");
+    snprintf(buf, sizeof buf, "up to 4 tanks, 5 AI personalities and a neural gunner");
     draw_text_center(W / 2.0f, py + 92, buf, 0x52525b, 1, 1);
 }
 

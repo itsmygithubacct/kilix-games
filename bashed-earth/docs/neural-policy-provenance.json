@@ -1,0 +1,127 @@
+{
+ "artifact": "assets/policy/bashed-earth-neural.kxpol",
+ "embedded_header": "src/neural_policy_blob.h",
+ "format": "kilix-game-kit KXPOLICY v1",
+ "sha256": "d31ba2db9b2655db59bf2543ede0b735edbf8e693cb822f274ede93c18c55fb4",
+ "fnv1a64": "50da84737bcc369e",
+ "widths": [
+  44,
+  64,
+  64,
+  14
+ ],
+ "parameters": 7950,
+ "license": "MIT, same as bashed-earth",
+ "origin": "Self-trained in bashed-earth's own simulation (tools/neural/bashed_earth_lab.c linked against the game's objects). No third-party data or weights.",
+ "inputs": "neural_features() in src/neural.c: 44 floats, shooter-centred and mirrored so the target is to the right, pixels / 1000",
+ "outputs": "14: 12 weapon scores (NEURAL_WEAPONS order, argmax over weapons in stock), then barrel angle 5 + 83*sigmoid degrees and power 10 + 90*sigmoid",
+ "training": {
+  "method": "supervised warm start (tools/neural/fit-demos.py, 60 epochs, minibatch Adam): angle and power from ballistic labels, weapon from the classic AIs' choices; evolution strategies continued from it lowered the selection reward and were stopped at generation 20",
+  "aim_labels": "100,000 variants of 4,000 training turns (bank seeds 1,000,000+) with the wind redrawn in [-20, 20] and the target moved; each labelled with the exact shot found by simulating the game's flight rule (50 deg barrel if it lands within 20 px, else the first of 60/70/80/40/30 that does; power in 0.25 steps)",
+  "weapon_labels": "72,939 classic-AI decisions in 2,000 whole matches (seeds 2,000,000+)",
+  "tool": "tools/neural/bashed_earth_lab.c (make lab) --oracle / --dump; tools/neural/fit-demos.py"
+ },
+ "target_rule": "classic: weakest living opponent, ties to the nearest",
+ "shopping": "fixed list, Balanced's without Dirt",
+ "duel": "duel k of seed S: match S+k vs personality k%5, gunner first when k/5 even; field 700-2000 px and settings drawn from the seed",
+ "selection": {
+  "bank": "select-800 (seeds 5,000,000+): turn reward 0.274, hit 78.6% (classic shooter 0.156, 41.1%)",
+  "duels": "5,100,000-5,100,999",
+  "candidates": {
+   "44-64-64-14 fit": 943,
+   "44-32-32-14 fit": 934,
+   "ES generation 10": 903
+  },
+  "rule": "top three by selection-bank reward, then most selection-duel wins"
+ },
+ "held_out": {
+  "duels": "9,000,000-9,001,999, evaluated once",
+  "neural": {
+   "duels": 2000,
+   "wins": 1873,
+   "win_rate": 0.9365,
+   "wilson95": [
+    0.925,
+    0.9464
+   ],
+   "mean_turns": 8.3,
+   "first_seat": {
+    "duels": 1000,
+    "wins": 956
+   },
+   "second_seat": {
+    "duels": 1000,
+    "wins": 917
+   },
+   "by_opponent": {
+    "aggressive": 0.9325,
+    "defensive": 0.9675,
+    "tactical": 0.9825,
+    "balanced": 0.88,
+    "trickster": 0.92
+   }
+  },
+  "controls_same_duels": {
+   "aggressive": {
+    "wins": 1132,
+    "win_rate": 0.566,
+    "wilson95": [
+     0.5442,
+     0.5876
+    ]
+   },
+   "defensive": {
+    "wins": 884,
+    "win_rate": 0.442,
+    "wilson95": [
+     0.4204,
+     0.4639
+    ]
+   },
+   "tactical": {
+    "wins": 841,
+    "win_rate": 0.4205,
+    "wilson95": [
+     0.399,
+     0.4423
+    ]
+   },
+   "balanced": {
+    "wins": 1153,
+    "win_rate": 0.5765,
+    "wilson95": [
+     0.5547,
+     0.598
+    ]
+   },
+   "trickster": {
+    "wins": 1062,
+    "win_rate": 0.531,
+    "wilson95": [
+     0.5091,
+     0.5528
+    ]
+   }
+  },
+  "turns": {
+   "bank": "heldout-1000 (seeds 9,500,000+)",
+   "neural": {
+    "mean_reward": 0.2623,
+    "hit_rate": 0.751,
+    "hit_wilson95": [
+     0.7233,
+     0.7768
+    ]
+   },
+   "classic": {
+    "mean_reward": 0.168,
+    "hit_rate": 0.437,
+    "hit_wilson95": [
+     0.4066,
+     0.4679
+    ]
+   }
+  },
+  "ship_rule": "pooled Wilson lower bound > 0.50 and >= 0.50 against each personality: passed"
+ }
+}

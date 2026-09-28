@@ -7,3 +7,4 @@ gmon.out
 
 # per-game kit build (kilix-games shared SDK)
 /build/
+/tools/neural/bashed-earth-lab
