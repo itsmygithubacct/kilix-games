@@ -79,7 +79,10 @@ is the flap key.
 ## Neural rider
 
 The PLAYER setting chooses who rides: You, Neural (the trained network) or
-Autopilot (the game's scripted rider). Every tick the network reads 47
+Autopilot (the game's scripted rider). When a computer rider loses its last
+life, the game-over menu counts down six seconds and starts the next game by
+itself, so you can leave it playing; any key stops the countdown. Your own
+game over always waits for you. Every tick the network reads 47
 features: the rider, the three nearest enemies, the two nearest eggs, the
 lava troll and the wave's state. It chooses a direction and whether to flap.
 It was trained with evolution strategies, directly on clearing waves without

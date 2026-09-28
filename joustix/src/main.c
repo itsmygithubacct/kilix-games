@@ -292,6 +292,22 @@ static int pilot_test(void)
     return failures ? 1 : 0;
 }
 
+/* The rules test's fixture: a hunter above the rider on the last life. */
+static void lose_last_life(void)
+{
+    memset(G.enemies, 0, sizeof G.enemies);
+    memset(G.eggs, 0, sizeof G.eggs);
+    G.state = GS_PLAYING;
+    G.lives = 1;
+    G.player = (Rider){ .x = 100, .y = 58, .prev_y = 58, .dir = 1, .active = true };
+    G.enemies[0] = (Enemy){
+        .rider = { .x = 100, .y = 51, .prev_y = 51, .dir = -1, .active = true },
+        .type = EN_HUNTER, .flap_timer = 99,
+    };
+    game_tick();
+    game_tick();
+}
+
 static int menu_test(void)
 {
     int failures = 0;
@@ -349,6 +365,37 @@ static int menu_test(void)
     EXPECT(G.gameover_choice == GAMEOVER_QUIT, "game over offers QUIT");
     game_handle_key(KEY_ENTER);
     EXPECT(G.quit, "the game-over menu's QUIT exits");
+
+    /* Watching a computer rider: losing its last life starts the next game
+       after AUTOPLAY_SECONDS; any key keeps the menu; your own game over waits. */
+    for (int round = 0; round < 3; round++) {
+        game_init(960, 540, 5);
+        G.headless = true;
+        G.pilot = round < 2 ? PILOT_NEURAL : PILOT_YOU;
+        game_start();
+        lose_last_life();
+        if (round == 0) {
+            EXPECT(G.state == GS_GAMEOVER && G.autoplay_timer > 0,
+                   "a computer rider's game over counts down to the next game");
+            int almost = (int)(AUTOPLAY_SECONDS * 60) - 2;
+            for (int t = 0; t < almost; t++) game_tick();
+            EXPECT(G.state == GS_GAMEOVER, "the game-over menu stays up during the countdown");
+            for (int t = 0; t < 4; t++) game_tick();
+            EXPECT(G.state == GS_PLAYING && G.lives == 3 && G.wave == 1 &&
+                   G.pilot == PILOT_NEURAL && G.flying == PILOT_NEURAL,
+                   "then the same computer rider starts a new game");
+        } else if (round == 1) {
+            game_handle_key(KEY_DOWN);
+            for (int t = 0; t < (int)(AUTOPLAY_SECONDS * 60) * 2; t++) game_tick();
+            EXPECT(G.state == GS_GAMEOVER && G.autoplay_timer == 0 &&
+                   G.gameover_choice == GAMEOVER_MENU,
+                   "any key stops the countdown and keeps the menu");
+        } else {
+            for (int t = 0; t < (int)(AUTOPLAY_SECONDS * 60) * 2; t++) game_tick();
+            EXPECT(G.state == GS_GAMEOVER && G.autoplay_timer == 0,
+                   "your own game over waits for you");
+        }
+    }
 
     /* Pausing during the between-waves pause must resume into it: the
        field is empty, so resuming into play would pay the bonus again. */

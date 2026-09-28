@@ -92,6 +92,7 @@ typedef struct {
     int pilot;              /* PILOT_* chosen on the menu */
     int flying;             /* PILOT_* riding now (N swaps YOU and the pilot) */
     int menu_row, pause_row, paused_from;
+    float autoplay_timer;   /* game over while a computer rode: seconds to the next game */
     float wave_timer, respawn_timer, left_input, right_input;
     float shake, flash, message_timer, lava_troll_timer, lava_troll_phase;
     float step_sound_timer;
@@ -120,6 +121,7 @@ void game_start_wave(int wave);
 /* Neural player contract, shared by the game and tools/neural/joustix_lab.c:
    features of what a rider can see, in the fixed 320x180 logical units, and
    6 actions = direction {left, none, right} x flap {no, yes}. */
+#define AUTOPLAY_SECONDS 6.0f   /* watching a computer rider: pause between games */
 #define POLICY_FEATURES 47
 #define POLICY_ACTIONS  6
 void game_policy_features(float out[POLICY_FEATURES]);

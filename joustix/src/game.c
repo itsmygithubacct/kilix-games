@@ -328,6 +328,8 @@ static void kill_player(void)
     if (G.lives <= 0) {
         G.state = GS_GAMEOVER;
         G.gameover_choice = GAMEOVER_RESTART;
+        /* a computer rider plays on by itself after a pause; you choose */
+        G.autoplay_timer = G.flying != PILOT_YOU ? AUTOPLAY_SECONDS : 0;
         if (G.score > G.high_score) G.high_score = G.score;
         set_message("GAME OVER", 99.0f);
     } else {
@@ -577,6 +579,11 @@ void game_tick(void)
     G.flash = fmaxf(0, G.flash - TICK_DT);
     G.message_timer = fmaxf(0, G.message_timer - TICK_DT);
     update_particles();
+    if (G.state == GS_GAMEOVER && G.autoplay_timer > 0 &&
+        (G.autoplay_timer -= TICK_DT) <= 0) {
+        game_start();
+        return;
+    }
     if (G.state == GS_TITLE || G.state == GS_PAUSED || G.state == GS_GAMEOVER)
         return;
     if (G.state == GS_WAVE) {
@@ -681,6 +688,7 @@ static void pause_key(int key)
 
 static void gameover_key(int key)
 {
+    G.autoplay_timer = 0;                 /* any key: stay on this menu */
     if (menu_up(key) || menu_down(key) || menu_left(key) || menu_right(key)) {
         int step = menu_up(key) || menu_left(key) ? -1 : 1;
         G.gameover_choice = (G.gameover_choice + GAMEOVER_OPTION_COUNT + step) % GAMEOVER_OPTION_COUNT;

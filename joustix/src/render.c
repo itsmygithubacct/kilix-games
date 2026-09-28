@@ -460,7 +460,12 @@ static void draw_overlay(void)
             snprintf(line, sizeof line, sel ? "> %s <" : "%s", items[row]);
             text_center_l(160, 96 + row * 12, line, sel ? 0xffdd67 : 0x94a3b8, 1, .66f);
         }
-        text_center_l(160, 137, "ARROWS CHOOSE   ENTER SELECT", 0x94a3b8, 1, .44f);
+        if (G.autoplay_timer > 0) {
+            snprintf(b, sizeof b, "NEXT GAME IN %d   ANY KEY STAYS", (int)ceilf(G.autoplay_timer));
+            text_center_l(160, 137, b, 0xffdd67, 1, .44f);
+        } else {
+            text_center_l(160, 137, "ARROWS CHOOSE   ENTER SELECT", 0x94a3b8, 1, .44f);
+        }
     }
 }
 
