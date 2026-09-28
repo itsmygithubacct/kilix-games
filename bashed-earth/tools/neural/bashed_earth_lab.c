@@ -220,16 +220,42 @@ static bool state_ok(const GameState *s, uint32_t shooter, char *err, size_t n)
     if (s->gameState != GS_PLAYING) { snprintf(err, n, "not at a turn (state %d)", s->gameState); return false; }
     if (s->currentWeapon < 0 || s->currentWeapon >= WEAPON_COUNT) { snprintf(err, n, "bad weapon"); return false; }
     if (s->W < 1 || s->W > 8192 || s->H < 1 || s->H > 8192) { snprintf(err, n, "bad field %dx%d", s->W, s->H); return false; }
+    /* Every field the game uses as an index or a material code, and the
+     * floats the simulation steps, must be in range. */
     for (int i = 0; i < s->numPlayers; i++) {
         const Tank *t = &s->tanks[i];
-        if (t->hp < 0 || t->hp > MAX_HP || t->strategy < -1 || t->strategy >= STRAT_COUNT ||
-            t->selectedWeapon < 0 || t->selectedWeapon >= WEAPON_COUNT ||
-            !isfinite(t->x) || !isfinite(t->y) || !isfinite(t->angle) || !isfinite(t->power) ||
-            !isfinite(t->maxPower)) { snprintf(err, n, "bad tank %d", i); return false; }
+        if (t->id != i || t->hp < 0 || t->hp > MAX_HP || t->strategy < -1 || t->strategy >= STRAT_COUNT ||
+            t->selectedWeapon < 0 || t->selectedWeapon >= WEAPON_COUNT || t->shield < 0 ||
+            !isfinite(t->x) || !isfinite(t->y) || !isfinite(t->vx) || !isfinite(t->vy) ||
+            !isfinite(t->angle) || !isfinite(t->power) || !isfinite(t->maxPower) ||
+            !isfinite(t->groundAngle)) { snprintf(err, n, "bad tank %d", i); return false; }
+    }
+    for (int i = 0; i < MAX_PLAYERS; i++)
+        if (s->pStrategy[i] < -1 || s->pStrategy[i] >= STRAT_COUNT) { snprintf(err, n, "bad seat strategy"); return false; }
+    if (s->lastWinnerId < -1 || s->lastWinnerId >= s->numPlayers ||
+        s->storePlayer < 0 || s->storePlayer > s->numPlayers ||
+        s->storeCursor < 0 || s->storeCursor >= STORE_ITEMS ||
+        s->startCursor < 0 || s->startCursor >= START_ROWS ||
+        s->gameoverCursor < 0 || s->gameoverCursor >= GAMEOVER_ROWS ||
+        s->pauseCursor < 0 || s->pauseCursor >= PAUSE_ROWS ||
+        s->pauseFrom < GS_START || s->pauseFrom > GS_PAUSED) { snprintf(err, n, "bad menu or seat index"); return false; }
+    if (s->terrainType < 0 || s->terrainType > TERRAIN_ICE || s->terrainSetting < 0 || s->terrainSetting > 3 ||
+        s->windSetting < 0 || s->windSetting > SET_STRONG || s->precipSetting < 0 || s->precipSetting > SET_STRONG ||
+        s->precipMaterial < 0 || s->precipMaterial >= M_COUNT) { snprintf(err, n, "bad terrain or weather code"); return false; }
+    if (!isfinite(s->wind) || !isfinite(s->precipRate) || !isfinite(s->damageMultiplier) ||
+        !isfinite(s->pendingNextTurn) || !isfinite(s->pendingAIStart) || !isfinite(s->pendingAIFire) ||
+        !isfinite(s->autoplayTimer)) { snprintf(err, n, "bad timer or weather value"); return false; }
+    for (int i = 0; i < MAX_FLAMES; i++) {
+        const Flame *fl = &s->flames[i];
+        if (fl->active && (!isfinite(fl->x) || !isfinite(fl->y) || !isfinite(fl->vx) || !isfinite(fl->vy))) {
+            snprintf(err, n, "bad flame %d", i);
+            return false;
+        }
     }
     for (int i = 0; i < MAX_PROJECTILES; i++) {
         const Projectile *p = &s->projectiles[i];
-        if (p->active && (p->weapon < 0 || p->weapon >= WEAPON_COUNT || !isfinite(p->x) || !isfinite(p->y))) {
+        if (p->active && (p->weapon < 0 || p->weapon >= WEAPON_COUNT || !isfinite(p->x) || !isfinite(p->y) ||
+                          !isfinite(p->vx) || !isfinite(p->vy) || !isfinite(p->radius))) {
             snprintf(err, n, "bad projectile %d", i);
             return false;
         }
@@ -349,8 +375,12 @@ static bool bank_load(const char *path, Bank *b, char *err, size_t n)
     bool ok = false;
     if (fread(head, sizeof head, 1, f) != 1 || head[0] != BANK_MAGIC)
         snprintf(err, n, "not a scenario bank");
+    else if (head[1] > 1000u)          /* format 1 had no version: this is its GameState size */
+        snprintf(err, n, "an unversioned (format 1) bank, which this lab cannot replay; "
+                         "rebuild it from its seed range with --build-bank");
     else if (head[1] != BANK_VERSION)
-        snprintf(err, n, "bank format %u, this lab reads %u", head[1], BANK_VERSION);
+        snprintf(err, n, "bank format %u, this lab reads %u; rebuild it from its seed range "
+                         "with --build-bank", head[1], BANK_VERSION);
     else if (head[2] != (uint32_t)sizeof G)
         snprintf(err, n, "written by a build with a %u-byte GameState (this one: %zu); "
                          "rebuild it from its seed range", head[2], sizeof G);
@@ -1197,6 +1227,23 @@ static void bad_projectile(uint8_t *raw, size_t size)
     memcpy(raw, &s, sizeof s);
 }
 
+#define STATE_MUTATOR(name, statement) \
+    static void name(uint8_t *raw, size_t size) \
+    { \
+        (void)size; \
+        GameState s; \
+        memcpy(&s, raw, sizeof s); \
+        statement; \
+        memcpy(raw, &s, sizeof s); \
+    }
+STATE_MUTATOR(bad_tank_id, s.tanks[0].id = 1000; s.tanks[0].shield = 1)
+STATE_MUTATOR(bad_precip_material, s.precipMaterial = 200)
+STATE_MUTATOR(bad_winner, s.lastWinnerId = 9)
+STATE_MUTATOR(bad_store_cursor, s.storeCursor = 99)
+STATE_MUTATOR(bad_selected_weapon, s.tanks[1].selectedWeapon = -3)
+STATE_MUTATOR(nan_wind, s.wind = NAN)
+STATE_MUTATOR(nan_flame, s.flames[0].active = true; s.flames[0].x = NAN)
+
 static void wrong_field(uint8_t *raw, size_t size)
 {
     (void)size;
@@ -1243,6 +1290,7 @@ static int self_test(void)
     struct { const char *label; size_t at; uint32_t value; long length; } cases[] = {
         { "a foreign magic is refused", 0, 0x12345678u, size },
         { "another format version is refused", 4, 1u, size },
+        { "an unversioned format-1 bank is refused", 4, 37912u, size },
         { "another GameState size is refused", 8, 1234u, size },
         { "an absurd record count is refused", 12, 0xffffffffu, size },
         { "a record size beyond any snapshot is refused", 16 + 4 * 4, 0xfffffff0u, size },
@@ -1274,6 +1322,13 @@ static int self_test(void)
         { "an impossible player count is refused", bad_players },
         { "a projectile with an unknown weapon is refused", bad_projectile },
         { "terrain of the wrong size for the field is refused", wrong_field },
+        { "a tank id that is not its seat is refused", bad_tank_id },
+        { "an unknown precipitation material is refused", bad_precip_material },
+        { "an impossible last winner is refused", bad_winner },
+        { "a store cursor past the store is refused", bad_store_cursor },
+        { "an unknown selected weapon is refused", bad_selected_weapon },
+        { "a non-finite wind is refused", nan_wind },
+        { "a non-finite flame is refused", nan_flame },
     };
     for (size_t c = 0; c < sizeof content / sizeof content[0]; c++) {
         Scenario sc = repack(&b.s[0], content[c].m);

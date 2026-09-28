@@ -48,13 +48,19 @@ Replaying it with a different shooter gives a turn reward: damage dealt, plus
 
 Banks are compressed game snapshots with a format version, per-record
 checksums and the `GameState` size of the build that wrote them. The loader
-bounds every size and count and range-checks each snapshot (players, weapons,
-projectiles, terrain materials and active spans) before installing it, and
+bounds every size and count and range-checks each snapshot before installing
+it: every field the game uses as an index or a material code (tank ids against
+their seats, players, weapons, strategies, menu and store cursors, terrain and
+weather codes, terrain materials and active spans) and the floats the
+simulation steps. Then
 `bashed-earth-lab --self-test` (run by `make test` and, under ASan+UBSan, by
 `make sanitize`) proves damaged banks are refused. A bank only loads in a build
 with the same `GameState` layout; rebuild it from its seed range instead, which
 replays the same matches while the rules are unchanged (the rebuilt 9,500,000
 bank reproduces the classic shooter's original held-out numbers exactly).
+The original 9,500,000 bank predates the versioned format and cannot be
+replayed by this lab; its figures below stand as recorded, and the rebuilt
+bank is the replayable copy.
 
 A **duel** is one whole match against one classic personality: duel k of a
 range starting at seed S is match seed S+k against personality k % 5, the
