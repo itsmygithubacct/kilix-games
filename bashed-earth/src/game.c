@@ -525,14 +525,25 @@ static int alive_count(int *lastAlive)
     return n;
 }
 
+/* Match over. With no human at the table the next match starts by itself
+ * after AUTOPLAY_MS, so a watched game keeps playing; any key stops that. */
+static void enter_gameover(void)
+{
+    G.gameState = GS_GAMEOVER;
+    G.pendingAIStart = G.pendingAIFire = G.pendingNextTurn = 0;
+    G.gameoverCursor = GAMEOVER_NEXT;
+    bool human = false;
+    for (int i = 0; i < G.numPlayers; i++) human |= !G.tanks[i].isAI;
+    G.autoplayTimer = human ? 0 : AUTOPLAY_MS;
+}
+
 static void next_turn(void)
 {
     int lastAlive = -1;
     if (alive_count(&lastAlive) <= 1) {
         G.lastWinnerId = lastAlive;
         if (lastAlive >= 0) G.matchWins[lastAlive]++;
-        G.gameState = GS_GAMEOVER;
-        G.pendingAIStart = G.pendingAIFire = G.pendingNextTurn = 0;
+        enter_gameover();
         sound_play(SFX_WIN, 0.9f, 1);
         return;
     }
@@ -556,8 +567,7 @@ static void next_turn(void)
             add_damage_text(G.tanks[best].x, G.tanks[best].y - 60,
                             "STALEMATE!", 0xf59e0b);
         }
-        G.gameState = GS_GAMEOVER;
-        G.pendingAIStart = G.pendingAIFire = G.pendingNextTurn = 0;
+        enter_gameover();
         sound_play(SFX_WIN, 0.9f, 1);
         return;
     }
@@ -1198,6 +1208,7 @@ void game_start_from_menu(void)
 void game_next_round(void)
 {
     G.pendingNextTurn = G.pendingAIStart = G.pendingAIFire = 0;
+    G.autoplayTimer = 0;
     clear_effects();
     for (int i = 0; i < G.numPlayers; i++) {
         G.wallets[i] += STARTING_MONEY;
@@ -1219,6 +1230,8 @@ void game_reset_to_start(void)
     memset(&G.tanks, 0, sizeof G.tanks);
     clear_effects();
     G.gameState = GS_START;
+    G.autoplayTimer = 0;
+    G.pendingNextTurn = G.pendingAIStart = G.pendingAIFire = 0;
     G.startCursor = 0;
     G.pEnabled[0] = true;
     if (!G.pEnabled[1] && !G.pEnabled[2] && !G.pEnabled[3])
@@ -1282,7 +1295,7 @@ static void handle_key_playing(int key)
 }
 
 /* start menu rows: 0 player 1, 1..3 opponents, 4 terrain, 5 wind, 6 precip,
- * 7 damage, 8 wall bounce, 9 sound, 10 START */
+ * 7 damage, 8 wall bounce, 9 sound, 10 START, 11 QUIT */
 static void try_start(void)
 {
     game_start_from_menu();
@@ -1301,9 +1314,14 @@ static void handle_key_start(int key)
         G.startCursor = (G.startCursor + 1) % START_ROWS;
         sound_play(SFX_MENU_MOVE, 0.5f, 1);
         return;
+    case KEY_ESC:                     /* select QUIT; never quits by itself */
+        G.startCursor = QUIT_ROW;
+        sound_play(SFX_MENU_MOVE, 0.5f, 1);
+        return;
     case KEY_ENTER:
     case ' ':
-        if (G.startCursor == START_ROWS - 1 || key == KEY_ENTER) { try_start(); return; }
+        if (G.startCursor == QUIT_ROW) { G.quit = true; return; }
+        if (G.startCursor == START_ROW || key == KEY_ENTER) { try_start(); return; }
         dir = 1;
         break;
     case 's': case 'S': try_start(); return;
@@ -1338,7 +1356,7 @@ static void handle_key_start(int key)
         G.soundOn = !G.soundOn;
         sound_set_enabled(G.soundOn);
     } else {
-        return;                       /* START row: left/right is a no-op */
+        return;                       /* START and QUIT rows: left/right is a no-op */
     }
     sound_play(SFX_MENU_MOVE, 0.5f, 1.3f);
 }
@@ -1381,17 +1399,50 @@ static void handle_key_store(int key)
     }
 }
 
+/* Only Enter confirms in the game-over and pause menus: Space fires in play,
+ * and a late press must not choose for you. */
 static void handle_key_gameover(int key)
 {
-    if (key == KEY_ENTER || key == ' ' || key == 'n' || key == 'N') {
-        sound_play(SFX_MENU_SELECT, 0.7f, 1);
-        game_next_round();
+    G.autoplayTimer = 0;                  /* any key: stay on this menu */
+    if (key == KEY_UP || key == KEY_DOWN) {
+        G.gameoverCursor = (G.gameoverCursor + GAMEOVER_ROWS + (key == KEY_UP ? -1 : 1)) % GAMEOVER_ROWS;
+        sound_play(SFX_MENU_MOVE, 0.5f, 1);
+        return;
     }
+    if (key == KEY_ESC) { sound_play(SFX_MENU_SELECT, 0.7f, 1); game_reset_to_start(); return; }
+    if (key != KEY_ENTER) return;
+    sound_play(SFX_MENU_SELECT, 0.7f, 1);
+    if (G.gameoverCursor == GAMEOVER_NEXT) game_next_round();
+    else if (G.gameoverCursor == GAMEOVER_MENU) game_reset_to_start();
+    else G.quit = true;
+}
+
+static void open_pause(void)
+{
+    G.pauseFrom = G.gameState;
+    G.gameState = GS_PAUSED;
+    G.pauseCursor = PAUSE_RESUME;
+    sound_play(SFX_MENU_SELECT, 0.6f, 1);
+}
+
+static void handle_key_paused(int key)
+{
+    if (key == KEY_UP || key == KEY_DOWN) {
+        G.pauseCursor = (G.pauseCursor + PAUSE_ROWS + (key == KEY_UP ? -1 : 1)) % PAUSE_ROWS;
+        sound_play(SFX_MENU_MOVE, 0.5f, 1);
+        return;
+    }
+    int choice = key == KEY_ESC || key == 'p' || key == 'P' ? PAUSE_RESUME
+               : key == KEY_ENTER ? G.pauseCursor : -1;
+    if (choice < 0) return;
+    sound_play(SFX_MENU_SELECT, 0.6f, 1);
+    if (choice == PAUSE_RESUME) G.gameState = G.pauseFrom;
+    else if (choice == PAUSE_MENU) game_reset_to_start();
+    else G.quit = true;
 }
 
 void game_handle_key(int key)
 {
-    if (key == 'q' || key == 'Q') { G.quit = true; return; }
     if (key == 'm' || key == 'M') {       /* mute toggle, any screen */
         G.soundOn = !G.soundOn;
         sound_set_enabled(G.soundOn);
@@ -1399,11 +1450,19 @@ void game_handle_key(int key)
         options_save();
         return;
     }
+    /* The game is left through a menu's QUIT (or Ctrl+C); Esc or P pauses. */
+    if ((key == KEY_ESC || key == 'p' || key == 'P') &&
+        (G.gameState == GS_STORE || G.gameState == GS_PLAYING ||
+         G.gameState == GS_ANIMATING || G.gameState == GS_TURN_ENDING)) {
+        open_pause();
+        return;
+    }
     switch (G.gameState) {
     case GS_START:    handle_key_start(key); break;
     case GS_STORE:    handle_key_store(key); break;
     case GS_PLAYING:  handle_key_playing(key); break;
     case GS_GAMEOVER: handle_key_gameover(key); break;
+    case GS_PAUSED:   handle_key_paused(key); break;
     default: break;   /* animating / turn_ending: ignore */
     }
 }
@@ -1411,7 +1470,12 @@ void game_handle_key(int key)
 /* ---------- master tick (one 60 Hz logic frame) ---------- */
 void game_tick(void)
 {
-    if (G.gameState == GS_START || G.gameState == GS_STORE) return;
+    if (G.gameState == GS_START || G.gameState == GS_STORE || G.gameState == GS_PAUSED) return;
+    if (G.gameState == GS_GAMEOVER && G.autoplayTimer > 0 &&
+        (G.autoplayTimer -= TICK_MS) <= 0) {
+        game_next_round();
+        return;
+    }
 
     G.frameCount++;
 

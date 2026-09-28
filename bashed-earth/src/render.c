@@ -455,7 +455,7 @@ static void draw_hud(void)
         draw_text(16, by + 28, buf, 0xfafafa, 1, 1);
         draw_text(W - 540, by + 8,
                   "ARROWS aim/power  SPACE fire  TAB/1-0/D/R weapon", 0x71717a, 1, 1);
-        draw_text(W - 540, by + 28, "M sound  Q quit", 0x71717a, 1, 1);
+        draw_text(W - 540, by + 28, "M sound  ESC/P menu", 0x71717a, 1, 1);
     } else {
         snprintf(buf, sizeof buf, "%s is taking their turn...", tank->name);
         draw_text(16, by + 18, buf, 0xa1a1aa, 1, 1);
@@ -474,7 +474,7 @@ static void draw_start_menu(void)
 {
     char buf[128];
     int px, py;
-    panel(620, 566, &px, &py);
+    panel(620, 600, &px, &py);
     draw_text_center(W / 2.0f, py + 18, "BASHED EARTH", 0x3b82f6, 1, 3);
     draw_text_center(W / 2.0f, py + 68, "turn-based artillery in your terminal", 0x71717a, 1, 1);
 
@@ -493,19 +493,21 @@ static void draw_start_menu(void)
     snprintf(rowbuf[7], 96, "Damage            < %.1fx >", G.damageMultiplier);
     snprintf(rowbuf[8], 96, "Wall bounce       < %s >", G.wallBounce ? "On" : "Off");
     snprintf(rowbuf[9], 96, "Sound             < %s >", G.soundOn ? "On" : "Off");
-    snprintf(rowbuf[10], 96, "        START  ");
+    snprintf(rowbuf[START_ROW], 96, "START");
+    snprintf(rowbuf[QUIT_ROW], 96, "QUIT");
     for (int i = 0; i < START_ROWS; i++) rows[i] = rowbuf[i];
 
-    int last = START_ROWS - 1;
     for (int i = 0; i < START_ROWS; i++) {
-        int ry = py + 126 + i * 34;
+        int ry = py + 126 + i * 34 + (i == QUIT_ROW ? 14 : 0);
         bool sel = G.startCursor == i;
-        if (sel) fill_rect(px + 40, ry - 4, 540, 26, 0x27272a, 1);
-        draw_text(px + 60, ry, rows[i], i == last ? 0x22c55e : sel ? 0xfafafa : 0xa1a1aa,
-                  1, i == last ? 2 : 1);
+        if (sel) fill_rect(px + 40, ry - 4, 540, i == START_ROW ? 40 : 26, 0x27272a, 1);
+        uint32_t color = i == START_ROW ? 0x22c55e : i == QUIT_ROW ? (sel ? 0xf87171 : 0xa1a1aa)
+                       : sel ? 0xfafafa : 0xa1a1aa;
+        if (i >= START_ROW) draw_text_center(W / 2.0f, ry, rows[i], color, 1, i == START_ROW ? 2 : 1);
+        else draw_text(px + 60, ry, rows[i], color, 1, 1);
     }
-    draw_text_center(W / 2.0f, py + 538,
-                     "UP/DOWN select  LEFT/RIGHT change  ENTER start  Q quit",
+    draw_text_center(W / 2.0f, py + 572,
+                     "UP/DOWN select  LEFT/RIGHT change  ENTER choose",
                      0x71717a, 1, 1);
     snprintf(buf, sizeof buf, "up to 4 tanks, 5 AI personalities and a neural gunner");
     draw_text_center(W / 2.0f, py + 92, buf, 0x52525b, 1, 1);
@@ -551,7 +553,7 @@ static void draw_gameover(void)
 {
     char buf[160];
     int px, py;
-    panel(560, 300 + G.numPlayers * 30, &px, &py);
+    panel(560, 330 + G.numPlayers * 30, &px, &py);
     draw_text_center(W / 2.0f, py + 16, "MATCH OVER", 0x3b82f6, 1, 2);
 
     if (G.lastWinnerId >= 0) {
@@ -575,8 +577,34 @@ static void draw_gameover(void)
                  G.matchWins[i], nextMoney);
         draw_text(px + 72, ry, buf, 0xfafafa, 1, 1);
     }
-    draw_text_center(W / 2.0f, py + 180 + G.numPlayers * 30,
-                     "ENTER next match   Q quit", 0x71717a, 1, 1);
+    static const char *items[GAMEOVER_ROWS] = { "NEXT MATCH", "MAIN MENU", "QUIT" };
+    int my = py + 170 + G.numPlayers * 30;
+    for (int i = 0; i < GAMEOVER_ROWS; i++) {
+        bool sel = G.gameoverCursor == i;
+        snprintf(buf, sizeof buf, sel ? "> %s <" : "%s", items[i]);
+        draw_text_center(W / 2.0f, my + i * 24, buf, sel ? 0xfacc15 : 0xa1a1aa, 1, 1);
+    }
+    if (G.autoplayTimer > 0)
+        snprintf(buf, sizeof buf, "next match in %d   any key stays", (int)ceilf(G.autoplayTimer / 1000.0f));
+    else
+        snprintf(buf, sizeof buf, "UP/DOWN choose   ENTER select");
+    draw_text_center(W / 2.0f, my + GAMEOVER_ROWS * 24 + 10, buf,
+                     G.autoplayTimer > 0 ? 0xfacc15 : 0x71717a, 1, 1);
+}
+
+static void draw_pause(void)
+{
+    char buf[64];
+    int px, py;
+    panel(360, 200, &px, &py);
+    draw_text_center(W / 2.0f, py + 16, "PAUSED", 0x3b82f6, 1, 2);
+    static const char *items[PAUSE_ROWS] = { "RESUME", "MAIN MENU", "QUIT" };
+    for (int i = 0; i < PAUSE_ROWS; i++) {
+        bool sel = G.pauseCursor == i;
+        snprintf(buf, sizeof buf, sel ? "> %s <" : "%s", items[i]);
+        draw_text_center(W / 2.0f, py + 70 + i * 28, buf, sel ? 0xfacc15 : 0xa1a1aa, 1, 1);
+    }
+    draw_text_center(W / 2.0f, py + 170, "ENTER select   ESC/P resume", 0x71717a, 1, 1);
 }
 
 static void repack_frame(void)
@@ -598,6 +626,10 @@ void render_frame(void)
     case GS_START: draw_start_menu(); break;
     case GS_STORE: draw_store(); break;
     case GS_GAMEOVER: draw_hud(); draw_gameover(); break;
+    case GS_PAUSED:
+        if (G.pauseFrom == GS_STORE) draw_store(); else draw_hud();
+        draw_pause();
+        break;
     default: draw_hud(); break;
     }
     repack_frame();

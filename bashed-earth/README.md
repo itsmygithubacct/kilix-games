@@ -65,9 +65,14 @@ Sound plays through the first available CLI sink (`pacat`, `pw-play`,
 | D / R | Drill / Roller |
 | Tab | cycle weapons |
 | M | toggle sound |
-| Q | quit |
+| Esc / P | pause menu: resume, main menu, quit |
 
 Menus: arrows to navigate, Left/Right to change values, Enter to confirm.
+The game is left through QUIT on the start, pause or match-over menu (Esc on
+the start menu jumps to QUIT); Ctrl+C also exits and restores the terminal.
+In the pause and match-over menus only Enter confirms, since Space fires.
+When nobody human is playing (Player 1 set to Neural), the match-over menu
+counts down six seconds and starts the next match; any key stops it.
 Options persist to `~/.config/bashed-earth.conf` (`$XDG_CONFIG_HOME` if set).
 
 ## Neural gunner
@@ -89,6 +94,7 @@ Balanced. The network, how it was trained, and the full evaluation are in
 
 ```sh
 make test                          # neural checks + headless AI-vs-AI selftests
+./bashed-earth --menu-test         # menu-only exits, pause, match-over menu and countdown
 ./bashed-earth --neural-test       # the gunner loads, plays and replays; fixed duels
 ./bashed-earth --selftest 42 3     # specific seed, 3 matches
 ./bashed-earth --render-test 7     # dump render_*.ppm screenshots

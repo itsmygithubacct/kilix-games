@@ -137,7 +137,10 @@ typedef struct { bool active; float x,y,vy,life; char text[64]; uint32_t color; 
 typedef struct { bool active; float x,y,vx,vy,life; bool settled; } Flame;
 
 /* ---------- Game state ---------- */
-enum { GS_START, GS_STORE, GS_PLAYING, GS_ANIMATING, GS_TURN_ENDING, GS_GAMEOVER };
+enum { GS_START, GS_STORE, GS_PLAYING, GS_ANIMATING, GS_TURN_ENDING, GS_GAMEOVER, GS_PAUSED };
+enum { PAUSE_RESUME, PAUSE_MENU, PAUSE_QUIT, PAUSE_ROWS };
+enum { GAMEOVER_NEXT, GAMEOVER_MENU, GAMEOVER_QUIT, GAMEOVER_ROWS };
+#define AUTOPLAY_MS 6000.0f   /* no human at the table: pause before the next match */
 enum { SET_RANDOM, SET_NONE, SET_LIGHT, SET_MEDIUM, SET_STRONG };  /* wind/precip */
 
 typedef struct {
@@ -191,7 +194,9 @@ typedef struct {
     bool p1Neural;                    /* P1 is the neural gunner: watch it play */
     int pStrategy[MAX_PLAYERS];       /* STRAT_* or -1 = random */
     int storePlayer, storeCursor;
-    int gameoverCursor;
+    int gameoverCursor;               /* GAMEOVER_* */
+    int pauseCursor, pauseFrom;       /* PAUSE_*; the state the pause menu covers */
+    float autoplayTimer;              /* ms until the next match starts by itself */
     bool optionsOpen;
     int optionsCursor;
 
@@ -206,7 +211,9 @@ extern GameState G;
 /* store display order (game.c) */
 extern const int STORE_ORDER[];
 extern const int STORE_ITEMS;
-#define START_ROWS 11  /* start-menu rows incl. START button */
+#define START_ROWS 12  /* start-menu rows incl. the START and QUIT buttons */
+#define START_ROW (START_ROWS - 2)
+#define QUIT_ROW  (START_ROWS - 1)
 
 /* ---------- game.c ---------- */
 void game_reset_to_start(void);

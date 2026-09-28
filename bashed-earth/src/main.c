@@ -242,6 +242,131 @@ static int neural_test(void)
     return failures ? 1 : 0;
 }
 
+/* ---------- menu test: exits only through menus; pause freezes play ---------- */
+static int menu_test(void)
+{
+    int failures = 0;
+#define EXPECT(condition, label) do { \
+    if (!(condition)) { printf("FAIL: %s\n", label); failures++; } \
+    else printf("PASS: %s\n", label); \
+} while (0)
+    setvbuf(stdout, NULL, _IONBF, 0);
+    set_defaults();
+    G.headless = true;
+    G.W = 1000;
+    G.H = 640;
+    game_reset_to_start();
+    game_handle_key('q');
+    game_handle_key('Q');
+    EXPECT(!G.quit && G.gameState == GS_START, "Q does not quit");
+    game_handle_key(KEY_ESC);
+    EXPECT(!G.quit && G.startCursor == QUIT_ROW, "Esc on the start menu selects QUIT without quitting");
+    game_handle_key(KEY_LEFT);
+    EXPECT(!G.quit && G.gameState == GS_START, "Left/Right on QUIT changes nothing");
+    game_handle_key(KEY_ENTER);
+    EXPECT(G.quit, "Enter on QUIT exits");
+
+    /* a match between a human and one AI: pause in flight, resume, menus */
+    set_defaults();
+    G.headless = false;                 /* a human Player 1 */
+    G.W = 1000;
+    G.H = 640;
+    G.pStrategy[1] = STRAT_BALANCED;
+    game_reset_to_start();
+    G.startCursor = START_ROW;
+    game_handle_key(KEY_ENTER);
+    EXPECT(G.gameState == GS_STORE, "START opens the store for the human");
+    game_handle_key(KEY_ESC);
+    EXPECT(G.gameState == GS_PAUSED && G.pauseFrom == GS_STORE, "Esc in the store pauses");
+    game_handle_key(KEY_ESC);
+    EXPECT(G.gameState == GS_STORE, "Esc resumes the store");
+    game_handle_key(KEY_ENTER);         /* done shopping: the AI shops and the match starts */
+    G.headless = true;                  /* keep the rest of the test silent */
+    EXPECT(G.gameState == GS_PLAYING && G.currentPlayer == 0 && !G.tanks[0].isAI,
+           "the match starts on the human's turn");
+    game_handle_key(' ');
+    for (int t = 0; t < 10; t++) game_tick();
+    int live = -1;
+    for (int i = 0; i < MAX_PROJECTILES; i++) if (G.projectiles[i].active) live = i;
+    EXPECT(G.gameState == GS_ANIMATING && live >= 0, "Space fires");
+    game_handle_key('p');
+    float x = live >= 0 ? G.projectiles[live].x : 0, y = live >= 0 ? G.projectiles[live].y : 0;
+    int frame = G.frameCount;
+    for (int t = 0; t < 120; t++) game_tick();
+    EXPECT(G.gameState == GS_PAUSED && G.frameCount == frame && live >= 0 &&
+           G.projectiles[live].x == x && G.projectiles[live].y == y,
+           "P pauses mid-flight and nothing moves while paused");
+    game_handle_key(' ');
+    game_handle_key('q');
+    EXPECT(G.gameState == GS_PAUSED && !G.quit, "Space and Q do nothing in the pause menu");
+    game_handle_key(KEY_ENTER);
+    EXPECT(G.gameState == GS_ANIMATING, "Enter on RESUME returns to the flight");
+    for (int t = 0; t < 5; t++) game_tick();
+    EXPECT(live >= 0 && (G.projectiles[live].x != x || G.projectiles[live].y != y || !G.projectiles[live].active),
+           "and the shell flies on");
+    game_handle_key(KEY_ESC);
+    game_handle_key(KEY_DOWN);                    /* MAIN MENU */
+    game_handle_key(KEY_ENTER);
+    EXPECT(G.gameState == GS_START && !G.quit, "the pause menu's MAIN MENU returns to the start menu");
+
+    /* game over with a human: a menu that waits; its QUIT exits */
+    set_defaults();
+    G.headless = true;
+    G.W = 1000;
+    G.H = 640;
+    G.pStrategy[0] = STRAT_BALANCED;
+    G.pStrategy[1] = STRAT_TACTICAL;
+    game_reset_to_start();
+    game_start_from_menu();
+    G.tanks[0].isAI = false;                      /* pretend Player 1 is at the keyboard */
+    for (long t = 0; t < 60L * 60 * 30 && G.gameState != GS_GAMEOVER; t++) {
+        if (G.gameState == GS_PLAYING && G.currentPlayer == 0) game_fire();
+        game_tick();
+    }
+    EXPECT(G.gameState == GS_GAMEOVER && G.autoplayTimer == 0 && G.gameoverCursor == GAMEOVER_NEXT,
+           "a match with a human ends on a menu with no countdown");
+    for (int t = 0; t < 600; t++) game_tick();
+    game_handle_key(' ');
+    EXPECT(G.gameState == GS_GAMEOVER, "it waits, and Space does not choose");
+    game_handle_key(KEY_UP);
+    EXPECT(G.gameoverCursor == GAMEOVER_QUIT, "Up wraps to QUIT");
+    game_handle_key(KEY_ENTER);
+    EXPECT(G.quit, "the game-over menu's QUIT exits");
+
+    /* nobody human: the next match starts by itself after AUTOPLAY_MS */
+    for (int round = 0; round < 2; round++) {
+        set_defaults();
+        G.headless = true;
+        G.W = 1000;
+        G.H = 640;
+        G.pStrategy[0] = STRAT_NEURAL;
+        G.pStrategy[1] = STRAT_BALANCED;
+        game_reset_to_start();
+        game_start_from_menu();
+        for (long t = 0; t < 60L * 60 * 30 && G.gameState != GS_GAMEOVER; t++) game_tick();
+        int match = G.matchNumber;
+        if (round == 0) {
+            EXPECT(G.gameState == GS_GAMEOVER && G.autoplayTimer > 0,
+                   "with nobody human the game-over menu counts down");
+            int almost = (int)(AUTOPLAY_MS / TICK_MS) - 2;
+            for (int t = 0; t < almost; t++) game_tick();
+            EXPECT(G.gameState == GS_GAMEOVER, "the menu stays up during the countdown");
+            for (int t = 0; t < 4; t++) game_tick();
+            EXPECT(G.matchNumber == match + 1 &&
+                   (G.gameState == GS_PLAYING || G.gameState == GS_ANIMATING),
+                   "then the next match starts by itself");
+        } else {
+            game_handle_key(KEY_DOWN);
+            for (int t = 0; t < (int)(AUTOPLAY_MS / TICK_MS) * 2; t++) game_tick();
+            EXPECT(G.gameState == GS_GAMEOVER && G.autoplayTimer == 0 &&
+                   G.gameoverCursor == GAMEOVER_MENU && G.matchNumber == match,
+                   "any key stops the countdown and keeps the menu");
+        }
+    }
+#undef EXPECT
+    return failures ? 1 : 0;
+}
+
 /* Test modes keep their options file in a private directory, so no test can
  * change the player's saved setup. */
 static char config_scratch[] = "/tmp/bashed-earth-test-XXXXXX";
@@ -322,6 +447,11 @@ static int render_test(unsigned seed)
     render_frame();
     dump_ppm("render_action.ppm");
 
+    game_handle_key('p');                  /* the pause menu over the flight */
+    render_frame();
+    dump_ppm("render_paused.ppm");
+    game_handle_key('p');
+
     for (long i = 0; i < 200000 && G.gameState != GS_GAMEOVER; i++) game_tick();
     render_frame();
     dump_ppm("render_gameover.ppm");
@@ -343,6 +473,8 @@ static int run(void)
     }
     signal(SIGINT, on_signal);
     signal(SIGTERM, on_signal);
+    signal(SIGHUP, on_signal);
+    signal(SIGQUIT, on_signal);
     atexit(term_shutdown);
 
     srand((unsigned)time(NULL));
@@ -383,6 +515,7 @@ int main(int argc, char **argv)
     if (argc > 1 && strcmp(argv[1], "--version") && !strncmp(argv[1], "--", 2))
         isolate_config();
     if (argc > 1 && !strcmp(argv[1], "--neural-test")) return neural_test();
+    if (argc > 1 && !strcmp(argv[1], "--menu-test")) return menu_test();
     if (argc > 1 && !strcmp(argv[1], "--selftest")) {
         unsigned seed = argc > 2 ? (unsigned)strtoul(argv[2], NULL, 10) : 1337;
         int matches = argc > 3 ? atoi(argv[3]) : 3;
