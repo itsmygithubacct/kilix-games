@@ -35,6 +35,7 @@
 #include "kilix_game_policy.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <poll.h>
 #include <math.h>
 #include <stdio.h>
@@ -240,7 +241,18 @@ static bool state_ok(const GameState *s, uint32_t shooter, char *err, size_t n)
             !in_range(t->groundAngle, -360, 360)) { snprintf(err, n, "bad tank %d", i); return false; }
     }
     for (int i = 0; i < MAX_PLAYERS; i++)
-        if (s->pStrategy[i] < -1 || s->pStrategy[i] >= STRAT_COUNT) { snprintf(err, n, "bad seat strategy"); return false; }
+        if (s->pStrategy[i] < -1 || s->pStrategy[i] >= STRAT_COUNT || s->matchWins[i] < 0 || s->matchWins[i] > 1000000 ||
+            s->tanks[i].buriedTimer < 0 || s->tanks[i].buriedTimer > 1000) {
+            snprintf(err, n, "bad seat strategy or counter");
+            return false;
+        }
+    /* Counters a replayed turn increments, with room for MAX_TURN_TICKS more. */
+    if (s->frameCount < 0 || s->frameCount > 1000000000 || s->roundCount < 0 || s->roundCount > 1000000 ||
+        s->staleTurns < 0 || s->staleTurns > 1000 || s->matchNumber < 0 || s->matchNumber > 1000000 ||
+        s->lastTotalHp < 0 || s->lastTotalHp > MAX_PLAYERS * MAX_HP) {
+        snprintf(err, n, "bad turn counter");
+        return false;
+    }
     if (s->lastWinnerId < -1 || s->lastWinnerId >= s->numPlayers ||
         s->storePlayer < 0 || s->storePlayer > s->numPlayers ||
         s->storeCursor < 0 || s->storeCursor >= STORE_ITEMS ||
@@ -281,7 +293,9 @@ static bool state_ok(const GameState *s, uint32_t shooter, char *err, size_t n)
         const Projectile *p = &s->projectiles[i];
         if (p->active && (p->weapon < 0 || p->weapon >= WEAPON_COUNT ||
                           !position_ok(p->x, p->y, p->vx, p->vy) || !in_range(p->rvx, -1e4f, 1e4f) ||
-                          !in_range(p->radius, 0, 100))) {
+                          !in_range(p->radius, 0, 100) || p->age < 0 || p->age > 1000000 ||
+                          p->bounces < 0 || p->bounces > 1000 || p->drillDepth < 0 || p->drillDepth > 100000 ||
+                          p->digDepth < 0 || p->digDepth > 100000 || p->stall < 0 || p->stall > 100000)) {
             snprintf(err, n, "bad projectile %d", i);
             return false;
         }
@@ -1274,6 +1288,11 @@ STATE_MUTATOR(huge_radius, s.projectiles[0].active = true; s.projectiles[0].weap
               s.projectiles[0].x = s.projectiles[0].y = 10; s.projectiles[0].radius = 1e30f)
 STATE_MUTATOR(far_tank, s.tanks[0].x = 1e30f)
 STATE_MUTATOR(gale, s.wind = 1e9f)
+STATE_MUTATOR(frame_at_limit, s.frameCount = INT_MAX)
+STATE_MUTATOR(old_projectile, s.projectiles[0].active = true; s.projectiles[0].weapon = W_NORMAL;
+              s.projectiles[0].x = s.projectiles[0].y = 10; s.projectiles[0].radius = 30;
+              s.projectiles[0].age = INT_MAX)
+STATE_MUTATOR(buried_forever, s.tanks[0].buriedTimer = INT_MAX)
 
 static void wrong_field(uint8_t *raw, size_t size)
 {
@@ -1364,6 +1383,9 @@ static int self_test(void)
         { "a blast radius beyond any weapon's is refused", huge_radius },
         { "a tank far off any field is refused", far_tank },
         { "a wind beyond the strongest setting is refused", gale },
+        { "a frame counter at INT_MAX is refused", frame_at_limit },
+        { "a projectile age at INT_MAX is refused", old_projectile },
+        { "a buried timer at INT_MAX is refused", buried_forever },
     };
     for (size_t c = 0; c < sizeof content / sizeof content[0]; c++) {
         Scenario sc = repack(&b.s[0], content[c].m);
