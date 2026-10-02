@@ -64,7 +64,8 @@ static void generate(Game *game)
         uint64_t board = 0u;
         for (int cell = 0; cell < cells; cell++) {
             uint32_t roll = next_random(&state);
-            if ((roll & 7u) < 3u) press |= UINT64_C(1) << cell;
+            /* The low LCG bits repeat every eight draws; use high bits. */
+            if ((roll >> 29) < 3u) press |= UINT64_C(1) << cell;
         }
         for (int cell = 0; cell < cells; cell++)
             if ((press & (UINT64_C(1) << cell)) != 0u)
@@ -245,6 +246,36 @@ bool game_rules_selftest(void)
         if ((a.generation_mask & (UINT64_C(1) << i)) != 0u)
             replay ^= game_toggle_mask(a.size, i);
     if (replay != 0u) return false;
+
+    /* Exercise complete puzzle sequences in every mode, including the small
+     * board's legitimate collisions. A short PRNG-bit cycle must not limit
+     * the generator to a handful of puzzles. */
+    for (int size = 3; size <= 7; size += 2) {
+        uint64_t seen[256];
+        int unique = 0;
+        game_init(&a);
+        game_set_size(&a, size);
+        b = a;
+        for (int puzzle = 0; puzzle < 256; puzzle++) {
+            bool duplicate = false;
+            game_new(&a);
+            game_new(&b);
+            if (a.board != b.board || a.generation_mask != b.generation_mask ||
+                a.board == 0u || a.board != a.initial ||
+                (a.board & ~board_mask(size)) != 0u)
+                return false;
+            replay = a.board;
+            for (int cell = 0; cell < size * size; cell++)
+                if ((a.generation_mask & (UINT64_C(1) << cell)) != 0u)
+                    replay ^= game_toggle_mask(size, cell);
+            if (replay != 0u) return false;
+            for (int i = 0; i < unique; i++)
+                if (seen[i] == a.board) duplicate = true;
+            if (!duplicate) seen[unique++] = a.board;
+        }
+        if (unique < 32) return false;
+    }
+    game_init(&a);
 
     original = a.board;
     if (!game_activate(&a, 12, &ended_on) ||
