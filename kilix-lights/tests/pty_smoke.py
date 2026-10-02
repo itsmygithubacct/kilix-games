@@ -164,6 +164,9 @@ def run_smoke(
             {
                 "KILIX_LIGHTS_SKIP_PROBE": "1",
                 "KILIX_LIGHTS_AUDIO": "off",
+                # This PTY has no terminal consuming shared-memory frames.
+                # Capture the inline payload that KITTY_FRAME validates.
+                "KITTYFB_TRANSPORT": "inline",
                 "TERM": "xterm-kitty",
             }
         )

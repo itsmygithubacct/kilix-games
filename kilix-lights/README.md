@@ -2,15 +2,18 @@
 
 Kilix Lights is a standalone, full-color **Lights Out** puzzle for Kitty-graphics terminals. It opens directly into a solvable 5×5 board inside a generated retro electrical workshop. Every accepted switch press flips that switch and its orthogonal neighbors and plays a short mechanical light-switch sound.
 
-The repository pins its C rendering, input, terminal-session, audio, and state dependencies through the recursive `third_party/kilix-game-kit` submodule. It does not use assets or source files from another game.
+The maintained source lives in the `kilix-games` monorepo; the standalone
+`kilix-lights` repository is archived. The monorepo pins rendering, input,
+terminal-session, audio, and state dependencies through the shared
+`third_party/kilix-game-sdk` submodule. It does not use assets or source files from another game.
 
 ## Build and play
 
 Clone recursively so the exact reviewed dependency versions are present:
 
 ```sh
-git clone --recurse-submodules https://github.com/itsmygithubacct/kilix-lights.git
-cd kilix-lights
+git clone --recurse-submodules https://github.com/itsmygithubacct/kilix-games.git
+cd kilix-games/kilix-lights
 make
 ./bin/kilix-lights
 ```

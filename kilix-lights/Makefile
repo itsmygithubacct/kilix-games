@@ -89,13 +89,13 @@ test-code: $(BIN)
 	./$(BIN) --input-test
 	./$(BIN) --interaction-test
 	./$(BIN) --sound-test
-	@a=$$(./$(BIN) --selftest 1337 500); \
+	@set -e; a=$$(./$(BIN) --selftest 1337 500); \
 	 b=$$(./$(BIN) --selftest 1337 500); \
 	 test "$$a" = "$$b" || { echo "selftest is not deterministic"; exit 1; }; \
 	 echo "$$a"
 
 test-render: $(BIN)
-	@d=$$(mktemp -d); trap 'rm -rf "$$d"' EXIT; \
+	@set -e; d=$$(mktemp -d); trap 'rm -rf "$$d"' EXIT; \
 	 ./$(BIN) --render-test "$$d"; \
 	 python3 tools/validate_renders.py "$$d"
 
@@ -146,7 +146,7 @@ dist: release-binary
 	@echo "dist: wrote $(DIST_ARCHIVE)"
 
 verify-dist: dist
-	@d=$$(mktemp -d); trap 'rm -rf "$$d"' EXIT; \
+	@set -e; d=$$(mktemp -d); trap 'rm -rf "$$d"' EXIT; \
 	 $(TAR) -xzf $(DIST_ARCHIVE) -C "$$d"; \
 	 "$$d/$(DIST_NAME)/bin/kilix-lights" --version; \
 	 "$$d/$(DIST_NAME)/bin/kilix-lights" --asset-test; \
