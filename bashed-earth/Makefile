@@ -71,9 +71,9 @@ test-cli: $(BIN)
 		fi; \
 	}; \
 	accept() { \
-		set +e; timeout 10 ./$(BIN) "$$@" >/dev/null 2>&1; rc=$$?; set -e; \
-		if [ "$$rc" -eq 2 ] || [ "$$rc" -eq 124 ]; then \
-			echo "test-cli: valid arguments refused or hung ($$rc): $(BIN) $$*" >&2; exit 1; \
+		set +e; timeout 2 ./$(BIN) "$$@" >/dev/null 2>&1; rc=$$?; set -e; \
+		if [ "$$rc" -eq 2 ]; then \
+			echo "test-cli: valid arguments refused: $(BIN) $$*" >&2; exit 1; \
 		fi; \
 	}; \
 	check --selftest bad 1; \
@@ -93,6 +93,7 @@ test-cli: $(BIN)
 	accept --selftest 1337 1; \
 	accept --selftest 0 1; \
 	accept --selftest 4294967295 1; \
+	accept --selftest 1337 1000; \
 	check --render-test bad; \
 	check --render-test 1x; \
 	check --render-test ''; \

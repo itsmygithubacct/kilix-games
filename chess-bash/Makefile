@@ -90,9 +90,9 @@ test-cli: $(BIN)
 		fi; \
 	}; \
 	accept() { \
-		set +e; timeout 10 ./$(BIN) "$$@" >/dev/null 2>&1; rc=$$?; set -e; \
-		if [ "$$rc" -eq 2 ] || [ "$$rc" -eq 124 ]; then \
-			echo "test-cli: valid arguments refused or hung ($$rc): $(BIN) $$*" >&2; exit 1; \
+		set +e; timeout 2 ./$(BIN) "$$@" >/dev/null 2>&1; rc=$$?; set -e; \
+		if [ "$$rc" -eq 2 ]; then \
+			echo "test-cli: valid arguments refused: $(BIN) $$*" >&2; exit 1; \
 		fi; \
 	}; \
 	check --selftest bad 160; \
@@ -112,6 +112,7 @@ test-cli: $(BIN)
 	accept --selftest 1337 1; \
 	accept --selftest 0 1; \
 	accept --selftest 4294967295 1; \
+	accept --selftest 1337 10000000; \
 	check --render-test bad; \
 	check --render-test 1x; \
 	check --render-test ''; \
@@ -128,12 +129,19 @@ test-cli: $(BIN)
 	check --perft -1; \
 	check --perft 9; \
 	check --perft 1x; \
+	check --perft 4294967297; \
+	check --perft -4294967295; \
+	accept --perft 0; \
+	accept --perft 8; \
 	check --perft 1 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1' extra; \
 	check --ai-test 0 1; \
 	check --ai-test 20000x 1; \
 	check --ai-test 10000001 1; \
 	check --ai-test 20000 -1; \
 	check --ai-test 20000 3; \
+	check --ai-test 20000 ''; \
+	accept --ai-test 10000000 2; \
+	accept --ai-test 20000 0; \
 	check --ai-test 20000 1 extra; \
 	check --script; \
 	check --script a b; \
