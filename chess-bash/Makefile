@@ -84,28 +84,61 @@ test: $(BIN) $(ENGINE_LIFECYCLE_TEST) validate-assets test-cli
 test-cli: $(BIN)
 	@set -eu; \
 	check() { \
-		set +e; ./$(BIN) "$$@" >/dev/null 2>&1; rc=$$?; set -e; \
+		set +e; timeout 10 ./$(BIN) "$$@" >/dev/null 2>&1; rc=$$?; set -e; \
 		if [ "$$rc" -ne 2 ]; then \
 			echo "test-cli: expected exit 2, got $$rc: $(BIN) $$*" >&2; exit 1; \
+		fi; \
+	}; \
+	accept() { \
+		set +e; timeout 10 ./$(BIN) "$$@" >/dev/null 2>&1; rc=$$?; set -e; \
+		if [ "$$rc" -eq 2 ] || [ "$$rc" -eq 124 ]; then \
+			echo "test-cli: valid arguments refused or hung ($$rc): $(BIN) $$*" >&2; exit 1; \
 		fi; \
 	}; \
 	check --selftest bad 160; \
 	check --selftest 1x 160; \
 	check --selftest -5 160; \
+	check --selftest -0 160; \
+	check --selftest '' 160; \
 	check --selftest 4294967296 160; \
+	check --selftest 99999999999 160; \
 	check --selftest 1337 0; \
+	check --selftest 1337 -1; \
+	check --selftest 1337 ''; \
 	check --selftest 1337 160x; \
+	check --selftest 1337 10000001; \
+	check --selftest 1337 99999999999; \
 	check --selftest 1337 160 extra; \
+	accept --selftest 1337 1; \
+	accept --selftest 0 1; \
+	accept --selftest 4294967295 1; \
 	check --render-test bad; \
 	check --render-test 1x; \
+	check --render-test ''; \
 	check --render-test 7 extra; \
-	check --ai-test 0 1; \
-	check --ai-test 20000x 1; \
-	check --ai-test 20000 1 extra; \
-	check --bogus-option; \
+	check --fallback-test extra; \
+	check --rules-test extra; \
+	check --perft-test extra; \
+	check --sound-test extra; \
 	check --version extra; \
+	check --help extra; \
+	check --bogus-option; \
+	check --perft; \
+	check --perft ''; \
+	check --perft -1; \
+	check --perft 9; \
 	check --perft 1x; \
 	check --perft 1 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1' extra; \
+	check --ai-test 0 1; \
+	check --ai-test 20000x 1; \
+	check --ai-test 10000001 1; \
+	check --ai-test 20000 -1; \
+	check --ai-test 20000 3; \
+	check --ai-test 20000 1 extra; \
+	check --script; \
+	check --script a b; \
+	check --battle-test; \
+	check --battle-test a b; \
 	rm -rf .render-cli
 
 validate-assets: $(ASSET_FILES)

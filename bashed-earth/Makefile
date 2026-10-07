@@ -65,24 +65,40 @@ test: $(BIN) $(LAB) check-policy test-cli
 test-cli: $(BIN)
 	@set -eu; \
 	check() { \
-		set +e; ./$(BIN) "$$@" >/dev/null 2>&1; rc=$$?; set -e; \
+		set +e; timeout 10 ./$(BIN) "$$@" >/dev/null 2>&1; rc=$$?; set -e; \
 		if [ "$$rc" -ne 2 ]; then \
 			echo "test-cli: expected exit 2, got $$rc: $(BIN) $$*" >&2; exit 1; \
+		fi; \
+	}; \
+	accept() { \
+		set +e; timeout 10 ./$(BIN) "$$@" >/dev/null 2>&1; rc=$$?; set -e; \
+		if [ "$$rc" -eq 2 ] || [ "$$rc" -eq 124 ]; then \
+			echo "test-cli: valid arguments refused or hung ($$rc): $(BIN) $$*" >&2; exit 1; \
 		fi; \
 	}; \
 	check --selftest bad 1; \
 	check --selftest 1x 1; \
 	check --selftest -5 1; \
+	check --selftest -0 1; \
+	check --selftest '' 1; \
 	check --selftest 4294967296 1; \
+	check --selftest 99999999999 1; \
 	check --selftest 1337 0; \
+	check --selftest 1337 -1; \
+	check --selftest 1337 ''; \
 	check --selftest 1337 1x; \
-	check --selftest 1337 1 extra; \
 	check --selftest 1337 1001; \
+	check --selftest 1337 99999999999; \
+	check --selftest 1337 1 extra; \
+	accept --selftest 1337 1; \
+	accept --selftest 0 1; \
+	accept --selftest 4294967295 1; \
 	check --render-test bad; \
 	check --render-test 1x; \
+	check --render-test ''; \
 	check --render-test 7 extra; \
-	check --bogus-option; \
 	check --version extra; \
+	check --bogus-option; \
 	rm -rf .render-cli
 
 # The instrumented build uses its own SDK build directory, so the normal
