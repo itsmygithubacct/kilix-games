@@ -83,18 +83,30 @@ test: $(BIN) $(ENGINE_LIFECYCLE_TEST) validate-assets test-cli
 
 test-cli: $(BIN)
 	@set -eu; \
-	for args in "bad 160" "1 0" "1 -1" "1 10000001" \
-		"4294967296 1" "1 1 extra"; do \
-		if ./$(BIN) --selftest $$args >/dev/null 2>&1; then \
-			echo "invalid --selftest arguments accepted: $$args" >&2; exit 1; \
+	check() { \
+		set +e; ./$(BIN) "$$@" >/dev/null 2>&1; rc=$$?; set -e; \
+		if [ "$$rc" -ne 2 ]; then \
+			echo "test-cli: expected exit 2, got $$rc: $(BIN) $$*" >&2; exit 1; \
 		fi; \
-	done; \
-	if ./$(BIN) --render-test bad >/dev/null 2>&1; then \
-		echo "invalid --render-test seed accepted" >&2; exit 1; \
-	fi; \
-	if ./$(BIN) --perft 1 extra argument >/dev/null 2>&1; then \
-		echo "extra --perft argument accepted" >&2; exit 1; \
-	fi
+	}; \
+	check --selftest bad 160; \
+	check --selftest 1x 160; \
+	check --selftest -5 160; \
+	check --selftest 4294967296 160; \
+	check --selftest 1337 0; \
+	check --selftest 1337 160x; \
+	check --selftest 1337 160 extra; \
+	check --render-test bad; \
+	check --render-test 1x; \
+	check --render-test 7 extra; \
+	check --ai-test 0 1; \
+	check --ai-test 20000x 1; \
+	check --ai-test 20000 1 extra; \
+	check --bogus-option; \
+	check --version extra; \
+	check --perft 1x; \
+	check --perft 1 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1' extra; \
+	rm -rf .render-cli
 
 validate-assets: $(ASSET_FILES)
 	@set -eu; \

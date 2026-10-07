@@ -81,15 +81,23 @@ test: $(BIN) validate-assets test-cli
 
 test-cli: $(BIN)
 	@set -eu; \
-	for args in "bad 1" "-5 3" "4294967296 1" "1abc 1" "1 0" "1 abc" \
-		"1 1000001" "1 99999999999" "1 1 extra"; do \
-		if ./$(BIN) --selftest $$args >/dev/null 2>&1; then \
-			echo "invalid --selftest arguments accepted: $$args" >&2; exit 1; \
+	check() { \
+		set +e; ./$(BIN) "$$@" >/dev/null 2>&1; rc=$$?; set -e; \
+		if [ "$$rc" -ne 2 ]; then \
+			echo "test-cli: expected exit 2, got $$rc: $(BIN) $$*" >&2; exit 1; \
 		fi; \
-	done; \
-	if ./$(BIN) --render-test .render-cli bad >/dev/null 2>&1; then \
-		echo "invalid --render-test seed accepted" >&2; exit 1; \
-	fi; \
+	}; \
+	check --selftest bad 240; \
+	check --selftest 1x 240; \
+	check --selftest -5 240; \
+	check --selftest 4294967296 240; \
+	check --selftest 1337 0; \
+	check --selftest 1337 240x; \
+	check --selftest 1337 240 extra; \
+	check --render-test .render-cli bad; \
+	check --render-test .render-cli 1x; \
+	check --render-test .render-cli 7 extra; \
+	check --bogus-option; \
 	rm -rf .render-cli
 
 audio:

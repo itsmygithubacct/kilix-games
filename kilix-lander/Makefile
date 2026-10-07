@@ -58,7 +58,7 @@ check-policy:
 	@PYTHONDONTWRITEBYTECODE=1 python3 tools/neural/check-policy.py
 	@PYTHONDONTWRITEBYTECODE=1 $(PYTHON) tools/neural/test-check-policy.py
 
-test: $(BIN) validate-audio check-policy
+test: $(BIN) validate-audio check-policy test-cli
 	./$(BIN) --input-test
 	./$(BIN) --menu-test
 	./$(BIN) --pilot-test
@@ -66,6 +66,28 @@ test: $(BIN) validate-audio check-policy
 	@set -eu; dir=$$(mktemp -d); trap 'rm -rf "$$dir"' EXIT HUP INT TERM; \
 		./$(BIN) --render-test 42 "$$dir"; \
 		[ "$$(ls "$$dir"/render_*.ppm | wc -l)" -eq 5 ] || { echo "expected 5 render fixtures" >&2; exit 1; }
+
+test-cli: $(BIN)
+	@set -eu; \
+	check() { \
+		set +e; ./$(BIN) "$$@" >/dev/null 2>&1; rc=$$?; set -e; \
+		if [ "$$rc" -ne 2 ]; then \
+			echo "test-cli: expected exit 2, got $$rc: $(BIN) $$*" >&2; exit 1; \
+		fi; \
+	}; \
+	check --selftest bad 3600; \
+	check --selftest 1x 3600; \
+	check --selftest -5 3600; \
+	check --selftest 4294967296 3600; \
+	check --selftest 1337 0; \
+	check --selftest 1337 3600x; \
+	check --selftest 1337 3600 extra; \
+	check --render-test bad; \
+	check --render-test 1x; \
+	check --render-test 42 .render-cli extra; \
+	check --bogus-option; \
+	check --version extra; \
+	rm -rf .render-cli
 
 # The instrumented build uses its own SDK build directory, so the normal
 # SDK archive never holds sanitizer objects and a later plain make links.
@@ -83,4 +105,4 @@ sanitize:
 clean:
 	rm -f $(OBJ) $(BIN) $(LAB) render_*.ppm render_*.png
 
-.PHONY: all lab check-policy sanitize test validate-audio clean
+.PHONY: all lab check-policy sanitize test validate-audio clean test-cli

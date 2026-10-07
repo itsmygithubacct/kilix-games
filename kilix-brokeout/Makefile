@@ -70,9 +70,31 @@ sentinel: $(BIN)
 	env PATH=/nonexistent $(GAME) --sound-test; unchanged --sound-test; \
 	echo "PASS: no headless mode touched the high-score store"
 
-test: $(BIN) check-policy
+test: $(BIN) check-policy test-cli
 	@$(MAKE) --no-print-directory sentinel
 	@PYTHONDONTWRITEBYTECODE=1 $(PYTHON) tests/sentinel_coverage.py
+
+test-cli: $(BIN)
+	@set -eu; \
+	check() { \
+		set +e; ./$(BIN) "$$@" >/dev/null 2>&1; rc=$$?; set -e; \
+		if [ "$$rc" -ne 2 ]; then \
+			echo "test-cli: expected exit 2, got $$rc: $(BIN) $$*" >&2; exit 1; \
+		fi; \
+	}; \
+	check --selftest bad 7200; \
+	check --selftest 1x 7200; \
+	check --selftest -5 7200; \
+	check --selftest 4294967296 7200; \
+	check --selftest 1337 0; \
+	check --selftest 1337 7200x; \
+	check --selftest 1337 7200 extra; \
+	check --render-test bad; \
+	check --render-test 1x; \
+	check --render-test 42 .render-cli extra; \
+	check --bogus-option; \
+	check --version extra; \
+	rm -rf .render-cli
 
 # The instrumented build uses its own SDK build directory, so the normal
 # SDK archive never holds sanitizer objects and a later plain make links.
@@ -90,4 +112,4 @@ sanitize:
 clean:
 	rm -f $(OBJ) $(BIN) $(LAB) render_*.ppm render_*.png
 
-.PHONY: all lab check-policy sentinel test sanitize clean
+.PHONY: all lab check-policy sentinel test sanitize clean test-cli

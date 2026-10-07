@@ -3,6 +3,7 @@
 #include "kitty_brokeout.h"
 #include <ftw.h>
 #include <sys/stat.h>
+#include <errno.h>
 #include <limits.h>
 #include <math.h>
 #include <signal.h>
@@ -540,29 +541,64 @@ static bool headless_mode(const char *arg)
     return false;
 }
 
+static bool parse_uint_arg(const char *text, unsigned *value)
+{
+    char *end = NULL;
+    errno = 0;
+    unsigned long parsed = strtoul(text, &end, 10);
+    if (!text[0] || text[0] == '-' || errno == ERANGE || *end || parsed > UINT_MAX)
+        return false;
+    *value = (unsigned)parsed;
+    return true;
+}
+
+static bool parse_ticks_arg(const char *text, int *value)
+{
+    char *end = NULL;
+    errno = 0;
+    long parsed = strtol(text, &end, 10);
+    if (!text[0] || errno == ERANGE || *end || parsed < 1 || parsed > 10000000)
+        return false;
+    *value = (int)parsed;
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     if (argc > 1 && headless_mode(argv[1]) && !isolate_storage()) return 1;
     if (argc > 1 && !strcmp(argv[1], "--selftest")) {
-        unsigned seed = argc > 2 ? (unsigned)strtoul(argv[2], NULL, 10) : 1337;
-        int ticks = argc > 3 ? atoi(argv[3]) : 7200;
+        unsigned seed = 1337;
+        int ticks = 7200;
+        if (argc > 4 || (argc > 2 && !parse_uint_arg(argv[2], &seed)) ||
+            (argc > 3 && !parse_ticks_arg(argv[3], &ticks))) {
+            fprintf(stderr, "kitty-brokeout: invalid --selftest arguments\n");
+            return 2;
+        }
         return selftest(seed, ticks);
     }
-    if (argc > 1 && !strcmp(argv[1], "--input-test")) {
+    if (argc == 2 && !strcmp(argv[1], "--input-test")) {
         return input_test();
     }
     if (argc > 1 && !strcmp(argv[1], "--render-test")) {
-        unsigned seed = argc > 2 ? (unsigned)strtoul(argv[2], NULL, 10) : 1337;
+        unsigned seed = 1337;
+        if (argc > 4 || (argc > 2 && !parse_uint_arg(argv[2], &seed))) {
+            fprintf(stderr, "kitty-brokeout: invalid --render-test arguments\n");
+            return 2;
+        }
         if (argc > 3) render_dir = argv[3];   /* default: the current directory */
         return render_test(seed);
     }
-    if (argc > 1 && !strcmp(argv[1], "--sound-test"))
+    if (argc == 2 && !strcmp(argv[1], "--sound-test"))
         return sound_test();
     if (argc > 1 && !strcmp(argv[1], "--player-test")) return player_test();
     if (argc > 1 && !strcmp(argv[1], "--menu-test")) return menu_test();
-    if (argc > 1 && !strcmp(argv[1], "--version")) {
+    if (argc == 2 && !strcmp(argv[1], "--version")) {
         printf("kitty-brokeout 0.2.0\n");
         return 0;
+    }
+    if (argc > 1) {
+        fprintf(stderr, "kitty-brokeout: unknown option '%s'\n", argv[1]);
+        return 2;
     }
     return run_interactive();
 }
