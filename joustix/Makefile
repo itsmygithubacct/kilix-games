@@ -69,6 +69,7 @@ test: $(BIN) validate-assets validate-audio check-policy test-cli
 
 test-cli: $(BIN)
 	@set -eu; \
+	TMPDIR=$$(mktemp -d); export TMPDIR; trap 'rm -rf "$$TMPDIR"' EXIT; \
 	check() { \
 		set +e; timeout 10 ./$(BIN) "$$@" >/dev/null 2>&1; rc=$$?; set -e; \
 		if [ "$$rc" -ne 2 ]; then \

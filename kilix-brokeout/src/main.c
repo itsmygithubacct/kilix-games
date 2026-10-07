@@ -506,7 +506,7 @@ static int run_interactive(void)
    the high-score store (and may migrate a legacy file in place) before any
    caller could mark the game headless, so the isolation has to happen before
    the first game_init(): point XDG data and state at a fresh directory. */
-static char scratch_dir[] = "/tmp/kitty-brokeout-test-XXXXXX";
+static char scratch_dir[PATH_MAX];   /* under $TMPDIR (default /tmp) */
 
 static int remove_entry(const char *path, const struct stat *st, int type, struct FTW *ftw)
 {
@@ -521,6 +521,13 @@ static void remove_scratch(void)
 
 static bool isolate_storage(void)
 {
+    const char *base = getenv("TMPDIR");
+    if (!base || !*base) base = "/tmp";
+    int len = snprintf(scratch_dir, sizeof scratch_dir, "%s/kitty-brokeout-test-XXXXXX", base);
+    if (len < 0 || (size_t)len >= sizeof scratch_dir) {
+        fprintf(stderr, "kitty-brokeout: TMPDIR is too long\n");
+        return false;
+    }
     if (!mkdtemp(scratch_dir)) {
         perror("kitty-brokeout: cannot create scratch storage");
         return false;

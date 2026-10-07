@@ -409,8 +409,9 @@ static int menu_test(void)
 }
 
 /* Test modes keep their options file in a private directory, so no test can
- * change the player's saved setup. */
-static char config_scratch[] = "/tmp/bashed-earth-test-XXXXXX";
+ * change the player's saved setup. It is made under $TMPDIR (default /tmp), so
+ * a caller can sandbox it and clean up even when a test is killed mid-run. */
+static char config_scratch[PATH_MAX];
 
 static void remove_config_scratch(void)
 {
@@ -422,6 +423,13 @@ static void remove_config_scratch(void)
 
 static void isolate_config(void)
 {
+    const char *base = getenv("TMPDIR");
+    if (!base || !*base) base = "/tmp";
+    int len = snprintf(config_scratch, sizeof config_scratch, "%s/bashed-earth-test-XXXXXX", base);
+    if (len < 0 || (size_t)len >= sizeof config_scratch) {
+        fprintf(stderr, "bashed-earth: TMPDIR is too long\n");
+        exit(1);
+    }
     if (!mkdtemp(config_scratch)) { perror("mkdtemp"); exit(1); }
     setenv("XDG_CONFIG_HOME", config_scratch, 1);
     setenv("HOME", config_scratch, 1);
