@@ -164,6 +164,11 @@ def run_smoke(
             {
                 "KILIX_LIGHTS_SKIP_PROBE": "1",
                 "KILIX_LIGHTS_AUDIO": "off",
+                # This smoke test parses inline Kitty frame payloads.  AUTO can
+                # legitimately select shared memory on the local host, whose
+                # frame command has a different format and is not self-contained
+                # in the captured PTY stream.
+                "KITTYFB_TRANSPORT": "inline",
                 "TERM": "xterm-kitty",
             }
         )
@@ -207,7 +212,10 @@ def run_smoke(
                 if frame_end < 0:
                     missing.append("Kitty frame")
                 detail = ", ".join(missing) if missing else "clean process exit"
-                raise SmokeFailure(f"timed out after {args.timeout:g}s waiting for {detail}")
+                raise SmokeFailure(
+                    f"timed out after {args.timeout:g}s waiting for {detail}; "
+                    f"output tail: {_tail(output)}"
+                )
 
             if master_open:
                 readable, _, _ = select.select([master_fd], [], [], min(0.05, deadline - now))

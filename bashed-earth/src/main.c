@@ -2,6 +2,8 @@
  * frame (physics runs at 60 Hz), and a headless selftest mode that plays
  * full AI-vs-AI matches to validate the game logic. */
 #include "bashed_earth.h"
+#include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -549,6 +551,28 @@ static int run(void)
     return 0;
 }
 
+static bool parse_uint_arg(const char *text, unsigned *value)
+{
+    char *end = NULL;
+    errno = 0;
+    unsigned long parsed = strtoul(text, &end, 10);
+    if (!text[0] || text[0] == '-' || errno == ERANGE || *end || parsed > UINT_MAX)
+        return false;
+    *value = (unsigned)parsed;
+    return true;
+}
+
+static bool parse_matches_arg(const char *text, int *value)
+{
+    char *end = NULL;
+    errno = 0;
+    long parsed = strtol(text, &end, 10);
+    if (!text[0] || errno == ERANGE || *end || parsed < 1 || parsed > 1000)
+        return false;
+    *value = (int)parsed;
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     if (argc > 1 && strcmp(argv[1], "--version") && !strncmp(argv[1], "--", 2))
@@ -556,17 +580,30 @@ int main(int argc, char **argv)
     if (argc > 1 && !strcmp(argv[1], "--neural-test")) return neural_test();
     if (argc > 1 && !strcmp(argv[1], "--menu-test")) return menu_test();
     if (argc > 1 && !strcmp(argv[1], "--selftest")) {
-        unsigned seed = argc > 2 ? (unsigned)strtoul(argv[2], NULL, 10) : 1337;
-        int matches = argc > 3 ? atoi(argv[3]) : 3;
+        unsigned seed = 1337;
+        int matches = 3;
+        if (argc > 4 || (argc > 2 && !parse_uint_arg(argv[2], &seed)) ||
+            (argc > 3 && !parse_matches_arg(argv[3], &matches))) {
+            fprintf(stderr, "bashed-earth: invalid --selftest arguments\n");
+            return 2;
+        }
         return selftest(seed, matches);
     }
     if (argc > 1 && !strcmp(argv[1], "--render-test")) {
-        unsigned seed = argc > 2 ? (unsigned)strtoul(argv[2], NULL, 10) : 1337;
+        unsigned seed = 1337;
+        if (argc > 3 || (argc > 2 && !parse_uint_arg(argv[2], &seed))) {
+            fprintf(stderr, "bashed-earth: invalid --render-test arguments\n");
+            return 2;
+        }
         return render_test(seed);
     }
-    if (argc > 1 && !strcmp(argv[1], "--version")) {
+    if (argc == 2 && !strcmp(argv[1], "--version")) {
         printf("bashed-earth 1.0.0\n");
         return 0;
+    }
+    if (argc > 1) {
+        fprintf(stderr, "bashed-earth: unknown option '%s'\n", argv[1]);
+        return 2;
     }
     return run();
 }

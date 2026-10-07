@@ -3,6 +3,7 @@
 #include "kilix_game_runtime.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,6 +13,37 @@
 #include <unistd.h>
 
 static char asset_root[768] = "assets";
+
+#define SELFTEST_WEEKS_MAX 1000000
+
+static bool parse_unsigned_argument(const char *text, unsigned *value)
+{
+    char *end = NULL;
+    unsigned long parsed;
+
+    if (!text || !text[0] || text[0] == '-') return false;
+    errno = 0;
+    parsed = strtoul(text, &end, 10);
+    if (errno == ERANGE || !end || *end != '\0' || parsed > UINT_MAX)
+        return false;
+    *value = (unsigned)parsed;
+    return true;
+}
+
+static bool parse_weeks_argument(const char *text, int *value)
+{
+    char *end = NULL;
+    long parsed;
+
+    if (!text || !text[0]) return false;
+    errno = 0;
+    parsed = strtol(text, &end, 10);
+    if (errno == ERANGE || !end || *end != '\0' || parsed < 1 ||
+        parsed > SELFTEST_WEEKS_MAX)
+        return false;
+    *value = (int)parsed;
+    return true;
+}
 
 float clampf(float value, float low, float high)
 {
@@ -453,13 +485,22 @@ int main(int argc, char **argv)
         return 0;
     }
     if (argc > 1 && !strcmp(argv[1], "--selftest")) {
-        if (argc > 2) seed = (unsigned)strtoul(argv[2], NULL, 10);
-        int weeks = argc > 3 ? atoi(argv[3]) : 240;
+        int weeks = 240;
+        if (argc > 4 || (argc > 2 && !parse_unsigned_argument(argv[2], &seed)) ||
+            (argc > 3 && !parse_weeks_argument(argv[3], &weeks))) {
+            fprintf(stderr, "kilix-rancher: --selftest expects an unsigned seed "
+                    "and 1..%d weeks\n", SELFTEST_WEEKS_MAX);
+            return 2;
+        }
         return game_selftest(seed, weeks);
     }
     if (argc > 1 && !strcmp(argv[1], "--render-test")) {
         const char *directory = argc > 2 ? argv[2] : ".render-test";
-        if (argc > 3) seed = (unsigned)strtoul(argv[3], NULL, 10);
+        if (argc > 4 || (argc > 3 && !parse_unsigned_argument(argv[3], &seed))) {
+            fprintf(stderr, "kilix-rancher: --render-test expects a directory "
+                    "and unsigned seed\n");
+            return 2;
+        }
         return render_test(directory, seed);
     }
     if (argc > 1) {

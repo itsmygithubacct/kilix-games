@@ -68,7 +68,7 @@ validate-assets: $(BIN) $(RUNTIME_ASSETS)
 		test "$$(dd if="$$sound" bs=1 skip=8 count=4 2>/dev/null)" = WAVE; \
 	done
 
-test: $(BIN) validate-assets
+test: $(BIN) validate-assets test-cli
 	./$(BIN) --selftest 1337 480
 	./$(BIN) --selftest 42 240
 	@set -eu; \
@@ -78,6 +78,19 @@ test: $(BIN) validate-assets
 	set -- "$$render_dir"/render_*.ppm; \
 	test "$$#" -eq 30; \
 	for image do test -s "$$image"; done
+
+test-cli: $(BIN)
+	@set -eu; \
+	for args in "bad 1" "-5 3" "4294967296 1" "1abc 1" "1 0" "1 abc" \
+		"1 1000001" "1 99999999999" "1 1 extra"; do \
+		if ./$(BIN) --selftest $$args >/dev/null 2>&1; then \
+			echo "invalid --selftest arguments accepted: $$args" >&2; exit 1; \
+		fi; \
+	done; \
+	if ./$(BIN) --render-test .render-cli bad >/dev/null 2>&1; then \
+		echo "invalid --render-test seed accepted" >&2; exit 1; \
+	fi; \
+	rm -rf .render-cli
 
 audio:
 	./tools/generate_audio.sh
@@ -104,4 +117,4 @@ clean:
 	rm -f $(OBJ) $(DEP) $(BIN)
 	rm -rf .render-test
 
-.PHONY: all validate-assets test audio install uninstall clean
+.PHONY: all validate-assets test audio install uninstall clean test-cli

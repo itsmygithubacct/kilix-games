@@ -29,12 +29,24 @@ src/render.o: src/embedded_assets.h $(SOFT_RASTER_DIR)/include/soft_raster.h
 src/audio.o: $(PCM_MIXER_DIR)/include/pcmmix_bank.h
 src/term.o: $(KITTY_TERMINAL_SESSION_DIR)/include/kitty_terminal_session.h
 
-test: $(BIN)
+test: $(BIN) test-cli
 	./$(BIN) --selftest 1337 7200
 	./$(BIN) --render-test 42
 	./$(BIN) --sound-test
 
+test-cli: $(BIN)
+	@set -eu; \
+	for args in "bad 7200" "1 0" "1 -1" "1 10000001" \
+		"4294967296 1" "1 1 extra"; do \
+		if ./$(BIN) --selftest $$args >/dev/null 2>&1; then \
+			echo "invalid --selftest arguments accepted: $$args" >&2; exit 1; \
+		fi; \
+	done; \
+	if ./$(BIN) --render-test bad >/dev/null 2>&1; then \
+		echo "invalid --render-test seed accepted" >&2; exit 1; \
+	fi
+
 clean:
 	rm -f $(OBJ) $(BIN) render_*.ppm render_*.png
 
-.PHONY: all test clean
+.PHONY: all test clean test-cli

@@ -49,7 +49,7 @@ check-policy:
 # The test modes keep their options file in a private directory; running
 # them under a sentinel HOME and XDG_CONFIG_HOME proves they never write to
 # the ones they are given.
-test: $(BIN) $(LAB) check-policy
+test: $(BIN) $(LAB) check-policy test-cli
 	@sentinel=$$(mktemp -d); trap 'rm -rf "$$sentinel"' EXIT HUP INT TERM; \
 	mkdir "$$sentinel/home" "$$sentinel/config"; \
 	run() { echo "./$(BIN) $$*"; \
@@ -61,6 +61,18 @@ test: $(BIN) $(LAB) check-policy
 		echo "FAIL: a test mode wrote to HOME or XDG_CONFIG_HOME:" >&2; \
 		find "$$sentinel/home" "$$sentinel/config" -mindepth 1 >&2; exit 1; \
 	fi; echo "PASS: no test mode touched HOME or XDG_CONFIG_HOME"
+
+test-cli: $(BIN)
+	@set -eu; \
+	for args in "bad 1" "1 0" "1 -1" "1 1001" "4294967296 1" \
+		"1 1 extra"; do \
+		if ./$(BIN) --selftest $$args >/dev/null 2>&1; then \
+			echo "invalid --selftest arguments accepted: $$args" >&2; exit 1; \
+		fi; \
+	done; \
+	if ./$(BIN) --render-test bad >/dev/null 2>&1; then \
+		echo "invalid --render-test seed accepted" >&2; exit 1; \
+	fi
 
 # The instrumented build uses its own SDK build directory, so the normal
 # SDK archive never holds sanitizer objects and a later plain make links.
@@ -78,4 +90,4 @@ sanitize:
 clean:
 	rm -f $(OBJ) $(BIN) $(LAB)
 
-.PHONY: all test clean lab check-policy sanitize
+.PHONY: all test clean lab check-policy sanitize test-cli

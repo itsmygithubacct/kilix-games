@@ -18,6 +18,37 @@
 
 static char asset_root[512] = "assets";
 
+#define SELFTEST_TICKS_MAX 10000000
+
+static bool parse_unsigned_argument(const char *text, unsigned *value)
+{
+    char *end = NULL;
+    unsigned long parsed;
+
+    if (!text || !text[0] || text[0] == '-') return false;
+    errno = 0;
+    parsed = strtoul(text, &end, 10);
+    if (errno == ERANGE || !end || *end != '\0' || parsed > UINT_MAX)
+        return false;
+    *value = (unsigned)parsed;
+    return true;
+}
+
+static bool parse_ticks_argument(const char *text, int *value)
+{
+    char *end = NULL;
+    long parsed;
+
+    if (!text || !text[0]) return false;
+    errno = 0;
+    parsed = strtol(text, &end, 10);
+    if (errno == ERANGE || !end || *end != '\0' || parsed < 1 ||
+        parsed > SELFTEST_TICKS_MAX)
+        return false;
+    *value = (int)parsed;
+    return true;
+}
+
 void asset_paths_init(void)
 {
     const char *override = getenv("JOUSTIX_ASSETS");
@@ -741,12 +772,22 @@ int main(int argc, char **argv)
     if (!strcmp(argv[1], "--version")) { puts("joustix 0.1.0"); return 0; }
     if (!strcmp(argv[1], "--rules-test")) return rules_test();
     if (!strcmp(argv[1], "--selftest")) {
-        unsigned seed = argc > 2 ? (unsigned)strtoul(argv[2], NULL, 10) : 1337;
-        int ticks = argc > 3 ? atoi(argv[3]) : 12000;
+        unsigned seed = 1337;
+        int ticks = 12000;
+        if (argc > 4 || (argc > 2 && !parse_unsigned_argument(argv[2], &seed)) ||
+            (argc > 3 && !parse_ticks_argument(argv[3], &ticks))) {
+            fprintf(stderr, "joustix: --selftest expects an unsigned seed and "
+                    "1..%d ticks\n", SELFTEST_TICKS_MAX);
+            return 2;
+        }
         return selftest(seed, ticks);
     }
     if (!strcmp(argv[1], "--render-test")) {
-        unsigned seed = argc > 2 ? (unsigned)strtoul(argv[2], NULL, 10) : 1337;
+        unsigned seed = 1337;
+        if (argc > 3 || (argc > 2 && !parse_unsigned_argument(argv[2], &seed))) {
+            fprintf(stderr, "joustix: --render-test expects an unsigned seed\n");
+            return 2;
+        }
         return render_test(seed);
     }
     if (!strcmp(argv[1], "--sound-test")) return sound_test();

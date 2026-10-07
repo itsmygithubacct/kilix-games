@@ -1,5 +1,6 @@
 #include "chess_bash.h"
 #include <errno.h>
+#include <limits.h>
 #include <math.h>
 #include <signal.h>
 #include <stdio.h>
@@ -682,6 +683,29 @@ static void print_usage(void)
            "      F fast battles - S skip battle - N twice to menu - Q quit\n");
 }
 
+static bool parse_uint_arg(const char *text, unsigned max, unsigned *value)
+{
+    char *end = NULL;
+    errno = 0;
+    unsigned long parsed = strtoul(text, &end, 10);
+    if (!text[0] || text[0] == '-' || errno == ERANGE || *end ||
+        parsed > UINT_MAX || parsed > max)
+        return false;
+    *value = (unsigned)parsed;
+    return true;
+}
+
+static bool parse_int_arg(const char *text, int min, int max, int *value)
+{
+    char *end = NULL;
+    errno = 0;
+    long parsed = strtol(text, &end, 10);
+    if (!text[0] || errno == ERANGE || *end || parsed < min || parsed > max)
+        return false;
+    *value = (int)parsed;
+    return true;
+}
+
 /* apply a space-separated UCI move list headlessly and report the outcome */
 static int script_test(const char *moves)
 {
@@ -826,36 +850,46 @@ static int fallback_test(void)
 int main(int argc, char **argv)
 {
     asset_paths_init();
-    if (argc > 2 && !strcmp(argv[1], "--script")) {
+    if (argc == 3 && !strcmp(argv[1], "--script")) {
         return script_test(argv[2]);
     }
     if (argc > 1 && !strcmp(argv[1], "--ai-test")) {
-        return ai_test(argc > 2 ? atoi(argv[2]) : 0,
-                       argc > 3 ? atoi(argv[3]) : -1);
+        int ticks = 0, difficulty = -1;
+        if (argc > 4 || (argc > 2 && !parse_int_arg(argv[2], 1, 10000000, &ticks)) ||
+            (argc > 3 && !parse_int_arg(argv[3], 0, DIFF_COUNT - 1, &difficulty))) {
+            fprintf(stderr, "chess-bash: invalid --ai-test arguments\n");
+            return 2;
+        }
+        return ai_test(ticks, difficulty);
     }
-    if (argc > 1 && !strcmp(argv[1], "--fallback-test")) {
+    if (argc == 2 && !strcmp(argv[1], "--fallback-test")) {
         return fallback_test();
     }
-    if (argc > 2 && !strcmp(argv[1], "--battle-test")) {
+    if (argc == 3 && !strcmp(argv[1], "--battle-test")) {
         return battle_test(argv[2]);
     }
-    if (argc > 1 && (!strcmp(argv[1], "--help") || !strcmp(argv[1], "-h"))) {
+    if (argc == 2 && (!strcmp(argv[1], "--help") || !strcmp(argv[1], "-h"))) {
         print_usage();
         return 0;
     }
     if (argc > 1 && !strcmp(argv[1], "--selftest")) {
-        unsigned seed = argc > 2 ? (unsigned)strtoul(argv[2], NULL, 10) : 1337;
-        int plies = argc > 3 ? atoi(argv[3]) : 160;
+        unsigned seed = 1337;
+        int plies = 160;
+        if (argc > 4 || (argc > 2 && !parse_uint_arg(argv[2], UINT_MAX, &seed)) ||
+            (argc > 3 && !parse_int_arg(argv[3], 1, 10000000, &plies))) {
+            fprintf(stderr, "chess-bash: invalid --selftest arguments\n");
+            return 2;
+        }
         return selftest(seed, plies);
     }
-    if (argc > 1 && !strcmp(argv[1], "--rules-test")) {
+    if (argc == 2 && !strcmp(argv[1], "--rules-test")) {
         return rules_test();
     }
-    if (argc > 1 && !strcmp(argv[1], "--perft-test")) {
+    if (argc == 2 && !strcmp(argv[1], "--perft-test")) {
         return perft_test();
     }
     if (argc > 1 && !strcmp(argv[1], "--perft")) {
-        if (argc < 3) {
+        if (argc < 3 || argc > 4) {
             fprintf(stderr, "chess-bash: --perft requires a depth\n");
             return 2;
         }
@@ -868,13 +902,17 @@ int main(int argc, char **argv)
         return perft_run((int)depth, argc > 3 ? argv[3] : NULL);
     }
     if (argc > 1 && !strcmp(argv[1], "--render-test")) {
-        unsigned seed = argc > 2 ? (unsigned)strtoul(argv[2], NULL, 10) : 1337;
+        unsigned seed = 1337;
+        if (argc > 3 || (argc > 2 && !parse_uint_arg(argv[2], UINT_MAX, &seed))) {
+            fprintf(stderr, "chess-bash: invalid --render-test arguments\n");
+            return 2;
+        }
         return render_test(seed);
     }
-    if (argc > 1 && !strcmp(argv[1], "--sound-test")) {
+    if (argc == 2 && !strcmp(argv[1], "--sound-test")) {
         return sound_test();
     }
-    if (argc > 1 && !strcmp(argv[1], "--version")) {
+    if (argc == 2 && !strcmp(argv[1], "--version")) {
         printf("chess-bash 0.2.0\n");
         return 0;
     }

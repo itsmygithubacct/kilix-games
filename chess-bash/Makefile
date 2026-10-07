@@ -65,7 +65,7 @@ $(ENGINE_LIFECYCLE_TEST): tests/engine-lifecycle.c src/engine.c src/chess_bash.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(THREAD_FLAGS) -Isrc $(LDFLAGS) \
 		-o $@ tests/engine-lifecycle.c src/engine.c $(LDLIBS)
 
-test: $(BIN) $(ENGINE_LIFECYCLE_TEST) validate-assets
+test: $(BIN) $(ENGINE_LIFECYCLE_TEST) validate-assets test-cli
 	./$(ENGINE_LIFECYCLE_TEST) ./tests/fake-uci.sh
 	./$(BIN) --rules-test
 	./$(BIN) --perft-test
@@ -80,6 +80,21 @@ test: $(BIN) $(ENGINE_LIFECYCLE_TEST) validate-assets
 	set -- "$$render_dir"/render_*.ppm; \
 	[ "$$#" -eq 21 ]; \
 	for image do [ -s "$$image" ]; done
+
+test-cli: $(BIN)
+	@set -eu; \
+	for args in "bad 160" "1 0" "1 -1" "1 10000001" \
+		"4294967296 1" "1 1 extra"; do \
+		if ./$(BIN) --selftest $$args >/dev/null 2>&1; then \
+			echo "invalid --selftest arguments accepted: $$args" >&2; exit 1; \
+		fi; \
+	done; \
+	if ./$(BIN) --render-test bad >/dev/null 2>&1; then \
+		echo "invalid --render-test seed accepted" >&2; exit 1; \
+	fi; \
+	if ./$(BIN) --perft 1 extra argument >/dev/null 2>&1; then \
+		echo "extra --perft argument accepted" >&2; exit 1; \
+	fi
 
 validate-assets: $(ASSET_FILES)
 	@set -eu; \
@@ -138,4 +153,4 @@ clean:
 		render_*.ppm render_*.png battle_*.ppm battle_*.png
 	rm -rf .test-render
 
-.PHONY: all test validate-assets install uninstall clean
+.PHONY: all test validate-assets install uninstall clean test-cli

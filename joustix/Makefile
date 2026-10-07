@@ -54,7 +54,7 @@ check-policy:
 	@PYTHONDONTWRITEBYTECODE=1 $(PYTHON) tools/neural/check-policy.py
 	@PYTHONDONTWRITEBYTECODE=1 $(PYTHON) tools/neural/test-check-policy.py
 
-test: $(BIN) validate-assets validate-audio check-policy
+test: $(BIN) validate-assets validate-audio check-policy test-cli
 	./$(BIN) --rules-test
 	./$(BIN) --menu-test
 	./$(BIN) --pilot-test
@@ -66,6 +66,18 @@ test: $(BIN) validate-assets validate-audio check-policy
 	set -- "$$render_dir"/render_*.ppm; \
 	[ "$$#" -eq 4 ]; \
 	for image do [ -s "$$image" ]; done
+
+test-cli: $(BIN)
+	@set -eu; \
+	for args in "bad 240" "1 0" "1 -1" "1 10000001" \
+		"4294967296 1" "1 1 extra"; do \
+		if ./$(BIN) --selftest $$args >/dev/null 2>&1; then \
+			echo "invalid --selftest arguments accepted: $$args" >&2; exit 1; \
+		fi; \
+	done; \
+	if ./$(BIN) --render-test bad >/dev/null 2>&1; then \
+		echo "invalid --render-test seed accepted" >&2; exit 1; \
+	fi
 
 validate-assets: $(ASSET_FILES)
 	@set -eu; \
@@ -130,4 +142,4 @@ sanitize:
 clean:
 	rm -f $(OBJ) $(BIN) $(LAB) render_*.ppm
 
-.PHONY: all test validate-assets validate-audio install uninstall clean lab check-policy sanitize
+.PHONY: all test validate-assets validate-audio install uninstall clean lab check-policy sanitize test-cli
