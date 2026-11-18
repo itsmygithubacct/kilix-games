@@ -17,7 +17,8 @@ typedef struct scene {
     int level_count;
     float x, y;          /* Kilix's feet */
     int dir;             /* 0 down, 1 up, 2 left, 3 right */
-    float walk_phase;
+    int step_ticks;      /* ticks walked since standing still; 0 standing */
+    int idle_ticks;      /* free-running, for the standing bob */
     bool moving;
     bool goal_met;
     float door;          /* 0 closed .. 1 open */
@@ -26,17 +27,25 @@ typedef struct scene {
 
 typedef enum scene_event {
     SCENE_NONE = 0,
-    SCENE_DOOR_OPENED,   /* the door finished opening this step */
+    SCENE_DOOR_OPENED,   /* the door finished opening this tick */
     SCENE_NEXT_ROOM      /* Kilix walked through the open door */
 } scene_event;
 
-enum { WALK_SPEED = 220 };   /* pixels per second */
+/* Zell's clock and pace: 60 ticks a second, 3.5 pixels a tick walking. */
+#define SCENE_TICK_HZ 60
+#define SCENE_WALK_SPEED 3.5f
+/* The door opens (or closes) over this many ticks. */
+#define SCENE_DOOR_TICKS 75
 
 void scene_init(scene *s, int level, int level_count);
 /* Put Kilix back at the room's entrance with the door shut. */
 void scene_enter_room(scene *s, int level);
-/* dx, dy in -1..1; dt in seconds. */
-scene_event scene_step(scene *s, int dx, int dy, float dt);
+/* One tick; dx, dy in -1..1 are the held direction keys. */
+scene_event scene_tick(scene *s, int dx, int dy);
+/* After layout_set: keep Kilix where he was relative to the floor and the
+ * aisle, or put him at the entrance if that spot is gone. old is the
+ * layout before the change. */
+void scene_relayout(scene *s, const layout *old);
 bool scene_walkable(const scene *s, float x, float y);
 /* The screen Kilix is next to and facing, or SCREEN_NONE. */
 screen_id scene_near_screen(const scene *s);

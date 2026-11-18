@@ -106,6 +106,7 @@ bool game_init(game *g, const char *root, const char *state, bool spawn,
     char path[4096];
 
     memset(g, 0, sizeof *g);
+    if (L.w == 0) layout_set(LAYOUT_DEFAULT_W, LAYOUT_DEFAULT_H);
     snprintf(g->root, sizeof g->root, "%s", root);
     snprintf(g->state, sizeof g->state, "%s", state);
     snprintf(g->workspace, sizeof g->workspace, "%s/workspace", state);
@@ -265,8 +266,6 @@ static void pump(pty_proc *p, vt *t, char *note, size_t notecap, const char *who
 
 void game_update(game *g, double dt)
 {
-    int dx = 0, dy = 0;
-    scene_event ev;
 
     g->now += dt;
     g->level_time += dt;
@@ -285,16 +284,39 @@ void game_update(game *g, double dt)
         g->level_time > (g->hints_shown + 1) * (double)HINT_SECONDS)
         g->hints_shown++;
 
-    if (g->held_until[0] > g->now) dx -= 1;
-    if (g->held_until[1] > g->now) dx += 1;
-    if (g->held_until[2] > g->now) dy -= 1;
-    if (g->held_until[3] > g->now) dy += 1;
-    ev = scene_step(&g->sc, dx, dy, (float)dt);
-    if (ev == SCENE_NEXT_ROOM) {
-        int next = g->sc.level + 1;
-        game_save_progress(g->state, next);
-        game_enter_level(g, next);
+    /* fixed ticks; a stall runs at most a quarter second of them, so
+     * Kilix never jumps */
+    g->tick_debt += dt;
+    if (g->tick_debt > 0.25) g->tick_debt = 0.25;
+    while (g->tick_debt >= 1.0 / SCENE_TICK_HZ) {
+        double t = g->now - g->tick_debt;
+        int dx = 0, dy = 0;
+        scene_event ev;
+        g->tick_debt -= 1.0 / SCENE_TICK_HZ;
+        if (g->held_until[0] > t) dx -= 1;
+        if (g->held_until[1] > t) dx += 1;
+        if (g->held_until[2] > t) dy -= 1;
+        if (g->held_until[3] > t) dy += 1;
+        ev = scene_tick(&g->sc, dx, dy);
+        if (ev == SCENE_NEXT_ROOM) {
+            int next = g->sc.level + 1;
+            game_save_progress(g->state, next);
+            game_enter_level(g, next);
+            g->tick_debt = 0;
+            break;
+        }
     }
+}
+
+bool game_resize(game *g, int w, int h)
+{
+    layout old = L;
+    if (!layout_set(w, h)) return false;
+    if (vt_resize(&g->omp_vt, OMP_COLS, OMP_ROWS)) pty_resize(&g->omp, OMP_COLS, OMP_ROWS);
+    if (vt_resize(&g->shell_vt, SHELL_COLS, SHELL_ROWS))
+        pty_resize(&g->shell, SHELL_COLS, SHELL_ROWS);
+    scene_relayout(&g->sc, &old);
+    return true;
 }
 
 void game_render(game *g, sr_canvas *c)

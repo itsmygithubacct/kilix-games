@@ -1,12 +1,16 @@
 /* test_puzzllm.c - headless unit tests: terminal emulator, keys, levels,
- * JSON, activity feed, scene, rendering and the level-1 flow.
+ * JSON, activity feed, Kilix's pictures, the 60 Hz scene, layout at any pane
+ * size, both renderers, rendering and the level-1 flow.
  *
  * PUZZLLM_TEST_DIR is a scratch folder the test may fill (make test-unit
  * empties it first). Run from the puzzllm/ directory.
  */
 #include "activity.h"
+#include "damage.h"
+#include "draw.h"
 #include "game.h"
 #include "json.h"
+#include "kilix_art.h"
 #include "keys.h"
 #include "layout.h"
 #include "levels.h"
@@ -16,6 +20,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -380,8 +385,9 @@ static void test_activity(void)
 static scene_event walk(scene *s, int dx, int dy, float seconds)
 {
     scene_event last = SCENE_NONE;
-    for (float t = 0; t < seconds; t += 1.0f / 60) {
-        scene_event e = scene_step(s, dx, dy, 1.0f / 60);
+    int ticks = (int)(seconds * SCENE_TICK_HZ + 0.5f);
+    for (int i = 0; i < ticks; i++) {
+        scene_event e = scene_tick(s, dx, dy);
         if (e != SCENE_NONE) last = e;
         if (e == SCENE_NEXT_ROOM) break;
     }
@@ -431,7 +437,6 @@ static void test_scene(void)
     CHECK(s.x == START_X, "no walking while typing");
 }
 
-/* ---------------- rendering ---------------- */
 
 static uint32_t at(const sr_canvas *c, int x, int y) { return c->px[y * c->w + x] & 0xffffff; }
 
@@ -445,6 +450,347 @@ static int differing(const sr_canvas *a, const sr_canvas *b, rect r)
 }
 
 static game G;
+
+/* ---------------- Kilix's pictures (from Zell) ---------------- */
+
+static void test_kilix_art(void)
+{
+    for (int i = 0; i < KILIX_ART_COUNT; i++) {
+        const kilix_picture *p = kilix_art_get(i);
+        int opaque = 0, bad = 0;
+        CHECK(p != NULL, "picture %d unpacks", i);
+        if (p == NULL) continue;
+        CHECK(p->height == KILIX_ART_HEIGHT && p->width >= 50 && p->width <= 70,
+              "picture %d is %dx%d", i, p->width, p->height);
+        for (int k = 0; k < p->width * p->height; k++) {
+            uint32_t px = p->pixels[k], a = px >> 24;
+            if (a >= 200) opaque++;
+            if (((px >> 16) & 255) > a || ((px >> 8) & 255) > a || (px & 255) > a) bad++;
+        }
+        CHECK(opaque > 1000, "picture %d has a body (%d opaque pixels)", i, opaque);
+        CHECK(bad == 0, "picture %d is premultiplied (%d pixels are not)", i, bad);
+        CHECK(kilix_art_get(i) == p, "picture %d is unpacked once", i);
+    }
+    CHECK(kilix_art_get(-1) == NULL && kilix_art_get(KILIX_ART_COUNT) == NULL, "bad ids");
+    /* the four directions look different */
+    {
+        const kilix_picture *down = kilix_art_get(KILIX_ART_STAND + 0);
+        const kilix_picture *up = kilix_art_get(KILIX_ART_STAND + 1);
+        int differ = 0, w = down->width < up->width ? down->width : up->width;
+        for (int y = 0; y < KILIX_ART_HEIGHT; y++)
+            for (int x = 0; x < w; x++)
+                if (down->pixels[y * down->width + x] != up->pixels[y * up->width + x]) differ++;
+        CHECK(differ > 500, "facing down and up differ (%d pixels)", differ);
+    }
+
+    /* Zell's timing: four walk frames of seven ticks, then round again */
+    for (int dir = 0; dir < 4; dir++) {
+        CHECK(kilix_pose_at(dir, 0, 0).art == KILIX_ART_STAND + dir, "standing, dir %d", dir);
+        CHECK(kilix_pose_at(dir, 1, 0).art == KILIX_ART_WALK + dir * 4, "first step, dir %d", dir);
+        CHECK(kilix_pose_at(dir, 7, 0).art == KILIX_ART_WALK + dir * 4, "tick 7 still frame 0");
+        CHECK(kilix_pose_at(dir, 8, 0).art == KILIX_ART_WALK + dir * 4 + 1, "tick 8 is frame 1");
+        CHECK(kilix_pose_at(dir, 22, 0).art == KILIX_ART_WALK + dir * 4 + 3, "tick 22 is frame 3");
+        CHECK(kilix_pose_at(dir, 29, 0).art == KILIX_ART_WALK + dir * 4, "tick 29 wraps to frame 0");
+    }
+    CHECK(kilix_pose_at(0, 0, 0).offset_y == 0 && kilix_pose_at(0, 0, 11).offset_y == -1 &&
+          kilix_pose_at(0, 0, 33).offset_y == 0, "standing bob");
+    CHECK(kilix_pose_at(0, 5, 11).offset_y == 0, "no bob while walking");
+}
+
+/* ---------------- the 60 Hz tick ---------------- */
+
+static void test_ticks(void)
+{
+    char err[256], state[2300];
+    scene s;
+    float x0, y0;
+
+    layout_set(LAYOUT_DEFAULT_W, LAYOUT_DEFAULT_H);
+    scene_init(&s, 0, 2);
+    x0 = s.x;
+    scene_tick(&s, 1, 0);
+    CHECK(fabsf(s.x - x0 - SCENE_WALK_SPEED) < 1e-4f && s.dir == 3 && s.step_ticks == 1,
+          "a tick walks 3.5 px (moved %.2f)", s.x - x0);
+    CHECK(fabsf(SCENE_WALK_SPEED - 3.5f) < 1e-6f, "Zell's walking pace");
+    x0 = s.x; y0 = s.y;
+    scene_tick(&s, -1, -1);
+    CHECK(fabsf(hypotf(s.x - x0, s.y - y0) - SCENE_WALK_SPEED) < 1e-3f,
+          "diagonals are not faster (%.3f)", hypotf(s.x - x0, s.y - y0));
+    CHECK(s.dir == 2, "sideways wins when facing a diagonal");
+    CHECK(s.step_ticks == 2, "still walking");
+    scene_tick(&s, 0, 0);
+    CHECK(s.step_ticks == 0 && !s.moving, "standing still resets the walk");
+    {
+        int idle = s.idle_ticks;
+        scene_tick(&s, 0, 0);
+        CHECK(s.idle_ticks == idle + 1, "the idle clock runs");
+    }
+    scene_enter_room(&s, 0);
+    s.goal_met = true;
+    for (int i = 0; i < SCENE_DOOR_TICKS - 1; i++) scene_tick(&s, 0, 0);
+    CHECK(s.door < 1.0f, "door still opening after %d ticks", SCENE_DOOR_TICKS - 1);
+    CHECK(scene_tick(&s, 0, 0) == SCENE_DOOR_OPENED, "door open on tick %d", SCENE_DOOR_TICKS);
+
+    /* the game runs ticks from elapsed time, the same at any frame rate */
+    sub(state, sizeof state, "ticks");
+    CHECK(game_init(&G, ".", state, false, err, sizeof err), "game_init: %s", err);
+    {
+        key_event right;
+        memset(&right, 0, sizeof right);
+        right.key = KEY_RIGHT;
+        right.action = 1;
+        G.release_events = true;
+        x0 = G.sc.x;
+        game_key(&G, &right);
+        game_update(&G, 0.1);                       /* one slow frame */
+        CHECK(fabsf(G.sc.x - x0 - 6 * SCENE_WALK_SPEED) < 0.01f,
+              "0.1 s is six ticks (moved %.2f)", G.sc.x - x0);
+        x0 = G.sc.x;
+        for (int i = 0; i < 30; i++) game_update(&G, 1.0 / 300);   /* fast frames */
+        CHECK(fabsf(G.sc.x - x0 - 6 * SCENE_WALK_SPEED) < 0.01f,
+              "thirty 300 Hz frames are six ticks too (moved %.2f)", G.sc.x - x0);
+        x0 = G.sc.x;
+        game_update(&G, 5.0);                       /* a stall */
+        CHECK(G.sc.x - x0 <= 15 * SCENE_WALK_SPEED + 0.01f,
+              "a stall runs at most a quarter second (moved %.2f)", G.sc.x - x0);
+        /* held, Kilix keeps walking every tick until the key comes up */
+        G.sc.x = (float)START_X; G.sc.y = (float)START_Y;
+        x0 = G.sc.x;
+        for (int i = 0; i < 60; i++) game_update(&G, 1.0 / 60);
+        CHECK(G.sc.step_ticks >= 60 && fabsf(G.sc.x - x0 - 60 * SCENE_WALK_SPEED) < 0.01f,
+              "a held key walks every tick (moved %.2f, %d ticks)", G.sc.x - x0, G.sc.step_ticks);
+        right.action = 3;
+        game_key(&G, &right);
+        x0 = G.sc.x;
+        game_update(&G, 1.0 / 60);
+        CHECK(G.sc.x == x0, "the release stops him on the next tick");
+    }
+    game_shutdown(&G);
+}
+
+/* ---------------- layout for the pane ---------------- */
+
+static bool overlaps(rect a, rect b)
+{
+    return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+}
+
+static void test_layout(void)
+{
+    static const int sizes[][2] = {
+        {960, 600}, {1024, 640}, {1280, 800}, {1366, 768}, {1600, 1000},
+        {1908, 972}, {1920, 1080}, {2048, 1280}, {1000, 1200}, {2000, 620}};
+    char err[256], state[2300];
+
+    layout_set(1280, 800);
+    CHECK(OMP_COLS == 70 && OMP_ROWS == 30 && SHELL_COLS == 70 && SHELL_ROWS == 13 &&
+          ACT_ROWS == 13, "1280x800 keeps the room's first layout");
+    CHECK(START_X == 640 && START_Y == 740 && AISLE_X0 == 616 && AISLE_X1 == 664 &&
+          WALK_Y0 == 668 && WALK_Y1 == 768 && DOOR_X == 600, "1280x800 floor and aisle");
+    layout_set(300, 200);
+    CHECK(CANVAS_W == LAYOUT_MIN_W && CANVAS_H == LAYOUT_MIN_H, "small panes: the minimum");
+    layout_set(5000, 4000);
+    CHECK(CANVAS_W == LAYOUT_MAX_W && CANVAS_H == LAYOUT_MAX_H, "huge panes: the maximum");
+
+    for (size_t i = 0; i < sizeof sizes / sizeof sizes[0]; i++) {
+        int w = sizes[i][0], h = sizes[i][1];
+        rect omp, shell, act, aisle;
+        scene s;
+        layout_set(w, h);
+        omp = layout_screen(SCREEN_OMP);
+        shell = layout_screen(SCREEN_SHELL);
+        act = layout_screen(SCREEN_ACT);
+        aisle = (rect){AISLE_X0, WALL_H, AISLE_X1 - AISLE_X0, FLOOR_Y - WALL_H};
+        CHECK(CANVAS_W == w && CANVAS_H == h, "%dx%d is drawn at its own size", w, h);
+        CHECK(omp.x >= 0 && act.x + act.w <= w && shell.x + shell.w <= w &&
+              act.y + act.h <= FLOOR_Y && omp.y + omp.h <= FLOOR_Y && omp.y > WALL_H,
+              "%dx%d: screens inside the room", w, h);
+        CHECK(!overlaps(omp, aisle) && !overlaps(shell, aisle) && !overlaps(act, aisle) &&
+              !overlaps(shell, act) && !overlaps(omp, shell),
+              "%dx%d: screens clear of each other and the aisle", w, h);
+        CHECK(OMP_COLS >= 20 && OMP_COLS <= SCREEN_MAX_COLS && SHELL_ROWS >= 4,
+              "%dx%d: usable terminals (%dx%d, %dx%d)", w, h, OMP_COLS, OMP_ROWS,
+              SHELL_COLS, SHELL_ROWS);
+        CHECK(WALK_Y1 < HUD_Y && WALK_Y0 > FLOOR_Y && DOOR_X + DOOR_W / 2 == w / 2,
+              "%dx%d: floor band and door", w, h);
+        scene_init(&s, 0, 2);
+        CHECK(scene_walkable(&s, START_X, START_Y), "%dx%d: entrance walkable", w, h);
+    }
+    layout_set(1908, 972);
+    CHECK(OMP_COLS > 100 && OMP_ROWS > 35, "a big pane gets big terminals (%dx%d)",
+          OMP_COLS, OMP_ROWS);
+
+    /* resizing the game resizes the terminals and keeps Kilix on the floor */
+    layout_set(LAYOUT_DEFAULT_W, LAYOUT_DEFAULT_H);
+    sub(state, sizeof state, "resize");
+    CHECK(game_init(&G, ".", state, false, err, sizeof err), "game_init: %s", err);
+    G.sc.x = 300;
+    CHECK(game_resize(&G, 1908, 972), "resize to 1908x972");
+    CHECK(G.omp_vt.cols == OMP_COLS && G.omp_vt.rows == OMP_ROWS &&
+          G.shell_vt.cols == SHELL_COLS && G.shell_vt.rows == SHELL_ROWS,
+          "terminals follow the screens (%dx%d)", G.omp_vt.cols, G.omp_vt.rows);
+    CHECK(scene_walkable(&G.sc, G.sc.x, G.sc.y) && G.sc.y == 972 - 60 &&
+          fabsf(G.sc.x - (300 + 954 - 640)) < 0.01f,
+          "Kilix keeps his place on the floor (%.0f, %.0f)", G.sc.x, G.sc.y);
+    CHECK(!game_resize(&G, 1908, 972), "the same size again changes nothing");
+    {
+        sr_canvas big, again;
+        CHECK(sr_canvas_init(&big, CANVAS_W, CANVAS_H) && sr_canvas_init(&again, CANVAS_W, CANVAS_H),
+              "canvases");
+        game_render(&G, &big);
+        CHECK(at(&big, CANVAS_W - 20, FLOOR_Y + 40) != 0, "the floor reaches the far side");
+        game_resize(&G, 1280, 800);
+        {
+            /* the room drawn for the smaller pane is that pane's room: its
+             * HUD strip is at its own bottom, its far wall at its own edge */
+            sr_canvas small;
+            CHECK(sr_canvas_init(&small, CANVAS_W, CANVAS_H), "canvas");
+            game_render(&G, &small);
+            CHECK(at(&small, 4, CANVAS_H - 4) == at(&big, 4, big.h - 4) &&
+                  at(&small, CANVAS_W - 3, 300) == at(&big, big.w - 3, 300),
+                  "the 1280x800 room is drawn for 1280x800");
+            sr_canvas_free(&small);
+        }
+        game_resize(&G, 1908, 972);
+        game_render(&G, &again);
+        CHECK(memcmp(big.px, again.px, (size_t)big.w * big.h * 4) == 0,
+              "after a round trip the frame is the same");
+        sr_canvas_free(&big);
+        sr_canvas_free(&again);
+    }
+    game_resize(&G, LAYOUT_DEFAULT_W, LAYOUT_DEFAULT_H);
+    game_shutdown(&G);
+}
+
+
+/* ---------------- what changed between frames ---------------- */
+
+static bool covered(const damage_rect *r, int n, int x, int y)
+{
+    for (int i = 0; i < n; i++)
+        if (x >= r[i].x0 && x < r[i].x1 && y >= r[i].y0 && y < r[i].y1) return true;
+    return false;
+}
+
+static void test_damage(void)
+{
+    enum { W = 1908, H = 990 };
+    uint32_t *prev = calloc((size_t)W * H, 4), *cur = calloc((size_t)W * H, 4);
+    damage_rect r[DAMAGE_MAX_RECTS];
+    int n, missed = 0;
+    unsigned seed = 12345;
+
+    CHECK(prev && cur, "buffers");
+    if (!prev || !cur) return;
+    CHECK(damage_update(prev, cur, W, H, r, DAMAGE_MAX_RECTS) == 0, "nothing changed: no rects");
+
+    cur[40 * W + 100] = 0xffffffff;
+    n = damage_update(prev, cur, W, H, r, DAMAGE_MAX_RECTS);
+    CHECK(n == 1 && r[0].x0 == 64 && r[0].x1 == 128 && r[0].y0 == 32 && r[0].y1 == 64,
+          "one pixel: its tile (%d rects, %d,%d-%d,%d)", n, r[0].x0, r[0].y0, r[0].x1, r[0].y1);
+    CHECK(damage_update(prev, cur, W, H, r, DAMAGE_MAX_RECTS) == 0, "sent once, then nothing");
+
+    /* the ragged right edge and the bottom edge */
+    cur[(H - 1) * W + (W - 1)] = 0xff00ff00;
+    n = damage_update(prev, cur, W, H, r, DAMAGE_MAX_RECTS);
+    CHECK(n == 1 && covered(r, n, W - 1, H - 1) && r[0].x1 == W && r[0].y1 == H,
+          "the corner pixel past the last whole tile (%d rects, x1 %d y1 %d)", n,
+          n ? r[0].x1 : -1, n ? r[0].y1 : -1);
+
+    /* Kilix walking down: one tall rectangle, not one per tile row */
+    for (int y = 300; y < 500; y++) cur[y * W + 700] ^= 0x00ffffffu;
+    n = damage_update(prev, cur, W, H, r, DAMAGE_MAX_RECTS);
+    CHECK(n == 1 && r[0].y0 == 288 && r[0].y1 == 512, "a column merges into one rect (%d)", n);
+
+    /* too many separate changes: one rectangle around them all */
+    for (int ty = 0; ty < H; ty += 2 * DAMAGE_TILE_H)
+        for (int tx = 0; tx < W; tx += 2 * DAMAGE_TILE_W) cur[ty * W + tx] ^= 0x00ffffffu;
+    n = damage_update(prev, cur, W, H, r, DAMAGE_MAX_RECTS);
+    CHECK(n == 1 && r[0].x0 == 0 && r[0].y0 == 0, "overflow: one rect around it all (%d)", n);
+    CHECK(memcmp(prev, cur, (size_t)W * H * 4) == 0, "...and nothing was left unsent");
+
+    /* any change at all is covered, and remembered */
+    for (int round = 0; round < 20; round++) {
+        int k = 1 + round % 7;
+        int xs[8], ys[8];
+        for (int i = 0; i < k; i++) {
+            seed = seed * 1103515245u + 12345u;
+            xs[i] = (int)((seed >> 8) % W);
+            seed = seed * 1103515245u + 12345u;
+            ys[i] = (int)((seed >> 8) % H);
+            cur[ys[i] * W + xs[i]] ^= 0x00123456u;
+        }
+        n = damage_update(prev, cur, W, H, r, DAMAGE_MAX_RECTS);
+        for (int i = 0; i < k; i++)
+            if (!covered(r, n, xs[i], ys[i])) missed++;
+        if (memcmp(prev, cur, (size_t)W * H * 4) != 0) missed++;
+    }
+    CHECK(missed == 0, "random changes are all covered and remembered (%d missed)", missed);
+    free(prev);
+    free(cur);
+}
+
+/* ---------------- both renderers ---------------- */
+
+static int ink(const sr_canvas *c, rect r)
+{
+    int n = 0;
+    for (int y = r.y; y < r.y + r.h; y++)
+        for (int x = r.x; x < r.x + r.w; x++)
+            if (at(c, x, y) != 0) n++;
+    return n;
+}
+
+static void draw_sample(sr_canvas *c)
+{
+    const kilix_picture *k = kilix_art_get(KILIX_ART_STAND);
+    memset(c->px, 0, (size_t)c->w * c->h * 4);
+    draw_text(c, 0, 0, "Hello", 0xffffff, 1.0f);
+    draw_glyph(c, 0, 16, 8, 16, 0x256d, 0xffffff, false);       /* box corner */
+    draw_glyph(c, 8, 16, 8, 16, 0x2847, 0xffffff, false);       /* braille */
+    draw_picture(c, k->pixels, k->width, k->height, 50, 0, k->width, k->height, 1.0f);
+    draw_disc(c, 150, 40, 17, 5, 0xffffff, 1.0f);
+    draw_stroke(c, 130, 60, 40, 20, 1, 0xffffff, 1.0f);
+}
+
+static void test_draw(void)
+{
+    sr_canvas raster, neural;
+    bool have = draw_init();
+    rect text = {0, 0, 40, 16}, cell = {0, 16, 8, 16}, dots = {8, 16, 8, 16};
+    rect pic = {50, 0, 64, 84}, disc = {130, 34, 40, 12};
+
+    CHECK(sr_canvas_init(&raster, 200, 100) && sr_canvas_init(&neural, 200, 100), "canvases");
+    draw_force_raster(true);
+    CHECK(strcmp(draw_renderer(), "raster") == 0, "forced raster says so");
+    draw_sample(&raster);
+    CHECK(ink(&raster, text) > 40 && ink(&raster, cell) > 4 && ink(&raster, dots) > 4 &&
+          ink(&raster, pic) > 1000 && ink(&raster, disc) > 50,
+          "raster draws text, box, braille, Kilix and a disc");
+    draw_force_raster(false);
+    printf("renderer: %s\n", draw_renderer());
+#ifdef PUZZLLM_TEST_NEURONTE
+    CHECK(have, "built with Neuronte, so its weights must open here (%s)", draw_renderer());
+#endif
+    if (have) {
+        CHECK(strncmp(draw_renderer(), "neuronte", 8) == 0, "Neuronte is in use");
+        draw_sample(&neural);
+        CHECK(ink(&neural, text) > 40 && ink(&neural, cell) > 4 && ink(&neural, dots) > 4 &&
+              ink(&neural, pic) > 1000 && ink(&neural, disc) > 50,
+              "Neuronte draws text, box, braille, Kilix and a disc");
+        CHECK(differing(&raster, &neural, text) > 20, "the nets drew the text, not the 8x16 font");
+        /* at his own size each octant sub-cell is one pixel, so the cells
+         * must give back the picture pixel for pixel; a wrong mask shows */
+        CHECK(differing(&raster, &neural, pic) == 0,
+              "the octant cells reproduce Kilix exactly (%d pixels off)",
+              differing(&raster, &neural, pic));
+    }
+    sr_canvas_free(&raster);
+    sr_canvas_free(&neural);
+}
+
+/* ---------------- rendering ---------------- */
+
 
 static void test_render_and_flow(void)
 {
@@ -541,7 +887,16 @@ int main(void)
     test_json();
     test_activity();
     test_scene();
+    test_kilix_art();
+    test_ticks();
+    test_layout();
+    test_draw();
+    test_damage();
+    layout_set(LAYOUT_DEFAULT_W, LAYOUT_DEFAULT_H);
+    draw_force_raster(true);
     test_render_and_flow();
+    draw_force_raster(false);
+    if (draw_init()) test_render_and_flow();   /* again, drawn by the nets */
     printf("%d checks, %d failed\n", checks, failures);
     return failures ? 1 : 0;
 }

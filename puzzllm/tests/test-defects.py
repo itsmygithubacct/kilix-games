@@ -13,7 +13,7 @@ import sys
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# (name, file, old, new, make target)
+# (name, file, old, new, make target[, "neuronte" when it needs that build])
 DEFECTS = [
     # --- sandbox ---
     ("sandbox shares the network",
@@ -71,6 +71,39 @@ DEFECTS = [
      "cp = 0x10000 + ((cp - 0xd800) << 9) + (lo - 0xdc00);", "test-unit"),
     ("goal not re-checked while playing",
      "src/game.c", "        game_poll_goal(g);\n    }", "    }", "test-unit"),
+    # --- Zell's character and pace, the frame clock, the pane-size room ---
+    ("walking pace doubled",
+     "src/scene.h", "#define SCENE_WALK_SPEED 3.5f", "#define SCENE_WALK_SPEED 7.0f",
+     "test-unit"),
+    ("one tick per frame, whatever the frame rate",
+     "src/game.c", "    g->tick_debt += dt;\n", "    g->tick_debt += 1.0 / SCENE_TICK_HZ;\n",
+     "test-unit"),
+    ("walk frames never advance",
+     "src/kilix_art.c", "dir * 4 + ((step_ticks - 1) / 7) % 4;", "dir * 4;", "test-unit"),
+    ("room ignores the pane's size",
+     "src/layout.c", "    w = clamp(w, LAYOUT_MIN_W, LAYOUT_MAX_W);\n",
+     "    w = LAYOUT_DEFAULT_W;\n", "test-unit"),
+    ("terminals keep their size when the room grows",
+     "src/game.c",
+     "    if (vt_resize(&g->omp_vt, OMP_COLS, OMP_ROWS)) pty_resize(&g->omp, OMP_COLS, OMP_ROWS);\n",
+     "", "test-unit"),
+    ("cached room kept across a resize",
+     "src/render.c", "    if (bg.px == NULL || bg.w != c->w || bg.h != c->h ||",
+     "    if (bg.px == NULL ||", "test-unit"),
+    ("a change at the ragged right edge is never sent",
+     "src/damage.c", "        for (int t = 0; t <= tiles; t++) {",
+     "        for (int t = 0; t < tiles; t++) {", "test-unit"),
+    ("sent regions not remembered",
+     "src/damage.c", "                copy_rect(prev, cur, w, r);\n", "", "test-unit"),
+    # Neuronte only: skipped when this build has no Neuronte
+    ("Neuronte text drawn by the 8x16 font",
+     "src/draw.c",
+     "        neuronte_draw_utf8(font, c->px, c->w, c->w, c->h, px, py, CW, CH, s, len,\n"
+     "                           nn_color(rgb, alpha));\n        return;\n",
+     "", "test-unit", "neuronte"),
+    ("octant cells take the wrong sub-cell",
+     "src/draw.c", "static const unsigned char number[8] = {0, 1, 2, 3, 6, 7, 4, 5};",
+     "static const unsigned char number[8] = {0, 1, 2, 3, 4, 5, 6, 7};", "test-unit", "neuronte"),
 ]
 
 
@@ -93,7 +126,15 @@ def main():
     os.makedirs(scratch)
     kit = os.path.join(HERE, "build", "kilix-game-kit")
     holes = 0
-    for i, (name, path, old, new, target) in enumerate(DEFECTS, 1):
+    ident = os.path.join(HERE, "build", "render.ident")
+    neuronte = os.path.exists(ident) and open(ident).read().startswith("neuronte")
+    skipped = 0
+    for i, defect in enumerate(DEFECTS, 1):
+        name, path, old, new, target = defect[:5]
+        if len(defect) > 5 and defect[5] == "neuronte" and not neuronte:
+            print("skip  defect %d (%s): this build has no Neuronte" % (i, name))
+            skipped += 1
+            continue
         dst = os.path.join(scratch, "d%02d" % i)
         copy_tree(dst)
         f = os.path.join(dst, path)
@@ -115,7 +156,8 @@ def main():
         else:
             print("red   defect %d (%s): %s fails" % (i, name, target))
         shutil.rmtree(dst)
-    print("test-defects: %d defects, %d not caught" % (len(DEFECTS), holes))
+    print("test-defects: %d defects, %d not caught, %d skipped"
+          % (len(DEFECTS) - skipped, holes, skipped))
     return 1 if holes else 0
 
 

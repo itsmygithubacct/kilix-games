@@ -20,9 +20,14 @@ int termio_start(void);
 void termio_stop(void);
 void termio_emergency_restore(void);
 bool termio_release_events(void);
-/* Present a CANVAS_W x CANVAS_H 0xAARRGGBB canvas, scaled to fit. */
+/* Present a w x h 0xAARRGGBB canvas: 1:1 and centred when it fits,
+ * shrunk to fit when it does not. */
 bool termio_present(const uint32_t *px, int w, int h);
 void termio_check_resize(void);
+/* The framebuffer's size in pixels. */
+void termio_size(int *w, int *h);
+/* One line about the session: sizes, scale, transport (for PUZZLLM_STATS). */
+const char *termio_describe(void);
 /* Drain input and dispatch it. -1 when stdin is gone. */
 int termio_read(const termio_handlers *h);
 

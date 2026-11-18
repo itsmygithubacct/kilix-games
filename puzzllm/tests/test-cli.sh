@@ -12,8 +12,8 @@ rm -rf "$scratch"
 mkdir -p "$scratch"
 export PUZZLLM_ROOT="$here" PUZZLLM_STATE="$scratch/state"
 
-out=$("$bin" --version) && [ "$out" = "puzzllm 0.1.0" ] && pass "--version" || fail "--version: $out"
-out=$("$here/bin/puzzllm" --version) && [ "$out" = "puzzllm 0.1.0" ] &&
+out=$("$bin" --version) && [ "$out" = "puzzllm 0.2.0" ] && pass "--version" || fail "--version: $out"
+out=$("$here/bin/puzzllm" --version) && [ "$out" = "puzzllm 0.2.0" ] &&
     pass "bin/puzzllm launcher" || fail "launcher: $out"
 
 "$bin" --check-level 1 > "$scratch/out"; rc=$?
@@ -38,6 +38,26 @@ for f in "$scratch"/render/*.ppm; do
 done
 [ $rc -eq 0 ] && [ $n -eq 3 ] && pass "--render writes three 1280x800 frames" ||
     fail "render rc=$rc frames=$n"
+
+# the frame timer: a busy frame at the size given, and which renderer drew it
+"$bin" --bench 1366x768 > "$scratch/bench"; rc=$?
+[ $rc -eq 0 ] && grep -q '^renderer: ' "$scratch/bench" &&
+    grep -q '^frame 1366x768: .* ms/frame average' "$scratch/bench" &&
+    pass "--bench times a 1366x768 frame: $(grep '^frame' "$scratch/bench" | cut -d: -f2)" ||
+    fail "--bench rc=$rc $(cat "$scratch/bench")"
+"$bin" --bench big 2>/dev/null; rc=$?
+[ $rc -eq 2 ] && pass "--bench with a bad size is an error" || fail "--bench big rc=$rc"
+out=$(PUZZLLM_RENDER=raster "$bin" --renderer) && [ "$out" = raster ] &&
+    pass "PUZZLLM_RENDER=raster turns Neuronte off" || fail "PUZZLLM_RENDER=raster: $out"
+if grep -q '^neuronte' "$here/build/render.ident" 2>/dev/null; then
+    out=$("$bin" --renderer)
+    case $out in neuronte*) pass "a Neuronte build draws with Neuronte" ;;
+        *) fail "--renderer in a Neuronte build: $out" ;; esac
+    out=$(PUZZLLM_NEURONTE_WEIGHTS="$scratch/none.nrt" "$bin" --renderer)
+    case $out in "raster (Neuronte weights did not open: $scratch/none.nrt)")
+        pass "missing weights fall back to raster, and say so" ;;
+        *) fail "missing weights: $out" ;; esac
+fi
 
 # a broken level file is reported with its line
 mkdir -p "$scratch/root/levels"

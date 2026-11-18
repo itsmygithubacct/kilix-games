@@ -34,6 +34,7 @@ typedef struct game {
     double poll_timer;
     double now;
     double held_until[4];   /* left, right, up, down */
+    double tick_debt;       /* seconds not yet run as scene ticks */
     bool release_events;    /* the terminal reports key releases */
     bool quit;
     char omp_note[96], shell_note[96];
@@ -50,7 +51,12 @@ void game_poll_goal(game *g);
 void game_key(game *g, const key_event *ev);
 /* Mouse press at canvas coordinates. */
 void game_click(game *g, int x, int y);
+/* Advance dt seconds: pump the terminals, poll the goal, and run the
+ * room in fixed 1/60 s ticks, as Zell does. */
 void game_update(game *g, double dt);
+/* The frame is now w x h: lay the room out for it, and resize the two
+ * terminals and their programs to match. True when the layout changed. */
+bool game_resize(game *g, int w, int h);
 void game_render(game *g, sr_canvas *c);
 /* Progress file: STATE/progress, one line "level N". */
 int game_load_progress(const char *state, int level_count);

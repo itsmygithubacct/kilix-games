@@ -4,16 +4,23 @@
  *   puzzllm --version
  *   puzzllm --render DIR          write the room as PPMs (no terminal needed)
  *   puzzllm --check-level N       print whether level N's goal is met now
+ *   puzzllm --bench [WxH]         time frames headless (default 1908x972)
+ *   puzzllm --renderer            print which renderer draws (neuronte/raster)
  *
  * PUZZLLM_ROOT is the puzzllm/ directory (bin/puzzllm sets it) and
  * PUZZLLM_STATE the persistent folder (default ~/.local/share/puzzllm).
- * PUZZLLM_SNAPSHOT=FILE writes the live frame to FILE (PPM) every 2 s.
+ * PUZZLLM_SNAPSHOT=FILE writes the live frame to FILE (PPM) every 2 s, and
+ * PUZZLLM_STATS=FILE appends the frame rate and frame times once a second.
+ * PUZZLLM_NEURONTE_WEIGHTS (or ZELL_NEURONTE_WEIGHTS) names the Neuronte
+ * weight file; PUZZLLM_RENDER=raster turns Neuronte off.
  */
+#include "draw.h"
 #include "game.h"
 #include "layout.h"
 #include "termio.h"
 
 #include <errno.h>
+#include <math.h>
 #include <limits.h>
 #include <poll.h>
 #include <signal.h>
@@ -24,7 +31,7 @@
 #include <unistd.h>
 
 #ifndef PUZZLLM_VERSION
-#define PUZZLLM_VERSION "0.1.0"
+#define PUZZLLM_VERSION "0.2.0"
 #endif
 
 static game the_game;
@@ -65,6 +72,16 @@ static void default_paths(char *root, size_t rcap, char *state, size_t scap)
     }
 }
 
+enum { FRAME_HZ = 60 };
+
+/* Neuronte unless PUZZLLM_RENDER=raster or its weights do not open. */
+static void start_renderer(void)
+{
+    const char *r = getenv("PUZZLLM_RENDER");
+    if (r != NULL && strcmp(r, "raster") == 0) draw_force_raster(true);
+    else draw_init();
+}
+
 static void on_key(void *ctx, const key_event *ev) { game_key(ctx, ev); }
 static void on_click(void *ctx, int x, int y) { game_click(ctx, x, y); }
 
@@ -73,7 +90,12 @@ static int play(const char *root, const char *state)
     char err[512];
     sr_canvas canvas;
     termio_handlers h = {on_key, on_click, &the_game};
-    double last, next_snapshot = 0;
+    double last, next_snapshot = 0, next_frame, r0 = 0, r1 = 0;
+    /* PUZZLLM_STATS=FILE: frame rate and timings, one line a second */
+    FILE *stats = NULL;
+    double st_start = 0, st_render = 0, st_present = 0;
+    double st_render_max = 0, st_present_max = 0;
+    int st_frames = 0;
     const char *snapshot;
     int rc = 0;
 
@@ -85,6 +107,7 @@ static int play(const char *root, const char *state)
         fprintf(stderr, "puzzllm: %s\n", err);
         return 1;
     }
+    start_renderer();
     if (!sr_canvas_init(&canvas, CANVAS_W, CANVAS_H)) {
         game_shutdown(&the_game);
         return 1;
@@ -108,23 +131,40 @@ static int play(const char *root, const char *state)
     }
     the_game.release_events = termio_release_events();
     snapshot = getenv("PUZZLLM_SNAPSHOT");
+    if (getenv("PUZZLLM_STATS") != NULL && getenv("PUZZLLM_STATS")[0] != '\0')
+        stats = fopen(getenv("PUZZLLM_STATS"), "a");
     last = now_s();
+    st_start = last;
+    next_frame = last;
     while (!stop_requested && !the_game.quit) {
         struct pollfd fds[3];
-        double t;
-        int nfds = 0;
+        double t, wait;
+        int nfds = 0, fw, fh;
         fds[nfds].fd = STDIN_FILENO; fds[nfds++].events = POLLIN;
         if (the_game.omp.fd >= 0) { fds[nfds].fd = the_game.omp.fd; fds[nfds++].events = POLLIN; }
         if (the_game.shell.fd >= 0) { fds[nfds].fd = the_game.shell.fd; fds[nfds++].events = POLLIN; }
-        poll(fds, (nfds_t)nfds, 33);
+        /* wake for input, terminal output or the next frame, whichever
+         * comes first; frames come at most 60 times a second, as Zell's */
+        wait = next_frame - now_s();
+        poll(fds, (nfds_t)nfds, wait <= 0 ? 0 : (int)ceil(wait * 1000.0));
 
         if (termio_read(&h) < 0) break;
-        the_game.release_events = termio_release_events();
         t = now_s();
+        if (t < next_frame) continue;
+        next_frame = next_frame + 1.0 / FRAME_HZ < t ? t + 1.0 / FRAME_HZ
+                                                   : next_frame + 1.0 / FRAME_HZ;
+        the_game.release_events = termio_release_events();
         game_update(&the_game, t - last);
         last = t;
         termio_check_resize();
+        termio_size(&fw, &fh);
+        if (game_resize(&the_game, fw, fh)) {
+            sr_canvas_free(&canvas);
+            if (!sr_canvas_init(&canvas, CANVAS_W, CANVAS_H)) { rc = 1; break; }
+        }
+        r0 = now_s();
         game_render(&the_game, &canvas);
+        r1 = now_s();
         if (snapshot != NULL && snapshot[0] != '\0' && t >= next_snapshot) {
             /* debugging aid: the frame as a PPM, replaced atomically */
             char tmp[4200];
@@ -136,7 +176,26 @@ static int play(const char *root, const char *state)
             rc = 1;
             break;
         }
+        if (stats != NULL) {
+            double r2 = now_s();
+            st_frames++;
+            st_render += r1 - r0;
+            st_present += r2 - r1;
+            if (r1 - r0 > st_render_max) st_render_max = r1 - r0;
+            if (r2 - r1 > st_present_max) st_present_max = r2 - r1;
+            if (r2 - st_start >= 1.0) {
+                fprintf(stats, "fps %.1f render %.2f/%.2f ms present %.2f/%.2f ms %s %s\n",
+                        st_frames / (r2 - st_start), 1e3 * st_render / st_frames,
+                        1e3 * st_render_max, 1e3 * st_present / st_frames,
+                        1e3 * st_present_max, termio_describe(), draw_renderer());
+                fflush(stats);
+                st_frames = 0;
+                st_render = st_present = st_render_max = st_present_max = 0;
+                st_start = r2;
+            }
+        }
     }
+    if (stats != NULL) fclose(stats);
     termio_stop();
     game_shutdown(&the_game);
     sr_canvas_free(&canvas);
@@ -160,6 +219,7 @@ static int render_to(const char *root, const char *state, const char *dir)
         fprintf(stderr, "puzzllm: %s\n", err);
         return 1;
     }
+    start_renderer();
     if (!sr_canvas_init(&canvas, CANVAS_W, CANVAS_H)) return 1;
     feed(&the_game.omp_vt, "\033[1;36momp\033[0m  Qwen 3.5 (local)\r\n"
          "\xe2\x95\xad\xe2\x94\x80 you \xe2\x94\x80\xe2\x95\xae\r\n"
@@ -185,6 +245,53 @@ static int render_to(const char *root, const char *state, const char *dir)
         }
         printf("%s\n", path);
     }
+    sr_canvas_free(&canvas);
+    game_shutdown(&the_game);
+    return 0;
+}
+
+/* Headless frame timing: the room at WxH with both terminals full of
+ * text and Kilix walking, the way a busy frame looks. */
+static int bench(const char *root, const char *state, const char *size)
+{
+    char err[512], line[512];
+    sr_canvas canvas;
+    int w = 1908, h = 972, frames = 240;
+    double t0, worst = 0, total = 0;
+
+    if (size != NULL && sscanf(size, "%dx%d", &w, &h) != 2) {
+        fprintf(stderr, "puzzllm: --bench takes WxH, like 1908x972\n");
+        return 2;
+    }
+    if (!game_init(&the_game, root, state, false, err, sizeof err)) {
+        fprintf(stderr, "puzzllm: %s\n", err);
+        return 1;
+    }
+    start_renderer();
+    game_resize(&the_game, w, h);
+    if (!sr_canvas_init(&canvas, CANVAS_W, CANVAS_H)) return 1;
+    for (int row = 0; row < 80; row++) {
+        snprintf(line, sizeof line, "\033[3%dm%3d \xe2\x94\x82 the quick brown fox jumps "
+                 "over the lazy dog \xe2\x96\x88\xe2\xa0\xbf 0123456789 "
+                 "ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz\033[0m\r\n",
+                 1 + row % 7, row);
+        feed(&the_game.omp_vt, line);
+        feed(&the_game.shell_vt, line);
+    }
+    the_game.held_until[1] = 1e9;   /* walk right... */
+    for (int i = 0; i < frames; i++) {
+        double t;
+        if (i == frames / 2) { the_game.held_until[1] = 0; the_game.held_until[0] = 1e9; }
+        game_update(&the_game, 1.0 / FRAME_HZ);
+        t0 = now_s();
+        game_render(&the_game, &canvas);
+        t = now_s() - t0;
+        total += t;
+        if (t > worst) worst = t;
+    }
+    printf("renderer: %s\n", draw_renderer());
+    printf("frame %dx%d: %.2f ms/frame average, %.2f ms worst, over %d frames\n",
+           canvas.w, canvas.h, 1e3 * total / frames, 1e3 * worst, frames);
     sr_canvas_free(&canvas);
     game_shutdown(&the_game);
     return 0;
@@ -220,14 +327,21 @@ int main(int argc, char **argv)
     }
     if (argc == 3 && strcmp(argv[1], "--render") == 0)
         return render_to(root, state, argv[2]);
+    if ((argc == 2 || argc == 3) && strcmp(argv[1], "--bench") == 0)
+        return bench(root, state, argc == 3 ? argv[2] : NULL);
+    if (argc == 2 && strcmp(argv[1], "--renderer") == 0) {
+        start_renderer();
+        printf("%s\n", draw_renderer());
+        return 0;
+    }
     if (argc == 3 && strcmp(argv[1], "--check-level") == 0)
         return check_level(root, state, argv[2]);
     if (argc == 2 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0)) {
-        printf("usage: puzzllm [--version | --render DIR | --check-level N]\n");
+        printf("usage: puzzllm [--version | --render DIR | --check-level N | --bench [WxH] | --renderer]\n");
         return 0;
     }
     if (argc != 1) {
-        fprintf(stderr, "usage: puzzllm [--version | --render DIR | --check-level N]\n");
+        fprintf(stderr, "usage: puzzllm [--version | --render DIR | --check-level N | --bench [WxH] | --renderer]\n");
         return 2;
     }
     return play(root, state);

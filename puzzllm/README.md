@@ -10,7 +10,13 @@ meet it and the door at the top of the room opens onto the next one. Part of
 bin/puzzllm            # builds on first run, then plays (Kilix or Kitty tab)
 make test              # unit, command-line, sandbox and planted-defect tests
 make test-live         # level 1 with the real model (not part of make test)
+make bench             # how long a busy frame takes to draw, and which renderer
 ```
+
+Kilix and the drawing come from zell-neuronte: his standing and walking
+pictures, his pace and walk timing, and the Neuronte renderer, in which
+Neuronte nets draw the text, the terminal characters and Kilix himself (see
+[Drawing](#drawing)).
 
 ## The room
 
@@ -20,7 +26,8 @@ make test-live         # level 1 with the real model (not part of make test)
 | top right | a bash shell in the same sandbox and the same workspace |
 | bottom right | the goal, its hints, and what the agent is doing: its tool calls and their results, what it said, files created, changed and removed |
 
-Walk Kilix up to a screen and press Enter to type into it. The door's lamp
+The room is drawn at the pane's own size, so a bigger pane gets bigger
+terminals. Walk Kilix up to a screen and press Enter to type into it. The door's lamp
 turns green and the door slides open when the goal is met. Walk up the
 aisle through it to reach the next room.
 
@@ -109,6 +116,7 @@ agent chain with stand-ins for llama-server and omp.
 | bubblewrap | `bwrap` on `PATH` | |
 | omp | `omp` on `PATH`, then `~/.local/bin/omp` | `PUZZLLM_OMP` |
 | llama-server | `llama-server` on `PATH`, then a Kilix LLM bench build under `~/.local/share/kilix-llm/bench/engine/` | `PUZZLLM_LLAMA_SERVER` |
+| Neuronte (drawing; optional) | a checkout at `~/projects/neuronte`, built from its two library sources | `make NEURONTE=DIR`, `RENDER=raster`; weights `PUZZLLM_NEURONTE_WEIGHTS` |
 | Qwen 3.5 weights | `Qwen3.5-0.8B-Q8_0.gguf`, the model Zell routes to as `qwen3.5-0.8b`, in the Kilix LLM models folder | `PUZZLLM_MODEL` |
 
 Nothing is downloaded. If a part is missing, the omp screen says which one.
@@ -122,14 +130,19 @@ lets the model think, which is off by default because 0.8B tends to loop.
 `make test` runs four suites, all headless:
 
 - `test-unit` covers the terminal emulator, key encoding, level parsing and
-  checks, JSON, the activity feed, walking and the door, rendering, and the
-  whole level-1 flow.
-- `test-cli` covers `--version`, `--check-level`, `--render`, and bad
+  checks, JSON, the activity feed, Kilix's pictures and walk timing, the
+  60 Hz tick, the layout at ten pane sizes and resizing, both renderers,
+  the frame-to-frame damage, rendering, and the whole level-1 flow. In a
+  Neuronte build it insists that Neuronte draws, and runs the flow twice,
+  once with each renderer.
+- `test-cli` covers `--version`, `--check-level`, `--render`, `--bench`,
+  `--renderer`, the raster fallback when the weights are missing, and bad
   input.
 - `test-sandbox` covers confinement, persistence, the agent chain, and the
   goal met by hand from the shell.
-- `test-defects` plants 14 defects: six in the sandbox, eight in the game.
-  For each, it checks that the right suite turns red. A defect nobody
+- `test-defects` plants 24 defects: six in the sandbox, eighteen in the
+  game, two of them in the Neuronte renderer (skipped in a build without
+  it). For each, it checks that the right suite turns red. A defect nobody
   notices fails the run.
 
 Test scratch stays under `build/`.
@@ -138,16 +151,45 @@ Test scratch stays under `build/`.
 open, and room 2. `build/puzzllm --check-level N` says whether level N's goal
 is met in the workspace now.
 
-## Art
+## Drawing
 
-The art is placeholder. The room, door and screen bezels are drawn from
-primitives in [`src/art.c`](src/art.c). Kilix is Zell's walk cycle in
-[`src/kilix_sprite.c`](src/kilix_sprite.c), whose header gives its
-provenance. Replacing those two files behind [`src/art.h`](src/art.h) and
-[`src/kilix_sprite.h`](src/kilix_sprite.h) swaps the graphics, and nothing
-else needs to change.
+Kilix is zell-neuronte's: his four standing and sixteen walking pictures,
+84 pixels tall, copied from Zell with their provenance in
+[`src/kilix_art.c`](src/kilix_art.c). He moves as Zell moves him: the room
+runs at 60 ticks a second, he walks 3.5 pixels a tick, and each of his
+four walk frames lasts seven ticks. Held keys are read from the terminal's
+key releases, so he starts on the press and stops on the release.
+
+[`src/draw.h`](src/draw.h) has two renderers behind one set of calls:
+
+- **neuronte**, zell-neuronte's renderer, adapted from Zell's
+  `draw_neuronte.c`. [Neuronte](https://github.com/itsmygithubacct/neuronte)
+  nets draw every character on the screens, the bars and outlines are block
+  glyphs, the shadow is the black circle, and Kilix goes through 2 x 4 octant
+  cells whose masks come from the pixel net. It is built when the Makefile
+  finds a Neuronte checkout at `NEURONTE` (default `~/projects/neuronte`), and
+  its weights are `neuronte-split-v4.nrt`, the file zell-neuronte uses.
+- **raster**, soft-raster's 8x16 font with box, block and braille characters
+  drawn by hand. It is used in a build without Neuronte (`RENDER=raster`, or
+  no checkout), when the weights do not open, or with `PUZZLLM_RENDER=raster`.
+
+`build/puzzllm --renderer` prints which one is drawing. The floor, walls and
+screen glass are drawn once and copied each frame. Each frame is compared
+with the last one in 64 x 32 tiles, and only the tiles that changed are
+sent to the terminal; a frame where nothing moved sends nothing.
+
+`build/puzzllm --bench [WxH]` draws 240 busy frames headless (both terminals
+full of coloured text, Kilix walking) and prints the average and worst
+time. `PUZZLLM_STATS=FILE` makes a live game append its frame rate, frame
+times and present counts to FILE once a second.
+
+The room, door and screen bezels are placeholder primitives in
+[`src/art.c`](src/art.c), behind [`src/art.h`](src/art.h). Replacing art.c
+(and kilix_art.c) swaps the graphics, and nothing else needs to change.
 
 ## License
 
-MIT. Kilix's frames come from Kilix Land through Zell, both MIT
-(see [`src/kilix_sprite.c`](src/kilix_sprite.c)).
+MIT. Kilix's pictures and the Neuronte renderer come from kilix-zell, which
+is MIT (see [`src/kilix_art.c`](src/kilix_art.c) and
+[`src/draw.c`](src/draw.c)). Neuronte is MIT and is compiled from its own
+checkout, not copied here.

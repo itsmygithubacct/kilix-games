@@ -2,32 +2,7 @@
 #include "scene.h"
 
 #include <math.h>
-
-rect layout_screen(screen_id id)
-{
-    rect r = {0, 0, 0, 0};
-    switch (id) {
-    case SCREEN_OMP:
-        r.x = OMP_X; r.y = OMP_Y; r.w = SCREEN_W(OMP_COLS); r.h = SCREEN_H(OMP_ROWS);
-        break;
-    case SCREEN_SHELL:
-        r.x = SHELL_X; r.y = SHELL_Y; r.w = SCREEN_W(SHELL_COLS); r.h = SCREEN_H(SHELL_ROWS);
-        break;
-    case SCREEN_ACT:
-        r.x = ACT_X; r.y = ACT_Y; r.w = SCREEN_W(ACT_COLS); r.h = SCREEN_H(ACT_ROWS);
-        break;
-    default:
-        break;
-    }
-    return r;
-}
-
-void layout_text_origin(screen_id id, int *x, int *y)
-{
-    rect r = layout_screen(id);
-    *x = r.x + SCREEN_PAD;
-    *y = r.y + SCREEN_TITLE_H + SCREEN_PAD;
-}
+#include <stddef.h>
 
 void scene_enter_room(scene *s, int level)
 {
@@ -35,7 +10,7 @@ void scene_enter_room(scene *s, int level)
     s->x = START_X;
     s->y = START_Y;
     s->dir = 1;
-    s->walk_phase = 0;
+    s->step_ticks = 0;
     s->moving = false;
     s->goal_met = false;
     s->door = 0;
@@ -44,6 +19,8 @@ void scene_enter_room(scene *s, int level)
 
 void scene_init(scene *s, int level, int level_count)
 {
+    if (L.w == 0) layout_set(LAYOUT_DEFAULT_W, LAYOUT_DEFAULT_H);
+    s->idle_ticks = 0;
     s->level_count = level_count;
     scene_enter_room(s, level);
 }
@@ -64,35 +41,31 @@ bool scene_walkable(const scene *s, float x, float y)
     return false;
 }
 
-scene_event scene_step(scene *s, int dx, int dy, float dt)
+scene_event scene_tick(scene *s, int dx, int dy)
 {
     scene_event ev = SCENE_NONE;
     float was_door = s->door;
+    const float door_step = 1.0f / SCENE_DOOR_TICKS;
 
-    if (dt < 0) dt = 0;
-    if (dt > 0.1f) dt = 0.1f;   /* a stall must not teleport Kilix */
-
+    s->idle_ticks++;
+    /* nudged by half a step so float sums land on 0 and 1 exactly */
     if (s->goal_met && s->door < 1.0f) {
-        s->door += dt * 0.8f;
-        if (s->door > 1.0f) s->door = 1.0f;
+        s->door += door_step;
+        if (s->door > 1.0f - door_step / 2) s->door = 1.0f;
     } else if (!s->goal_met && s->door > 0.0f) {
-        s->door -= dt * 0.8f;
-        if (s->door < 0.0f) s->door = 0.0f;
+        s->door -= door_step;
+        if (s->door < door_step / 2) s->door = 0.0f;
     }
     if (was_door < 1.0f && s->door >= 1.0f) ev = SCENE_DOOR_OPENED;
 
     s->moving = false;
     if (s->focus == FOCUS_ROOM && (dx != 0 || dy != 0)) {
         float len = sqrtf((float)(dx * dx + dy * dy));
-        float step = WALK_SPEED * dt / len;
-        float nx = s->x + dx * step;
-        float ny = s->y + dy * step;
+        float nx = s->x + (float)dx / len * SCENE_WALK_SPEED;
+        float ny = s->y + (float)dy / len * SCENE_WALK_SPEED;
 
-        if (dy > 0) s->dir = 0;
-        else if (dy < 0) s->dir = 1;
-        if (dx < 0 && dy == 0) s->dir = 2;
-        else if (dx > 0 && dy == 0) s->dir = 3;
-
+        /* Zell's facing: sideways wins over up and down */
+        s->dir = dx < 0 ? 2 : dx > 0 ? 3 : dy < 0 ? 1 : 0;
         /* slide along walls: try both axes, then each one */
         if (scene_walkable(s, nx, ny)) {
             s->x = nx; s->y = ny; s->moving = true;
@@ -101,13 +74,34 @@ scene_event scene_step(scene *s, int dx, int dy, float dt)
         } else if (dy != 0 && scene_walkable(s, s->x, ny)) {
             s->y = ny; s->moving = true;
         }
-        if (s->moving) s->walk_phase += dt * 6.0f;
     }
+    if (s->moving) s->step_ticks++;
+    else s->step_ticks = 0;
 
     if (scene_door_passable(s) && s->y < DOOR_EXIT_Y &&
         s->level + 1 < s->level_count)
         return SCENE_NEXT_ROOM;
     return ev;
+}
+
+void scene_relayout(scene *s, const layout *old)
+{
+    float x = s->x, y = s->y;
+    if (old != NULL && old->w > 0) {
+        /* keep the offset from the aisle's centre line */
+        x = (float)(L.w / 2) + (s->x - (float)(old->w / 2));
+        /* on the floor, keep the height above the bottom; in the aisle the
+         * top of the room has not moved */
+        if (s->y >= (float)old->walk_y0) y = (float)L.h - ((float)old->h - s->y);
+        else if (s->y >= (float)old->floor_y) y = (float)L.walk_y0;
+    }
+    if (scene_walkable(s, x, y)) {
+        s->x = x;
+        s->y = y;
+    } else {
+        s->x = (float)START_X;
+        s->y = (float)START_Y;
+    }
 }
 
 static float rect_distance(rect r, float x, float y)

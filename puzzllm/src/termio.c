@@ -1,9 +1,11 @@
 /* termio.c - see termio.h. */
 #include "termio.h"
 
+#include "damage.h"
 #include "kitty_terminal_session.h"
 
 #include <errno.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -25,8 +27,15 @@ static int fb_w, fb_h;
 static int num = 1, den = 1, off_x, off_y;
 static int canvas_w = 1, canvas_h = 1;
 
+/* The last canvas presented 1:1, to find what changed since. */
+static uint32_t *shown;
+static size_t shown_cap;
+static bool shown_valid;
+static unsigned long presents_full, presents_patched, presents_skipped;
+
 static bool alloc_frame(int w, int h)
 {
+    shown_valid = false;
     free(frame);
     frame = calloc((size_t)w * (size_t)h, 4);
     fb_w = w;
@@ -81,6 +90,10 @@ void termio_stop(void)
     active = false;
     free(frame);
     frame = NULL;
+    free(shown);
+    shown = NULL;
+    shown_cap = 0;
+    shown_valid = false;
 }
 
 void termio_emergency_restore(void)
@@ -93,13 +106,66 @@ bool termio_release_events(void)
     return active && kittyts_has_release_events(&session);
 }
 
+static void to_rgba(const uint32_t *px, int w, int x0, int y0, int x1, int y1)
+{
+    for (int y = y0; y < y1; y++) {
+        const uint32_t *src = px + (size_t)y * (size_t)w;
+        uint8_t *dst = frame + ((size_t)(off_y + y) * (size_t)fb_w + (size_t)(off_x + x0)) * 4;
+        for (int x = x0; x < x1; x++) {
+            uint32_t c = src[x];
+            dst[0] = (uint8_t)(c >> 16);
+            dst[1] = (uint8_t)(c >> 8);
+            dst[2] = (uint8_t)c;
+            dst[3] = 255;
+            dst += 4;
+        }
+    }
+}
+
 bool termio_present(const uint32_t *px, int w, int h)
 {
     if (!active || frame == NULL) return false;
     if (w != canvas_w || h != canvas_h) {
         canvas_w = w;
         canvas_h = h;
+        shown_valid = false;
         place();
+    }
+    if (num == den) {
+        /* 1:1: send only what changed since the last frame */
+        size_t need = (size_t)w * (size_t)h;
+        damage_rect d[DAMAGE_MAX_RECTS];
+        kittyfb_rect r[DAMAGE_MAX_RECTS];
+        int n;
+        if (shown_cap < need) {
+            uint32_t *grown = realloc(shown, need * sizeof *shown);
+            if (grown == NULL) return false;
+            shown = grown;
+            shown_cap = need;
+            shown_valid = false;
+        }
+        if (!shown_valid) {
+            memcpy(shown, px, need * sizeof *px);
+            to_rgba(px, w, 0, 0, w, h);
+            shown_valid = true;
+            presents_full++;
+            return kittyts_present(&session, frame, fb_w, fb_h) && !kittyts_failed(&session);
+        }
+        n = damage_update(shown, px, w, h, d, DAMAGE_MAX_RECTS);
+        if (n == 0) {
+            presents_skipped++;
+            return !kittyts_failed(&session);
+        }
+        for (int i = 0; i < n; i++) {
+            to_rgba(px, w, d[i].x0, d[i].y0, d[i].x1, d[i].y1);
+            r[i].x0 = d[i].x0 + off_x;
+            r[i].y0 = d[i].y0 + off_y;
+            r[i].x1 = d[i].x1 + off_x;
+            r[i].y1 = d[i].y1 + off_y;
+        }
+        presents_patched++;
+        return kittyts_present_damage(&session, frame, fb_w, fb_h, r, (size_t)n) &&
+               !kittyts_failed(&session);
     }
     {
         int dw = canvas_w * num / den, dh = canvas_h * num / den;
@@ -116,7 +182,25 @@ bool termio_present(const uint32_t *px, int w, int h)
             }
         }
     }
+    presents_full++;
     return kittyts_present(&session, frame, fb_w, fb_h) && !kittyts_failed(&session);
+}
+
+void termio_size(int *w, int *h)
+{
+    *w = fb_w;
+    *h = fb_h;
+}
+
+const char *termio_describe(void)
+{
+    static char text[192];
+    kittyfb_transport t = active ? kittyts_active_transport(&session) : KITTYFB_TRANSPORT_AUTO;
+    snprintf(text, sizeof text, "fb %dx%d canvas %dx%d scale %d/%d %s presents full %lu "
+             "patched %lu skipped %lu", fb_w, fb_h, canvas_w, canvas_h, num, den,
+             t == KITTYFB_TRANSPORT_SHM ? "shm" : t == KITTYFB_TRANSPORT_INLINE ? "inline" : "auto",
+             presents_full, presents_patched, presents_skipped);
+    return text;
 }
 
 void termio_check_resize(void)
