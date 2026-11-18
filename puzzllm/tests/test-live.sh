@@ -5,11 +5,14 @@
 # 3.5 0.8B GGUF (see `libexec/puzzllm-sandbox paths`), and nothing is
 # downloaded. omp gets the level-1 goal as a one-shot prompt in a fresh
 # workspace, up to PUZZLLM_LIVE_TRIES times (default 3) because a 0.8B model
-# does not always do what it says; the level check decides.
+# does not always do what it says; the level check decides. Each try may
+# take PUZZLLM_LIVE_TIMEOUT seconds (default 600): on a busy CPU the model
+# reads omp's first prompt (about 7,000 tokens) slowly.
 set -u
 here=$(cd "$(dirname "$0")/.." && pwd)
 scratch=${1:?usage: test-live.sh SCRATCH}
 tries=${PUZZLLM_LIVE_TRIES:-3}
+limit=${PUZZLLM_LIVE_TIMEOUT:-600}
 sandbox=$here/libexec/puzzllm-sandbox
 prompt='Use the write tool to create a file named hello_world.txt in the current directory. Its content must be exactly: Hello, World!'
 
@@ -25,7 +28,7 @@ done
 for try in $(seq "$tries"); do
     rm -f "$PUZZLLM_STATE/workspace/hello_world.txt"
     start=$(date +%s)
-    timeout 600 "$sandbox" agent -p "$prompt" < /dev/null > "$scratch/try$try.log" 2>&1
+    timeout "$limit" "$sandbox" agent -p "$prompt" < /dev/null > "$scratch/try$try.log" 2>&1
     took=$(( $(date +%s) - start ))
     if PUZZLLM_ROOT=$here "$here/build/puzzllm" --check-level 1; then
         echo "test-live: met on try $try of $tries in ${took}s"
