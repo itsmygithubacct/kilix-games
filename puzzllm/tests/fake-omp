@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+"""Stand-in for omp in the sandbox tests.
+
+Started by puzzllm-agent-init exactly as omp would be. It reads the provider
+the sandbox wrote into ~/.omp/agent/models.yml, asks that model for the
+file's text, and writes hello_world.txt in its working directory: the level-1
+goal reached through the same chain the real agent uses.
+"""
+import json
+import os
+import re
+import urllib.request
+
+models = open(os.path.expanduser("~/.omp/agent/models.yml")).read()
+base = re.search(r"baseUrl:\s*(\S+)", models).group(1)
+model = re.search(r"- id:\s*(\S+)", models).group(1)
+request = urllib.request.Request(
+    base + "/chat/completions",
+    data=json.dumps({"model": model, "messages": [
+        {"role": "user", "content": "Create hello_world.txt"}]}).encode(),
+    headers={"Content-Type": "application/json"})
+with urllib.request.urlopen(request, timeout=10) as response:
+    text = json.load(response)["choices"][0]["message"]["content"]
+with open("hello_world.txt", "w") as out:
+    out.write(text + "\n")
+print("fake-omp: wrote hello_world.txt")
+

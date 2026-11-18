@@ -24,6 +24,7 @@ self-test argument parsing and the command-line tests.
 | [kilix-rancher](kilix-rancher/) | Creature-raising game | C |
 | [kilix-fishtank](kilix-fishtank/) | Arcade-style virtual fishtank | C |
 | [tictactoe-tui](tictactoe-tui/) | Tic-tac-toe in the terminal it runs from, with a trained neural opponent | C |
+| [puzzllm](puzzllm/) | Coding puzzle rooms solved with a local LLM agent (omp and Qwen 3.5) in a sandbox; level 1 so far, not yet in the catalog | C |
 
 Ten of the C games moved here from their own repositories with their full
 history; solitaire-tui and tictactoe-tui were started here. The old repositories
@@ -40,7 +41,8 @@ make -C kilix-pong test   # one game
 
 `make all` builds every C game; `make -C <game> all` builds one, and the game's
 README says how to run it. The C games need a C compiler, make and zlib, and
-most also libm and pthreads; solitaire-tui needs only Python 3.
+most also libm and pthreads; solitaire-tui needs only Python 3, and puzzllm also
+needs bubblewrap and Python 3 for its sandbox tests.
 
 ## Usage
 
@@ -119,8 +121,8 @@ Each game's README is its documentation: [solitaire-tui](solitaire-tui/README.md
 [kilix-brokeout](kilix-brokeout/README.md), [bashed-earth](bashed-earth/README.md),
 [kilix-lights](kilix-lights/README.md), [kilix-jpak](kilix-jpak/README.md),
 [kilix-pong](kilix-pong/README.md), [chess-bash](chess-bash/README.md),
-[kilix-rancher](kilix-rancher/README.md), [kilix-fishtank](kilix-fishtank/README.md)
-and [tictactoe-tui](tictactoe-tui/README.md). Games with more depth keep it in
+[kilix-rancher](kilix-rancher/README.md), [kilix-fishtank](kilix-fishtank/README.md),
+[tictactoe-tui](tictactoe-tui/README.md) and [puzzllm](puzzllm/README.md). Games with more depth keep it in
 their own `docs/` directory, for example asset and audio provenance, neural
 policy provenance, manual pages, and joustix's
 [Kilix integration notes](joustix/docs/kilix-integration.md).

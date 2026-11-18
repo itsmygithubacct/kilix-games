@@ -1,0 +1,8 @@
+#!/bin/sh
+# Run puzzllm from a checkout; builds it first if needed.
+here=$(dirname "$(readlink -f "$0")")
+root=$(dirname "$here")
+if [ ! -x "$root/build/puzzllm" ]; then
+    make -C "$root" all >&2 || exit 1
+fi
+PUZZLLM_ROOT=$root exec "$root/build/puzzllm" "$@"

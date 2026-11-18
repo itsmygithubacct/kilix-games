@@ -1,0 +1,23 @@
+# puzzllm levels. One block per level; see src/levels.h for the format.
+# A later level is a new block here, not new code.
+
+level: 1
+title: Hello, world
+room: stone
+goal: Get the agent to create hello_world.txt saying Hello, World!
+hint: Walk to the big omp screen on the left and press Enter to talk to the agent.
+hint: Ask plainly: create a file named hello_world.txt containing Hello, World!
+hint: Small models sometimes say they did it when they did not. Check with ls in the shell.
+hint: If it wrote the wrong file, tell it exactly what went wrong and ask again.
+hint: You may also finish the goal yourself in the shell, top right.
+check: file hello_world.txt
+require: nonempty
+require: contains-ci hello
+require: contains-ci world
+require: max-bytes 4096
+
+level: 2
+title: Next challenge coming
+room: brick
+goal: This room is still being built. Come back for the next challenge.
+check: none

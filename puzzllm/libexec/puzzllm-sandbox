@@ -1,0 +1,190 @@
+#!/bin/bash
+# puzzllm-sandbox - run the coding agent or the player's shell confined.
+#
+#   puzzllm-sandbox agent [OMP-ARGS...]     llama-server + omp, interactive
+#   puzzllm-sandbox shell                   the player's bash
+#   puzzllm-sandbox agent-exec -- CMD...    CMD with exactly the agent's mounts
+#   puzzllm-sandbox shell-exec -- CMD...    CMD with exactly the shell's mounts
+#   puzzllm-sandbox paths                   print the resolved paths and exit
+#
+# Both sandboxes are bubblewrap containers with every namespace unshared
+# (network included: the only reachable host is the sandbox's own loopback),
+# a read-only /usr and a short read-only list from /etc, and a tmpfs home and
+# /tmp. Nothing of the host's home directory is visible.
+#
+# What is writable, and nothing else on the host is:
+#   agent  $STATE/workspace  at /kilix/workspace  (its working directory)
+#          $STATE/agent      at /kilix/.omp/agent (omp's config, sessions)
+#   shell  $STATE/workspace  at /kilix/workspace  (its working directory)
+#          The owner decided (2026-11-18) that the player may meet a goal by
+#          hand in this shell, and that it counts the same as the LLM doing it.
+#
+# Environment (all optional):
+#   PUZZLLM_STATE         persistent folder, default ~/.local/share/puzzllm
+#   PUZZLLM_OMP           omp binary (default: omp on PATH, then ~/.local/bin/omp)
+#   PUZZLLM_LLAMA_SERVER  llama-server binary; its directory is mounted for libs
+#   PUZZLLM_MODEL         GGUF weights (default: the Qwen3.5 0.8B Zell uses)
+#   PUZZLLM_MODEL_ID      model id shown to omp, default qwen3.5-0.8b
+#   PUZZLLM_CTX           context tokens, default 32768
+#   PUZZLLM_THINK=1       let the model think (off by default: 0.8B loops)
+#   PUZZLLM_GPU=DEVICE    run the model on a llama.cpp device such as Vulkan1
+#                         (GPU device nodes are then mounted); default CPU
+set -u
+
+here=$(dirname "$(readlink -f "$0")")
+state=${PUZZLLM_STATE:-${XDG_DATA_HOME:-$HOME/.local/share}/puzzllm}
+model_id=${PUZZLLM_MODEL_ID:-qwen3.5-0.8b}
+ctx=${PUZZLLM_CTX:-32768}
+port=8765
+box_home=/kilix
+
+die() { printf 'puzzllm-sandbox: %s\n' "$*" >&2; exit 2; }
+
+command -v bwrap >/dev/null 2>&1 || die "bubblewrap (bwrap) is not installed"
+
+find_omp() {
+    if [ -n "${PUZZLLM_OMP:-}" ]; then printf '%s\n' "$PUZZLLM_OMP"; return; fi
+    command -v omp 2>/dev/null && return
+    [ -x "$HOME/.local/bin/omp" ] && printf '%s\n' "$HOME/.local/bin/omp"
+}
+
+find_llama() {
+    local c
+    if [ -n "${PUZZLLM_LLAMA_SERVER:-}" ]; then
+        printf '%s\n' "$PUZZLLM_LLAMA_SERVER"; return
+    fi
+    command -v llama-server 2>/dev/null && return
+    for c in "$HOME"/.local/share/kilix-llm/bench/engine/*/llama-b*/llama-server; do
+        [ -x "$c" ] && { printf '%s\n' "$c"; return; }
+    done
+}
+
+find_model() {
+    local dir
+    if [ -n "${PUZZLLM_MODEL:-}" ]; then printf '%s\n' "$PUZZLLM_MODEL"; return; fi
+    dir=${KILIX_LLM_MODELS_DIR:-${GPU_TERMINAL_HOME:-$HOME/.local/gpu_terminal}/kilix-llm/models}
+    [ -f "$dir/Qwen3.5-0.8B-Q8_0.gguf" ] && printf '%s\n' "$dir/Qwen3.5-0.8B-Q8_0.gguf"
+}
+
+omp_bin=$(find_omp)
+llama_bin=$(find_llama)
+model=$(find_model)
+
+mode=${1:-}
+[ $# -gt 0 ] && shift
+
+if [ "$mode" = paths ]; then
+    printf 'state=%s\nomp=%s\nllama_server=%s\nmodel=%s\nmodel_id=%s\n' \
+        "$state" "${omp_bin:-}" "${llama_bin:-}" "${model:-}" "$model_id"
+    exit 0
+fi
+
+mkdir -p "$state/workspace" "$state/agent/puzzllm" || die "cannot create $state"
+
+# Common confinement. Arrays keep every path one argument.
+args=(
+    --unshare-all --die-with-parent
+    --hostname puzzllm
+    --ro-bind /usr /usr
+    --proc /proc --dev /dev
+    --tmpfs /tmp --tmpfs /home --tmpfs "$box_home"
+    --clearenv
+    --setenv HOME "$box_home" --setenv USER kilix --setenv LOGNAME kilix
+    --setenv PATH /opt/puzzllm/bin:/usr/local/bin:/usr/bin:/bin
+    --setenv TERM "${TERM:-xterm-256color}"
+    --setenv LANG C.UTF-8 --setenv COLORTERM truecolor
+    --setenv TMPDIR /tmp
+)
+for d in bin lib lib32 lib64 libx32 sbin; do
+    if [ -L "/$d" ]; then
+        args+=(--symlink "$(readlink "/$d")" "/$d")
+    elif [ -d "/$d" ]; then
+        args+=(--ro-bind "/$d" "/$d")
+    fi
+done
+for f in passwd group nsswitch.conf ld.so.cache ld.so.conf ld.so.conf.d \
+         localtime alternatives ssl ca-certificates terminfo inputrc \
+         hosts host.conf; do
+    [ -e "/etc/$f" ] && args+=(--ro-bind "/etc/$f" "/etc/$f")
+done
+
+case "$mode" in
+agent|agent-exec)
+    args+=(--bind "$state/workspace" "$box_home/workspace"
+           --bind "$state/agent" "$box_home/.omp/agent"
+           --chdir "$box_home/workspace")
+    [ -n "$omp_bin" ] && [ -x "$omp_bin" ] &&
+        args+=(--ro-bind "$(readlink -f "$omp_bin")" /opt/puzzllm/bin/omp)
+    [ -n "$llama_bin" ] && [ -x "$llama_bin" ] &&
+        args+=(--ro-bind "$(dirname "$(readlink -f "$llama_bin")")" /opt/puzzllm/llama)
+    [ -n "$model" ] && [ -f "$model" ] &&
+        args+=(--ro-bind "$(readlink -f "$model")" /opt/puzzllm/model.gguf)
+    args+=(--ro-bind "$here/puzzllm-agent-init" /opt/puzzllm/bin/puzzllm-agent-init
+           --setenv PUZZLLM_PORT "$port"
+           --setenv PUZZLLM_MODEL_ID "$model_id"
+           --setenv PUZZLLM_CTX "$ctx"
+           --setenv PUZZLLM_THINK "${PUZZLLM_THINK:-0}"
+           --setenv PUZZLLM_GPU "${PUZZLLM_GPU:-}")
+    if [ -n "${PUZZLLM_GPU:-}" ]; then
+        for n in /dev/dri /dev/nvidiactl /dev/nvidia-uvm /dev/nvidia-modeset \
+                 /dev/nvidia[0-9]*; do
+            [ -e "$n" ] && args+=(--dev-bind "$n" "$n")
+        done
+        for n in /sys /etc/vulkan /etc/glvnd; do
+            [ -e "$n" ] && args+=(--ro-bind "$n" "$n")
+        done
+    fi
+    ;;
+shell|shell-exec)
+    args+=(--bind "$state/workspace" "$box_home/workspace"
+           --chdir "$box_home/workspace"
+           --ro-bind "$here/puzzllm-shellrc" /opt/puzzllm/shellrc)
+    ;;
+*)
+    die "usage: puzzllm-sandbox agent|shell|agent-exec -- CMD|shell-exec -- CMD|paths"
+    ;;
+esac
+
+case "$mode" in
+agent)
+    [ -n "$omp_bin" ] && [ -x "$omp_bin" ] ||
+        die "omp not found (set PUZZLLM_OMP)"
+    [ -n "$llama_bin" ] && [ -x "$llama_bin" ] ||
+        die "llama-server not found (set PUZZLLM_LLAMA_SERVER)"
+    [ -n "$model" ] && [ -f "$model" ] ||
+        die "Qwen 3.5 weights not found (set PUZZLLM_MODEL); nothing is downloaded"
+    # omp's provider config lives in the sandbox's own agent folder, never
+    # in the user's ~/.omp: one local provider, on the sandbox's loopback.
+    cat > "$state/agent/models.yml" <<EOF
+# Written by puzzllm-sandbox on every start. One provider: the llama-server
+# that runs inside the sandbox on its private loopback.
+providers:
+  puzzllm-local:
+    baseUrl: http://127.0.0.1:$port/v1
+    api: openai-completions
+    apiKey: puzzllm-local
+    models:
+      - id: $model_id
+        name: Qwen 3.5 (local)
+        reasoning: false
+        input: [text]
+        contextWindow: $ctx
+        maxTokens: 4096
+EOF
+    # A fresh omp profile opens a setup wizard that offers cloud sign-ins;
+    # mark setup done (omp's own setupVersion key) so it starts at its prompt.
+    cfg=$state/agent/config.yml
+    if ! grep -q '^setupVersion:' "$cfg" 2>/dev/null; then
+        printf 'setupVersion: 2\n' >> "$cfg"
+    fi
+    exec bwrap "${args[@]}" --remount-ro / -- /opt/puzzllm/bin/puzzllm-agent-init "$@"
+    ;;
+shell)
+    exec bwrap "${args[@]}" --remount-ro / -- /bin/bash --rcfile /opt/puzzllm/shellrc -i
+    ;;
+agent-exec|shell-exec)
+    [ "${1:-}" = -- ] && shift
+    [ $# -gt 0 ] || die "$mode needs a command"
+    exec bwrap "${args[@]}" --remount-ro / -- "$@"
+    ;;
+esac

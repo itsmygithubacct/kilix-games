@@ -1,7 +1,7 @@
 # Every game builds and tests on its own; this runs them all in sequence.
 GAMES := solitaire-tui kilix-lander joustix kilix-brokeout bashed-earth \
 	kilix-lights kilix-jpak kilix-pong chess-bash kilix-rancher kilix-fishtank \
-	tictactoe-tui
+	tictactoe-tui puzzllm
 
 .PHONY: test all clean $(GAMES)
 

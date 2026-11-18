@@ -1,0 +1,29 @@
+/* termio.h - the outer terminal: Kitty graphics out, Kitty keyboard and
+ * pixel mouse in. Adapted from kilix-lights' src/term.c (same monorepo).
+ */
+#ifndef PUZZLLM_TERMIO_H
+#define PUZZLLM_TERMIO_H
+
+#include "keys.h"
+
+#include <stdbool.h>
+#include <stdint.h>
+
+typedef struct termio_handlers {
+    void (*key)(void *ctx, const key_event *ev);
+    void (*click)(void *ctx, int canvas_x, int canvas_y);
+    void *ctx;
+} termio_handlers;
+
+/* 0 on success; -1 with errno (ENOTSUP: not a Kitty-graphics terminal). */
+int termio_start(void);
+void termio_stop(void);
+void termio_emergency_restore(void);
+bool termio_release_events(void);
+/* Present a CANVAS_W x CANVAS_H 0xAARRGGBB canvas, scaled to fit. */
+bool termio_present(const uint32_t *px, int w, int h);
+void termio_check_resize(void);
+/* Drain input and dispatch it. -1 when stdin is gone. */
+int termio_read(const termio_handlers *h);
+
+#endif

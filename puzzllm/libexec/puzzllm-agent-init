@@ -1,0 +1,59 @@
+#!/bin/bash
+# puzzllm-agent-init - first process inside the agent sandbox.
+#
+# Starts llama-server on the sandbox's private loopback, waits until it
+# answers, then replaces itself with omp. bwrap is PID 1 of the sandbox, so
+# llama-server dies with the sandbox when omp exits.
+#
+# Progress goes to the terminal (the omp screen) and to
+# ~/.omp/agent/puzzllm/status, which the game shows on the activity screen.
+set -u
+port=${PUZZLLM_PORT:-8765}
+model_id=${PUZZLLM_MODEL_ID:-qwen3.5-0.8b}
+status_dir=$HOME/.omp/agent/puzzllm
+status=$status_dir/status
+log=$status_dir/llama-server.log
+mkdir -p "$status_dir"
+
+say() {
+    printf '%s\n' "$*" > "$status.tmp" && mv -f "$status.tmp" "$status"
+    printf '\033[2m[puzzllm] %s\033[0m\r\n' "$*"
+}
+
+health() {
+    local reply
+    { exec 3<>"/dev/tcp/127.0.0.1/$port"; } 2>/dev/null || return 1
+    printf 'GET /health HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n' >&3
+    IFS= read -r -t 2 reply <&3
+    exec 3>&-
+    case "$reply" in *" 200"*) return 0 ;; esac
+    return 1
+}
+
+think_args=(--reasoning-budget 0)
+[ "${PUZZLLM_THINK:-0}" = 1 ] && think_args=()
+device_args=(--device none --gpu-layers 0)
+[ -n "${PUZZLLM_GPU:-}" ] && device_args=(--device "$PUZZLLM_GPU" --gpu-layers 99)
+
+say "starting Qwen 3.5 ($model_id) on the sandbox loopback"
+/opt/puzzllm/llama/llama-server \
+    --model /opt/puzzllm/model.gguf --alias "$model_id" \
+    --host 127.0.0.1 --port "$port" --ctx-size "${PUZZLLM_CTX:-32768}" \
+    --jinja "${think_args[@]}" "${device_args[@]}" --no-webui \
+    >"$log" 2>&1 &
+server=$!
+
+for _ in $(seq 1 600); do
+    if health; then break; fi
+    if ! kill -0 "$server" 2>/dev/null; then
+        say "llama-server exited; see agent/puzzllm/llama-server.log"
+        tail -n 15 "$log"
+        exec bash -i
+    fi
+    sleep 0.2
+done
+health || { say "llama-server did not come up"; exec bash -i; }
+
+say "Qwen 3.5 ready; starting omp"
+exec /opt/puzzllm/bin/omp --model "puzzllm-local/$model_id" \
+    --no-title --no-lsp --no-extensions --no-skills --no-rules "$@"
