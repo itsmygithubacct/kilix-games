@@ -197,9 +197,10 @@ const char *termio_describe(void)
     static char text[192];
     kittyfb_transport t = active ? kittyts_active_transport(&session) : KITTYFB_TRANSPORT_AUTO;
     snprintf(text, sizeof text, "fb %dx%d canvas %dx%d scale %d/%d %s presents full %lu "
-             "patched %lu skipped %lu", fb_w, fb_h, canvas_w, canvas_h, num, den,
+             "patched %lu skipped %lu key-releases %s", fb_w, fb_h, canvas_w, canvas_h, num, den,
              t == KITTYFB_TRANSPORT_SHM ? "shm" : t == KITTYFB_TRANSPORT_INLINE ? "inline" : "auto",
-             presents_full, presents_patched, presents_skipped);
+             presents_full, presents_patched, presents_skipped,
+             termio_release_events() ? "yes" : "no");
     return text;
 }
 
