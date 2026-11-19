@@ -662,7 +662,7 @@ static void test_kilix_art(void)
 {
     for (int i = 0; i < KILIX_ART_COUNT; i++) {
         const kilix_picture *p = kilix_art_get(i);
-        int opaque = 0, bad = 0;
+        int opaque = 0, bad = 0, flame = 0;
         CHECK(p != NULL, "picture %d unpacks", i);
         if (p == NULL) continue;
         CHECK(p->height == KILIX_ART_HEIGHT && p->width >= 50 && p->width <= 70,
@@ -670,10 +670,15 @@ static void test_kilix_art(void)
         for (int k = 0; k < p->width * p->height; k++) {
             uint32_t px = p->pixels[k], a = px >> 24;
             if (a >= 200) opaque++;
+            if (px == 0xffdc471d || px == 0xff9b29) flame++;
             if (((px >> 16) & 255) > a || ((px >> 8) & 255) > a || (px & 255) > a) bad++;
         }
         CHECK(opaque > 1000, "picture %d has a body (%d opaque pixels)", i, opaque);
         CHECK(bad == 0, "picture %d is premultiplied (%d pixels are not)", i, bad);
+        int dir = i < KILIX_ART_WALK ? i : (i - KILIX_ART_WALK) / 4;
+        bool shield_face = dir == 0 || dir == 2 || (dir == 3 && i >= KILIX_ART_WALK);
+        CHECK(shield_face ? flame > 12 : flame == 0,
+              "picture %d shows the flame only when the shield face is visible", i);
         CHECK(kilix_art_get(i) == p, "picture %d is unpacked once", i);
     }
     CHECK(kilix_art_get(-1) == NULL && kilix_art_get(KILIX_ART_COUNT) == NULL, "bad ids");

@@ -1,6 +1,6 @@
 /* kilix_art.c - Kilix's pictures, from Zell (zell-neuronte's desktop cast).
  *
- * Copied, not hand-edited, from kilix-zell (MIT, Copyright (c) 2026
+ * Base frames copied from kilix-zell (MIT, Copyright (c) 2026
  * itsmygithubacct) at commit cb66bb9: src/desktop_art/cast.c images 0-3 (Kilix
  * standing, facing down, up, left, right) and src/desktop_art/walk.c images
  * 0-15 (four walk frames for each of those directions). Zell made them with
@@ -5383,6 +5383,62 @@ static const source sources[KILIX_ART_COUNT] = {
     {55, 84, 11902, walk15},
 };
 
+/* Shield faces in the original 84-pixel frames. Rear and edge-on poses
+ * leave the face hidden. Paint the heraldry before caching each frame. */
+typedef struct shield_face { int x, y, width, height; } shield_face;
+
+static const shield_face shield_faces[KILIX_ART_COUNT] = {
+    [KILIX_ART_STAND]     = { 6, 46, 15, 20 },
+    [KILIX_ART_STAND + 2] = {12, 53, 13, 16 },
+    [KILIX_ART_WALK]     = { 5, 42, 15, 19 },
+    [KILIX_ART_WALK + 1] = { 5, 44, 15, 19 },
+    [KILIX_ART_WALK + 2] = { 7, 45, 15, 19 },
+    [KILIX_ART_WALK + 3] = { 7, 45, 15, 19 },
+    [KILIX_ART_WALK + 8] = {12, 53, 13, 15 },
+    [KILIX_ART_WALK + 9] = {12, 51, 13, 15 },
+    [KILIX_ART_WALK + 10] = {13, 53, 13, 16 },
+    [KILIX_ART_WALK + 11] = {11, 52, 13, 15 },
+    [KILIX_ART_WALK + 12] = {31, 49, 14, 17 },
+    [KILIX_ART_WALK + 13] = {32, 52, 14, 16 },
+    [KILIX_ART_WALK + 14] = {29, 52, 13, 17 },
+    [KILIX_ART_WALK + 15] = {33, 54, 14, 16 },
+};
+
+static void paint_flame(kilix_picture *picture, shield_face face)
+{
+    enum { FLAME_WIDTH = 13 };
+    static const char design[][FLAME_WIDTH + 1] = {
+        "....bbbbb....",
+        "...bbbbbbb...",
+        "..bbbbfbbbb..",
+        ".bbbbbfobbbb.",
+        ".bbbbffobbbb.",
+        "bbbbbfoofbbbb",
+        "bbfbbfooofbbb",
+        "bbfbbfoofbbbb",
+        "bbfffoooffbbb",
+        "bbffooofffbbb",
+        "bbbfooooofbbb",
+        "bbbfoyooofbbb",
+        "bbbfoyyofbbbb",
+        ".bbbfooofbbb.",
+        "..bbbfffbbb..",
+        "...bbbbbbb...",
+        "....bbbbb....",
+        ".....bbb.....",
+    };
+    const int flame_height = sizeof design / sizeof design[0];
+    for (int y = 0; y < face.height; y++) {
+        for (int x = 0; x < face.width; x++) {
+            char ink = design[y * flame_height / face.height][x * FLAME_WIDTH / face.width];
+            if (ink == '.') continue;
+            uint32_t rgb = ink == 'b' ? 0x412620 : ink == 'f' ? 0xdc471d :
+                           ink == 'o' ? 0xff9b29 : 0xffdb70;
+            picture->pixels[(face.y + y) * picture->width + face.x + x] = 0xff000000u | rgb;
+        }
+    }
+}
+
 static kilix_picture pictures[KILIX_ART_COUNT];
 
 const kilix_picture *kilix_art_get(int id)
@@ -5410,6 +5466,7 @@ const kilix_picture *kilix_art_get(int id)
             p->width = src->width;
             p->height = src->height;
             p->pixels = pixels;
+            paint_flame(p, shield_faces[id]);
             return p;
         }
     }

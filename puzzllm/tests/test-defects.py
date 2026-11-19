@@ -233,6 +233,8 @@ DEFECTS = [
      "test-unit"),
     ("walk frames never advance",
      "src/kilix_art.c", "dir * 4 + ((step_ticks - 1) / 7) % 4;", "dir * 4;", "test-unit"),
+    ("Kilix keeps the old shield emblem",
+     "src/kilix_art.c", "            paint_flame(p, shield_faces[id]);", "", "test-unit"),
     ("room ignores the pane's size",
      "src/layout.c", "    w = clamp(w, LAYOUT_MIN_W, LAYOUT_MAX_W);\n",
      "    w = LAYOUT_DEFAULT_W;\n", "test-unit"),

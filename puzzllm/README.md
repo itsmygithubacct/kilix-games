@@ -266,7 +266,8 @@ is met in the workspace now.
 
 Kilix is zell-neuronte's: his four standing and sixteen walking pictures,
 84 pixels tall, copied from Zell with their provenance in
-[`src/kilix_art.c`](src/kilix_art.c). He moves as Zell moves him: the room
+[`src/kilix_art.c`](src/kilix_art.c). PuzzLLM paints an original flame emblem
+on the visible shield faces. Kilix moves as Zell moves him. The room
 runs at 60 ticks a second, he walks 3.5 pixels a tick, and each of his
 four walk frames lasts seven ticks. Held keys are read from the terminal's
 key releases, so he starts on the press and stops on the release.
