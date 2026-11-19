@@ -23,9 +23,9 @@ Neuronte nets draw the text, the terminal characters and Kilix himself (see
 
 | Screen | What it is |
 |---|---|
-| top left | the selected coding agent |
-| bottom left | system actions, including tool calls and workspace changes |
+| left | the selected coding agent |
 | top right | the goal, status, and hints |
+| middle right | system actions, including tool calls and workspace changes |
 | bottom right | a bash shell in the same sandbox and the same workspace |
 
 The room is drawn at the pane's own size, so a bigger pane gets bigger
@@ -44,7 +44,9 @@ aisle through it to reach the next room.
 | H | next hint |
 | Esc | open or close the game menu from any screen |
 | Ctrl+Q | quit (while walking) |
-| mouse | click a terminal to type into it, the goal for the next hint, or the floor to walk again |
+| mouse click | click a terminal to type into it, the goal for the next hint, or the floor to walk again |
+| mouse wheel | scroll the pane under the pointer |
+| Shift+Page Up / Shift+Page Down | scroll the focused terminal’s history |
 
 Hints come one at a time, every 45 seconds or on H. Progress is kept in
 `~/.local/share/puzzllm/progress`, so the game resumes in the room you

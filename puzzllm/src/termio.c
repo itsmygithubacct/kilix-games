@@ -245,7 +245,9 @@ int termio_read(const termio_handlers *h)
         } else if (e.kind == KITTYIN_EVENT_MOUSE) {
             const kittyin_mouse_event *m = &e.data.mouse;
             int px, py;
-            if (m->action != 1 || m->button != 1) continue;   /* left press */
+            bool wheel = m->action == KITTYIN_MOUSE_WHEEL && m->wheel_y != 0;
+            bool click = m->action == KITTYIN_MOUSE_PRESS && m->button == 1;
+            if (!wheel && !click) continue;
             if (m->pixel_coordinates) {
                 px = m->x - kittyts_origin_x(&session);
                 py = m->y - kittyts_origin_y(&session);
@@ -253,10 +255,12 @@ int termio_read(const termio_handlers *h)
                 px = m->x * kittyts_cell_width(&session) - kittyts_origin_x(&session);
                 py = m->y * kittyts_cell_height(&session) - kittyts_origin_y(&session);
             }
+            if (px < off_x || py < off_y) continue;
             px = (px - off_x) * den / num;
             py = (py - off_y) * den / num;
-            if (px >= 0 && py >= 0 && px < canvas_w && py < canvas_h)
-                h->click(h->ctx, px, py);
+            if (px >= canvas_w || py >= canvas_h) continue;
+            if (wheel) h->scroll(h->ctx, px, py, 3 * m->wheel_y);
+            else h->click(h->ctx, px, py);
         }
     }
     return 0;

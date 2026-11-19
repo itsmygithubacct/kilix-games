@@ -85,12 +85,13 @@ static void start_renderer(void)
 
 static void on_key(void *ctx, const key_event *ev) { game_key(ctx, ev); }
 static void on_click(void *ctx, int x, int y) { game_click(ctx, x, y); }
+static void on_scroll(void *ctx, int x, int y, int rows) { game_scroll(ctx, x, y, rows); }
 
 static int play(const char *root, const char *state)
 {
     char err[512];
     sr_canvas canvas;
-    termio_handlers h = {on_key, on_click, &the_game};
+    termio_handlers h = {on_key, on_click, on_scroll, &the_game};
     double last, next_snapshot = 0, next_frame, r0 = 0, r1 = 0;
     /* PUZZLLM_STATS=FILE: frame rate and timings, one line a second */
     FILE *stats = NULL;

@@ -6,6 +6,7 @@
 #include "activity.h"
 #include "art.h"
 #include "levels.h"
+#include "history.h"
 #include "scene.h"
 #include "soft_raster.h"
 #include "neuroterm_terminal.h"
@@ -20,7 +21,9 @@ typedef struct view {
     int level_count;
     const neuroterm *omp;            /* may be NULL */
     const neuroterm *shell;          /* may be NULL */
+    const history *omp_history, *shell_history;
     const activity *act;
+    int goal_scroll, action_scroll;
     const char *agent_model;
     bool codex;
     const char *omp_note;     /* shown over the omp screen when not NULL */
@@ -36,5 +39,6 @@ struct model_option;
 void render_menu(sr_canvas *c, const struct model_option *models, int count, int selected,
                  const char *active_model, bool loading, bool failed,
                  bool started, int level, bool confirm_reset, const char *notice, int thinking_support, bool thinking_enabled, bool codex);
+int render_scroll_limit(const view *v, screen_id id);
 void render_frame(sr_canvas *c, const view *v);
 #endif

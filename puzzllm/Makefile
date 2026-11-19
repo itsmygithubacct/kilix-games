@@ -18,7 +18,7 @@ DEPFLAGS := -MMD -MP
 
 B        := build
 O        := $(B)/obj
-CORE     := keys pty levels json activity layout scene draw art render game \
+CORE     := history keys pty levels json activity layout scene draw art render game \
 	kilix_art damage
 KILIX_ASSETS := third_party/kilix-game-sdk/kilix-assets
 NEUROTERM_BUILD_DIR := $(O)/neuroterm

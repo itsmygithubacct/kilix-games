@@ -12,6 +12,7 @@
 typedef struct termio_handlers {
     void (*key)(void *ctx, const key_event *ev);
     void (*click)(void *ctx, int canvas_x, int canvas_y);
+    void (*scroll)(void *ctx, int canvas_x, int canvas_y, int rows);
     void *ctx;
 } termio_handlers;
 

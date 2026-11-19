@@ -12,7 +12,7 @@
 #include "pty.h"
 #include "scene.h"
 #include "soft_raster.h"
-#include "neuroterm_terminal.h"
+#include "history.h"
 
 #include <stdbool.h>
 
@@ -57,6 +57,8 @@ typedef struct game {
     bool started;
     bool spawn;             /* start the sandboxes (false in tests) */
     neuroterm omp_vt, shell_vt;
+    history omp_history, shell_history;
+    int goal_scroll, action_scroll;
     pty_proc omp, shell;
     activity act;
     goal_result goal;
@@ -91,6 +93,8 @@ void game_poll_goal(game *g);
 void game_key(game *g, const key_event *ev);
 /* Mouse press at canvas coordinates. */
 void game_click(game *g, int x, int y);
+/* Wheel movement in rows, positive for down. */
+void game_scroll(game *g, int x, int y, int rows);
 /* Advance dt seconds: pump the terminals, poll the goal, and run the
  * room in fixed 1/60 s ticks, as Zell does. */
 void game_update(game *g, double dt);

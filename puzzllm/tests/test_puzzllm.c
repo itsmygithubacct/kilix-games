@@ -613,7 +613,7 @@ static void test_scene(void)
 
     /* near screens */
     s.x = 200; s.y = WALK_Y0; s.dir = 1;
-    CHECK(scene_near_screen(&s) == SCREEN_NONE, "system actions are read-only");
+    CHECK(scene_near_screen(&s) == SCREEN_OMP, "below the full-height coding agent");
     s.x = 640; s.y = 200; s.dir = 3;
     CHECK(scene_near_screen(&s) == SCREEN_GOAL, "aisle facing right: goal and hints");
     s.dir = 2;
@@ -788,8 +788,8 @@ static void test_layout(void)
     char err[256], state[2300];
 
     layout_set(1280, 800);
-    CHECK(OMP_COLS == 70 && OMP_ROWS == 20 && SHELL_COLS == 70 && SHELL_ROWS == 17 &&
-          ACT_ROWS == 6 && GOAL_ROWS == 9, "1280x800 fits four panels");
+    CHECK(OMP_COLS == 70 && OMP_ROWS == 30 && SHELL_COLS == 70 && SHELL_ROWS == 11 &&
+          ACT_ROWS == 5 && GOAL_ROWS == 7, "1280x800 fits four panels");
     CHECK(START_X == 640 && START_Y == 740 && AISLE_X0 == 616 && AISLE_X1 == 664 &&
           WALK_Y0 == 668 && WALK_Y1 == 768 && DOOR_X == 600, "1280x800 floor and aisle");
     layout_set(300, 200);
@@ -814,11 +814,11 @@ static void test_layout(void)
               "%dx%d: screens inside the room", w, h);
         CHECK(!overlaps(omp, aisle) && !overlaps(shell, aisle) &&
               !overlaps(act, aisle) && !overlaps(goal, aisle) &&
-              omp.y + omp.h <= act.y && goal.y + goal.h <= shell.y &&
-              omp.x == act.x && goal.x == shell.x,
+              goal.y + goal.h <= act.y && act.y + act.h <= shell.y &&
+              goal.x == act.x && goal.x == shell.x && omp.x < goal.x,
               "%dx%d: four separate screens clear of the aisle", w, h);
         CHECK(OMP_COLS >= 20 && OMP_COLS <= SCREEN_MAX_COLS && SHELL_ROWS >= 6 &&
-              OMP_ROWS >= 10 && ACT_ROWS >= 3 && GOAL_ROWS >= 8,
+              OMP_ROWS >= 10 && ACT_ROWS >= 2 && GOAL_ROWS >= 3,
               "%dx%d: usable terminals (%dx%d, %dx%d)", w, h, OMP_COLS, OMP_ROWS,
               SHELL_COLS, SHELL_ROWS);
         CHECK(WALK_Y1 < HUD_Y && WALK_Y0 > FLOOR_Y && DOOR_X + DOOR_W / 2 == w / 2,
@@ -1372,6 +1372,77 @@ static void test_goal_and_action_panes(void)
     game_shutdown(&G);
 }
 
+static void test_pane_scroll(void)
+{
+    char err[256], state[2300];
+    sr_canvas live = {0}, scrolled = {0};
+    layout_set(LAYOUT_MIN_W, LAYOUT_MIN_H);
+    sub(state, sizeof state, "pane-scroll");
+    if (!game_init(&G, ".", state, false, err, sizeof err)) {
+        CHECK(false, "pane scroll: %s", err);
+        return;
+    }
+
+    for (int i = 0; i < OMP_ROWS + 20; i++) {
+        char line[72];
+        snprintf(line, sizeof line, "line %02d\r\n", i);
+        neuroterm_feed(&G.omp_vt, line, strlen(line));
+        neuroterm_feed(&G.shell_vt, line, strlen(line));
+        activity_add(&G.act, ACT_TOOL, "tool call %d", i);
+    }
+    memset(G.levels.items[0].goal, 'G', sizeof G.levels.items[0].goal - 1);
+    rect omp = layout_screen(SCREEN_OMP), shell = layout_screen(SCREEN_SHELL);
+    rect act = layout_screen(SCREEN_ACT), goal = layout_screen(SCREEN_GOAL);
+    CHECK(G.omp_history.count > 8 && G.shell_history.count > 8,
+          "both NeuroTerm panes retain output that scrolls off the screen");
+    if (sr_canvas_init(&live, CANVAS_W, CANVAS_H) && sr_canvas_init(&scrolled, CANVAS_W, CANVAS_H)) {
+        game_render(&G, &live);
+        game_scroll(&G, shell.x + 10, shell.y + 10, -3);
+        game_render(&G, &scrolled);
+        CHECK(G.shell_history.offset == 3 && G.omp_history.offset == 0 &&
+              differing(&live, &scrolled, shell) > 0 && differing(&live, &scrolled, omp) == 0,
+              "wheel scrolls the shell without touching the agent");
+        game_scroll(&G, omp.x + 10, omp.y + 10, -3);
+        VTermScreenCell prior, later;
+        history_cell(&G.omp_history, 6, 0, &prior);
+        neuroterm_feed(&G.omp_vt, "later\r\n", 7);
+        history_cell(&G.omp_history, 6, 0, &later);
+        CHECK(G.omp_history.offset == 4 && prior.chars[0] == later.chars[0],
+              "new terminal output preserves the previously scrolled view");
+
+        game_scroll(&G, act.x + 10, act.y + 10, -3);
+        game_scroll(&G, goal.x + 10, goal.y + 10, 3);
+        game_render(&G, &scrolled);
+        CHECK(G.action_scroll == 3 && differing(&live, &scrolled, act) > 0,
+              "wheel scrolls through system actions");
+        CHECK(G.goal_scroll > 0 && differing(&live, &scrolled, goal) > 0,
+              "wheel reveals goal and hint text beyond the viewport");
+        CHECK(G.sc.focus == FOCUS_ROOM, "wheel scrolling keeps keyboard focus");
+        game_scroll(&G, act.x + 10, act.y + 10, 256);
+        game_scroll(&G, shell.x + 10, shell.y + 10, 256);
+        CHECK(G.action_scroll == 0 && G.shell_history.offset == 0,
+              "scrolling down past the end returns to live output");
+        game_click(&G, omp.x + 10, omp.y + 10);
+        key_event key = {.key = KEY_PAGE_DOWN, .mods = MOD_SHIFT, .action = 1};
+        game_key(&G, &key);
+        CHECK(G.omp_history.offset == 0, "Shift+Page Down returns to the live agent");
+    } else {
+        CHECK(false, "scroll test canvases initialized");
+    }
+
+    neuroterm_feed(&G.shell_vt, "\033[?1049h", 8);
+    CHECK(G.shell_history.alternate, "NeuroTerm tracks entry to the alternate screen");
+    game_scroll(&G, shell.x + 10, shell.y + 10, -3);
+    CHECK(G.shell_history.offset == 0, "alternate screen stays separate from shell history");
+    neuroterm_feed(&G.shell_vt, "\033[?1049l\033[3J", 12);
+    CHECK(!G.shell_history.alternate && G.shell_history.count == 0,
+          "the terminal can clear its scrollback");
+    sr_canvas_free(&live);
+    sr_canvas_free(&scrolled);
+    game_shutdown(&G);
+    layout_set(LAYOUT_DEFAULT_W, LAYOUT_DEFAULT_H);
+}
+
 int main(void)
 {
     const char *dir = getenv("PUZZLLM_TEST_DIR");
@@ -1383,6 +1454,7 @@ int main(void)
     test_menu();
     test_pane_focus();
     test_goal_and_action_panes();
+    test_pane_scroll();
     test_thinking_menu();
     test_codex_menu();
     test_room_art();

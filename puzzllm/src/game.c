@@ -279,6 +279,7 @@ static void spawn_agent(game *g)
     snprintf(st_env, sizeof st_env, "PUZZLLM_STATE=%s", g->state);
     snprintf(model_env, sizeof model_env, "PUZZLLM_OLLAMA_MODEL=%s", g->ollama_model);
     neuroterm_feed(&g->omp_vt, "\033c", 2);
+    history_clear(&g->omp_history);
     g->omp_note[0] = '\0';
     if (!pty_spawn(&g->omp, argv, env, OMP_COLS, OMP_ROWS))
         snprintf(g->omp_note, sizeof g->omp_note, "could not start the agent sandbox");
@@ -291,6 +292,7 @@ static void stop_room_agent(game *g)
     pty_stop(&g->omp);
     pty_init(&g->omp);
     neuroterm_feed(&g->omp_vt, "\033c", 2);
+    history_clear(&g->omp_history);
     snprintf(g->omp_note, sizeof g->omp_note, "Focus the agent pane to start a session.");
 }
 
@@ -405,7 +407,9 @@ static void reset_from_menu(game *g)
         return;
     }
     neuroterm_feed(&g->omp_vt, "\033c", 2);
+    history_clear(&g->omp_history);
     neuroterm_feed(&g->shell_vt, "\033c", 2);
+    history_clear(&g->shell_history);
     g->omp_note[0] = g->shell_note[0] = 0;
     g->transition_pending = false;
     g->tick_debt = g->poll_timer = 0;
@@ -493,6 +497,7 @@ void game_enter_level(game *g, int level)
     scene_enter_room(&g->sc, level);
     g->last_pane = FOCUS_OMP;
     g->hints_shown = cur_level(g)->nhints > 0 ? 1 : 0;
+    g->goal_scroll = g->action_scroll = 0;
     g->level_time = 0;
     g->was_met = false;
     activity_begin_room(&g->act, g->state, g->workspace);
@@ -532,6 +537,8 @@ bool game_init(game *g, const char *root, const char *state, bool spawn,
         snprintf(err, errcap, "out of memory");
         return false;
     }
+    history_attach(&g->omp_history, &g->omp_vt);
+    history_attach(&g->shell_history, &g->shell_vt);
     g->state_lock = lock_state(state);
     if (g->state_lock < 0 && (spawn || errno != EWOULDBLOCK)) {
         snprintf(err, errcap, "cannot lock game state: %s", strerror(errno));
@@ -563,6 +570,8 @@ void game_shutdown(game *g)
     clear_models(&g->menu);
     art_free_chest(&g->chest);
     art_free_room(&g->room);
+    history_clear(&g->omp_history);
+    history_clear(&g->shell_history);
     neuroterm_free(&g->omp_vt);
     neuroterm_free(&g->shell_vt);
     if (g->state_lock >= 0) close(g->state_lock);
@@ -580,9 +589,24 @@ void game_poll_goal(game *g)
     g->was_met = g->goal.met;
 }
 
+static view game_view(const game *g);
+
+static void scroll_text(game *g, screen_id id, int rows)
+{
+    view v = game_view(g);
+    int *offset = id == SCREEN_GOAL ? &g->goal_scroll : &g->action_scroll;
+    int limit = render_scroll_limit(&v, id);
+    int next = (*offset < limit ? *offset : limit) + rows;
+    *offset = next < 0 ? 0 : next > limit ? limit : next;
+}
+
 static void next_hint(game *g)
 {
-    if (g->hints_shown < cur_level(g)->nhints) g->hints_shown++;
+    if (g->hints_shown < cur_level(g)->nhints) {
+        g->hints_shown++;
+        g->goal_scroll = 0;
+        scroll_text(g, SCREEN_GOAL, LEVEL_TEXT);
+    }
 }
 
 static void focus_screen(game *g, focus_id f)
@@ -665,12 +689,21 @@ void game_key(game *g, const key_event *ev)
         char buf[256];
         size_t n;
         if (!press) return;
+        history *scroll = g->sc.focus == FOCUS_OMP ? &g->omp_history : &g->shell_history;
+        if (ev->mods == MOD_SHIFT && !scroll->alternate &&
+            (ev->key == KEY_PAGE_UP || ev->key == KEY_PAGE_DOWN)) {
+            history_scroll(scroll, ev->key == KEY_PAGE_UP ? t->rows : -t->rows);
+            return;
+        }
         if (p->pid == 0 || pty_poll_exit(p)) {
             if (ev->key == KEY_ENTER && g->spawn) focus_screen(g, g->sc.focus);
             return;
         }
         n = neuroterm_key(t, ev, buf, sizeof buf);
-        if (n > 0) pty_write(p, buf, n);
+        if (n > 0) {
+            scroll->offset = 0;
+            pty_write(p, buf, n);
+        }
         return;
     }
 
@@ -710,6 +743,45 @@ void game_click(game *g, int x, int y)
     else if (inside(layout_screen(SCREEN_GOAL), x, y)) next_hint(g);
     else if (inside(layout_screen(SCREEN_ACT), x, y)) return;
     else focus_screen(g, FOCUS_ROOM);
+}
+
+void game_scroll(game *g, int x, int y, int rows)
+{
+    if (g->menu.open || !rows) return;
+    for (int i = 0; i < SCREEN_COUNT; i++) {
+        screen_id id = (screen_id)i;
+        if (!inside(layout_screen(id), x, y)) continue;
+        if (id == SCREEN_GOAL || id == SCREEN_ACT) {
+            scroll_text(g, id, id == SCREEN_GOAL ? rows : -rows);
+            return;
+        }
+
+        history *h = id == SCREEN_OMP ? &g->omp_history : &g->shell_history;
+        pty_proc *p = id == SCREEN_OMP ? &g->omp : &g->shell;
+        if (!h->alternate && h->mouse_mode == VTERM_PROP_MOUSE_NONE) {
+            history_scroll(h, -rows);
+        } else if (p->pid > 0) {
+            VTerm *term = h->terminal->term;
+            if (h->mouse_mode != VTERM_PROP_MOUSE_NONE) {
+                int tx, ty;
+                layout_text_origin(id, &tx, &ty);
+                if (x < tx || y < ty || x >= tx + h->terminal->cols * CELL_W ||
+                    y >= ty + h->terminal->rows * CELL_H) return;
+                vterm_mouse_move(term, (y - ty) / CELL_H, (x - tx) / CELL_W, VTERM_MOD_NONE);
+                vterm_mouse_button(term, rows < 0 ? 4 : 5, true, VTERM_MOD_NONE);
+            } else {
+                int steps = rows > 0 ? rows : -rows;
+                for (int j = 0; j < steps; j++)
+                    vterm_keyboard_key(term, rows < 0 ? VTERM_KEY_UP : VTERM_KEY_DOWN,
+                                       VTERM_MOD_NONE);
+            }
+            char buf[256];
+            size_t n;
+            while ((n = neuroterm_read(h->terminal, buf, sizeof buf)) != 0)
+                pty_write(p, buf, n);
+        }
+        return;
+    }
 }
 
 static void pump(pty_proc *p, neuroterm *t, char *note, size_t notecap, const char *who)
@@ -801,7 +873,7 @@ bool game_resize(game *g, int w, int h)
     return true;
 }
 
-void game_render(game *g, sr_canvas *c)
+static view game_view(const game *g)
 {
     view v;
     memset(&v, 0, sizeof v);
@@ -814,12 +886,22 @@ void game_render(game *g, sr_canvas *c)
     v.agent_model = g->use_codex ? "Codex" : g->ollama_model;
     v.codex = g->use_codex;
     v.shell = &g->shell_vt;
+    v.omp_history = &g->omp_history;
+    v.shell_history = &g->shell_history;
     v.act = &g->act;
+    v.goal_scroll = g->goal_scroll;
+    v.action_scroll = g->action_scroll;
     v.omp_note = g->omp_note[0] ? g->omp_note : NULL;
     v.shell_note = g->shell_note[0] ? g->shell_note : NULL;
     v.goal_why = g->goal.why;
     v.hints_shown = g->hints_shown;
     v.blink = ((long)(g->now * 2.0)) % 2 == 0;
+    return v;
+}
+
+void game_render(game *g, sr_canvas *c)
+{
+    view v = game_view(g);
     render_frame(c, &v);
     if (g->menu.open)
         render_menu(c, g->menu.models, g->menu.count, g->menu.selected,

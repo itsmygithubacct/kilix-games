@@ -36,7 +36,7 @@ static void terminal_glyph(void *user, uint32_t scalar, unsigned flags, int x, i
 }
 
 /* The screen bezel has already painted the default background. */
-static void vt_cells(sr_canvas *c, const neuroterm *t, int x, int y, bool show_cursor)
+static void vt_cells(sr_canvas *c, const neuroterm *t, const history *scroll, int x, int y, bool show_cursor)
 {
     VTermPos cursor = neuroterm_cursor(t);
     const neuroterm_painter painter = {c, terminal_fill, terminal_glyph};
@@ -47,12 +47,12 @@ static void vt_cells(sr_canvas *c, const neuroterm *t, int x, int y, bool show_c
     for (int row = 0; row < t->rows; row++) {
         for (int col = 0; col < t->cols;) {
             VTermScreenCell cell;
-            if (!neuroterm_cell(t, col, row, &cell)) {
+            if (!(scroll ? history_cell(scroll, col, row, &cell) : neuroterm_cell(t, col, row, &cell))) {
                 col++;
                 continue;
             }
             int span = cell.width == 2 && col + 1 < t->cols ? 2 : 1;
-            style.cursor = show_cursor && t->cursor_visible && row == cursor.row &&
+            style.cursor = show_cursor && (!scroll || !scroll->offset) && t->cursor_visible && row == cursor.row &&
                            cursor.col >= col && cursor.col < col + span;
             neuroterm_paint_cell(t->screen, &cell, x + col * CELL_W, y + row * CELL_H,
                                  CELL_W, CELL_H, span, &style, &painter);
@@ -63,26 +63,21 @@ static void vt_cells(sr_canvas *c, const neuroterm *t, int x, int y, bool show_c
 
 /* ---- the goal and system actions panes ---- */
 
-/* Word-wrap s into lines of at most cols characters; returns line count. */
-static int wrap(const char *s, int cols, char out[][ACT_LINE_LEN], int max_lines)
+/* Split on spaces where possible, preserving UTF-8 character boundaries. */
+static const char *wrap_line(const char *s, int cols, char *line)
 {
-    int n = 0;
-    while (*s && n < max_lines) {
-        int len = (int)strlen(s);
-        int take = len < cols ? len : cols;
-        if (take < len) {
-            int sp = take;
-            while (sp > 0 && s[sp] != ' ') sp--;
-            if (sp > cols / 3) take = sp;
-        }
-        if (take >= ACT_LINE_LEN) take = ACT_LINE_LEN - 1;
-        memcpy(out[n], s, (size_t)take);
-        out[n][take] = '\0';
-        n++;
-        s += take;
-        while (*s == ' ') s++;
+    const char *p = s;
+    const char *space = NULL;
+    for (int i = 0; *p && i < cols; i++) {
+        if (*p == ' ' && i > cols / 3) space = p;
+        p++;
+        while (((unsigned char)*p & 0xc0) == 0x80) p++;
     }
-    return n;
+    if (*p && *p != ' ' && space) p = space;
+    memcpy(line, s, (size_t)(p - s));
+    line[p - s] = 0;
+    while (*p == ' ') p++;
+    return p;
 }
 
 static void text_line(sr_canvas *c, int x, int y, const char *s, uint32_t rgb, int max_cols)
@@ -112,54 +107,77 @@ static uint32_t kind_color(act_kind k)
     }
 }
 
-static void render_goal(sr_canvas *c, const view *v, int x, int y)
-{
-    char lines[8][ACT_LINE_LEN];
-    char buf[ACT_LINE_LEN + 32];
-    int row = 0, n;
-    const int cols = GOAL_COLS < ACT_LINE_LEN - 1 ? GOAL_COLS : ACT_LINE_LEN - 1;
+typedef struct pane_text {
+    sr_canvas *canvas;
+    int x, y, cols, rows, first, count;
+} pane_text;
 
-    n = wrap(v->lv->goal, cols, lines, GOAL_ROWS - 4);
-    for (int i = 0; i < n; i++)
-        text_line(c, x, y + (row++) * CELL_H, lines[i], 0xffffff, cols);
-    if (v->lv->check == CHECK_NONE)
-        snprintf(buf, sizeof buf, "COMING SOON: the next challenge is not built yet.");
-    else if (v->sc->goal_met)
-        snprintf(buf, sizeof buf, "DONE: %.100s. The door is open: walk up the aisle.",
-                 v->goal_why ? v->goal_why : "goal met");
-    else
-        snprintf(buf, sizeof buf, "NOT YET: %.150s", v->goal_why ? v->goal_why : "");
-    n = wrap(buf, cols, lines, 2);
-    uint32_t status = v->lv->check == CHECK_NONE ? 0xffe27a : v->sc->goal_met ? 0x60f080 : 0xff9f80;
-    for (int i = 0; i < n; i++)
-        text_line(c, x, y + (row++) * CELL_H, lines[i], status, cols);
-    if (v->hints_shown > 0 && v->lv->nhints > 0) {
-        int h = v->hints_shown > v->lv->nhints ? v->lv->nhints : v->hints_shown;
-        snprintf(buf, sizeof buf, "HINT %d/%d: %.160s", h, v->lv->nhints, v->lv->hints[h - 1]);
-        n = wrap(buf, cols, lines, GOAL_ROWS - row);
-        for (int i = 0; i < n; i++)
-            text_line(c, x, y + (row++) * CELL_H, lines[i], 0x9fd0ff, cols);
+static void pane_message(pane_text *pane, const char *text, uint32_t color)
+{
+    char line[LEVEL_TEXT + 32];
+    while (*text) {
+        text = wrap_line(text, pane->cols, line);
+        int row = pane->count++ - pane->first;
+        if (pane->canvas && row >= 0 && row < pane->rows)
+            text_line(pane->canvas, pane->x, pane->y + row * CELL_H, line, color, pane->cols);
     }
 }
 
-static void render_activity(sr_canvas *c, const view *v, int x, int y)
+static void goal_text(pane_text *pane, const view *v)
 {
-    int row = 0;
-    const int cols = ACT_COLS;
-    int total = v->act ? v->act->count : 0;
-    int first = total;
-    int visible = 0;
-    while (first > 0 && visible < ACT_ROWS - row) {
-        if (activity_line(v->act, --first)->kind != ACT_GOAL) visible++;
+    char buf[LEVEL_TEXT + 32];
+    pane_message(pane, v->lv->goal, 0xffffff);
+    if (v->lv->check == CHECK_NONE)
+        snprintf(buf, sizeof buf, "COMING SOON: the next challenge is not built yet.");
+    else if (v->sc->goal_met)
+        snprintf(buf, sizeof buf, "DONE: %.220s. The door is open: walk up the aisle.",
+                 v->goal_why ? v->goal_why : "goal met");
+    else
+        snprintf(buf, sizeof buf, "NOT YET: %s", v->goal_why ? v->goal_why : "");
+    uint32_t status = v->lv->check == CHECK_NONE ? 0xffe27a : v->sc->goal_met ? 0x60f080 : 0xff9f80;
+    pane_message(pane, buf, status);
+    if (v->hints_shown > 0 && v->lv->nhints > 0) {
+        int h = v->hints_shown > v->lv->nhints ? v->lv->nhints : v->hints_shown;
+        snprintf(buf, sizeof buf, "HINT %d/%d: %s", h, v->lv->nhints, v->lv->hints[h - 1]);
+        pane_message(pane, buf, 0x9fd0ff);
     }
-    if (visible == 0 && row < ACT_ROWS)
-        text_line(c, x, y + row * CELL_H, "Tool calls and file changes appear here.",
-                  0x6a7383, cols);
-    for (int i = first; i < total; i++) {
-        const act_line *l = activity_line(v->act, i);
-        if (l->kind != ACT_GOAL)
-            text_line(c, x, y + (row++) * CELL_H, l->text, kind_color(l->kind), cols);
+}
+
+static void action_text(pane_text *pane, const view *v)
+{
+    for (int i = 0; v->act && i < v->act->count; i++) {
+        const act_line *line = activity_line(v->act, i);
+        if (line->kind != ACT_GOAL)
+            pane_message(pane, line->text, kind_color(line->kind));
     }
+    if (pane->count == 0)
+        pane_message(pane, "Tool calls and file changes appear here.", 0x6a7383);
+}
+
+int render_scroll_limit(const view *v, screen_id id)
+{
+    pane_text pane = {
+        .cols = id == SCREEN_GOAL ? GOAL_COLS : ACT_COLS,
+        .rows = id == SCREEN_GOAL ? GOAL_ROWS : ACT_ROWS,
+    };
+    if (id == SCREEN_GOAL) goal_text(&pane, v);
+    else action_text(&pane, v);
+    return pane.count > pane.rows ? pane.count - pane.rows : 0;
+}
+
+static void render_pane_text(sr_canvas *c, const view *v, screen_id id, int x, int y)
+{
+    bool goal = id == SCREEN_GOAL;
+    int limit = render_scroll_limit(v, id);
+    int offset = goal ? v->goal_scroll : v->action_scroll;
+    if (offset > limit) offset = limit;
+    pane_text pane = {
+        .canvas = c, .x = x, .y = y,
+        .cols = goal ? GOAL_COLS : ACT_COLS, .rows = goal ? GOAL_ROWS : ACT_ROWS,
+        .first = goal ? offset : limit - offset,
+    };
+    if (goal) goal_text(&pane, v);
+    else action_text(&pane, v);
 }
 
 static void note_over(sr_canvas *c, screen_id id, const char *note)
@@ -295,23 +313,23 @@ void render_frame(sr_canvas *c, const view *v)
     art_screen(c, layout_screen(SCREEN_OMP), hud,
                s->focus == FOCUS_OMP, near == SCREEN_OMP);
     layout_text_origin(SCREEN_OMP, &tx, &ty);
-    if (v->omp) vt_cells(c, v->omp, tx, ty, s->focus == FOCUS_OMP && v->blink);
+    if (v->omp) vt_cells(c, v->omp, v->omp_history, tx, ty, s->focus == FOCUS_OMP && v->blink);
     if (v->omp_note) note_over(c, SCREEN_OMP, v->omp_note);
 
     art_screen(c, layout_screen(SCREEN_SHELL), "shell  -  sandbox workspace",
                s->focus == FOCUS_SHELL, near == SCREEN_SHELL);
     layout_text_origin(SCREEN_SHELL, &tx, &ty);
-    if (v->shell) vt_cells(c, v->shell, tx, ty, s->focus == FOCUS_SHELL && v->blink);
+    if (v->shell) vt_cells(c, v->shell, v->shell_history, tx, ty, s->focus == FOCUS_SHELL && v->blink);
     if (v->shell_note) note_over(c, SCREEN_SHELL, v->shell_note);
 
     snprintf(hud, sizeof hud, "Goal  |  Room %d: %.100s", v->lv->number, v->lv->title);
     art_screen(c, layout_screen(SCREEN_GOAL), hud, false, near == SCREEN_GOAL);
     layout_text_origin(SCREEN_GOAL, &tx, &ty);
-    render_goal(c, v, tx, ty);
+    render_pane_text(c, v, SCREEN_GOAL, tx, ty);
 
     art_screen(c, layout_screen(SCREEN_ACT), "System actions", false, false);
     layout_text_origin(SCREEN_ACT, &tx, &ty);
-    render_activity(c, v, tx, ty);
+    render_pane_text(c, v, SCREEN_ACT, tx, ty);
 
     if (v->lv->check == CHECK_CHEST)
         art_chest(c, v->chest, (AISLE_X0 + AISLE_X1) / 2 + 48, START_Y - 34, s->goal_met);
