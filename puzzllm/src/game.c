@@ -549,6 +549,7 @@ bool game_init(game *g, const char *root, const char *state, bool spawn,
     }
     game_enter_level(g, game_load_progress(state, g->levels.count));
     art_load_chest(&g->chest, root);
+    art_load_room(&g->room, root);
     g->started = !spawn;
     if (spawn) open_menu(g);
     return true;
@@ -561,6 +562,7 @@ void game_shutdown(game *g)
     pty_stop(&g->menu.discovery);
     clear_models(&g->menu);
     art_free_chest(&g->chest);
+    art_free_room(&g->room);
     neuroterm_free(&g->omp_vt);
     neuroterm_free(&g->shell_vt);
     if (g->state_lock >= 0) close(g->state_lock);
@@ -806,6 +808,7 @@ void game_render(game *g, sr_canvas *c)
     v.sc = &g->sc;
     v.lv = cur_level(g);
     v.chest = &g->chest;
+    v.room = &g->room;
     v.level_count = g->levels.count;
     v.omp = &g->omp_vt;
     v.agent_model = g->use_codex ? "Codex" : g->ollama_model;

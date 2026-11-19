@@ -51,6 +51,7 @@ typedef struct game {
     char workspace[2100];
     level_list levels;
     chest_art chest;
+    room_art room;
     scene sc;
     int state_lock;
     bool started;

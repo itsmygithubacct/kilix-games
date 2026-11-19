@@ -173,32 +173,35 @@ static void note_over(sr_canvas *c, screen_id id, const char *note)
     draw_text(c, bx + 12, by + 5, note, 0xffe7a0, 1.0f);
 }
 
-/* The floor, walls and runner change only with the room's look, the frame
+/* The floor, walls and runner change only with the room's art, the frame
  * size and the renderer, so they are drawn once and copied each frame. */
-static void room_background(sr_canvas *c, const char *style)
+static void room_background(sr_canvas *c, const room_art *art, const char *style)
 {
     static sr_canvas bg;
     static char bg_style[32];
     static char bg_renderer[16];
+    static unsigned bg_revision;
+    unsigned revision = art ? art->revision : 0;
     char renderer[16];
 
     snprintf(renderer, sizeof renderer, "%.15s", draw_renderer());
     if (bg.px == NULL || bg.w != c->w || bg.h != c->h ||
-        strcmp(bg_style, style ? style : "") != 0 || strcmp(bg_renderer, renderer) != 0) {
+        bg_revision != revision || strcmp(bg_style, style ? style : "") != 0 || strcmp(bg_renderer, renderer) != 0) {
         sr_canvas_free(&bg);
         if (!sr_canvas_init(&bg, c->w, c->h)) {
-            art_room(c, style);
+            art_room(c, art, style);
             art_screen_glass(c, layout_screen(SCREEN_OMP), TERM_BG);
             art_screen_glass(c, layout_screen(SCREEN_SHELL), TERM_BG);
             art_screen_glass(c, layout_screen(SCREEN_ACT), ACT_BG);
             art_screen_glass(c, layout_screen(SCREEN_GOAL), ACT_BG);
             return;
         }
-        art_room(&bg, style);
+        art_room(&bg, art, style);
         art_screen_glass(&bg, layout_screen(SCREEN_OMP), TERM_BG);
         art_screen_glass(&bg, layout_screen(SCREEN_SHELL), TERM_BG);
         art_screen_glass(&bg, layout_screen(SCREEN_ACT), ACT_BG);
         art_screen_glass(&bg, layout_screen(SCREEN_GOAL), ACT_BG);
+        bg_revision = revision;
         snprintf(bg_style, sizeof bg_style, "%s", style ? style : "");
         snprintf(bg_renderer, sizeof bg_renderer, "%s", renderer);
     }
@@ -283,8 +286,8 @@ void render_frame(sr_canvas *c, const view *v)
     char hud[256];
     int next_room = s->level + 2;
 
-    room_background(c, v->lv->room);
-    art_door(c, v->lv->room, s->door, next_room <= v->level_count ? next_room : 0);
+    room_background(c, v->room, v->lv->room);
+    art_door(c, v->room, v->lv->room, s->door, next_room <= v->level_count ? next_room : 0);
 
     if (v->codex) snprintf(hud, sizeof hud, "Codex  -  OpenAI agent");
     else snprintf(hud, sizeof hud, "omp  -  %.36s",
@@ -311,7 +314,7 @@ void render_frame(sr_canvas *c, const view *v)
     render_activity(c, v, tx, ty);
 
     if (v->lv->check == CHECK_CHEST)
-        art_chest(c, v->chest, (AISLE_X0 + AISLE_X1) / 2 + 16, START_Y - 34, s->goal_met);
+        art_chest(c, v->chest, (AISLE_X0 + AISLE_X1) / 2 + 48, START_Y - 34, s->goal_met);
     art_kilix(c, s->x, s->y, s->dir, s->step_ticks, s->idle_ticks);
     if (s->focus == FOCUS_ROOM) {
         if (near == SCREEN_OMP) art_prompt(c, s->x, s->y - ART_KILIX_HEIGHT - 6, "Enter: talk to the agent");

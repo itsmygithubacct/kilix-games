@@ -16,6 +16,7 @@ typedef struct view {
     const scene *sc;
     const level *lv;
     const chest_art *chest;
+    const room_art *room;
     int level_count;
     const neuroterm *omp;            /* may be NULL */
     const neuroterm *shell;          /* may be NULL */

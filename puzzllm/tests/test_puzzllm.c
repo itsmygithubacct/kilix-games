@@ -1247,6 +1247,39 @@ static void test_start_and_reset_menu(void)
     game_shutdown(&G);
 }
 
+static void test_room_art(void)
+{
+    room_art art = {0};
+    sr_canvas frame = {0};
+    layout_set(LAYOUT_DEFAULT_W, LAYOUT_DEFAULT_H);
+    art_load_room(&art, ".");
+    bool loaded = art.stone.pixels && art.brick.pixels && art.floor.pixels &&
+                  art.door.pixels && art.passage.pixels;
+    CHECK(loaded, "all five generated room assets load");
+    if (loaded && sr_canvas_init(&frame, CANVAS_W, CANVAS_H)) {
+        int x = 24, y = 50;
+        art_room(&frame, &art, "stone");
+        CHECK(at(&frame, x, y) == (art.stone.pixels[y * art.stone.w + x] & 0xffffff),
+              "the stone room uses the stone wall texture");
+        CHECK(at(&frame, x, WALL_H + y) == (art.floor.pixels[y * art.floor.w + x] & 0xffffff) &&
+              at(&frame, x + art.floor.w, WALL_H + y) == at(&frame, x, WALL_H + y),
+              "the slate floor texture repeats");
+        art_room(&frame, &art, "brick");
+        CHECK(at(&frame, x, y) == (art.brick.pixels[y * art.brick.w + x] & 0xffffff),
+              "the brick room uses the brick wall texture");
+        art_door(&frame, &art, "brick", 0, 2);
+        CHECK(at(&frame, DOOR_X + x, DOOR_Y + y) == (art.door.pixels[y * art.door.w + x] & 0xffffff),
+              "the closed door uses the wood sprite");
+        art_door(&frame, &art, "brick", 1, 2);
+        CHECK(at(&frame, DOOR_X + x, DOOR_Y + y) == (art.passage.pixels[y * art.passage.w + x] & 0xffffff),
+              "the open door reveals the lit passage");
+    } else {
+        CHECK(false, "room art canvas initialized");
+    }
+    sr_canvas_free(&frame);
+    art_free_room(&art);
+}
+
 static void test_chest_art(void)
 {
     chest_art art = {0};
@@ -1352,6 +1385,7 @@ int main(void)
     test_goal_and_action_panes();
     test_thinking_menu();
     test_codex_menu();
+    test_room_art();
     test_chest_art();
     test_start_and_reset_menu();
     test_neuroterm();

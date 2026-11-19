@@ -1,4 +1,4 @@
-/* art.c - placeholder art; see art.h. */
+/* art.c - room materials, props, and screen bezels. */
 #include "art.h"
 #include "draw.h"
 #include "kilix_art.h"
@@ -31,16 +31,8 @@ static palette room_palette(const char *style)
     return p;
 }
 
-void art_room(sr_canvas *c, const char *style)
+static void draw_wall_fallback(sr_canvas *c, palette p)
 {
-    palette p = room_palette(style);
-
-    /* floor tiles */
-    for (int y = WALL_H; y < CANVAS_H; y += 32)
-        for (int x = 0; x < CANVAS_W; x += 32)
-            draw_fill(c, (float)x, (float)y, 32, 32,
-                         ((x / 32 + y / 32) & 1) ? p.floor_a : p.floor_b, 1.0f);
-    /* back wall: staggered blocks */
     draw_fill(c, 0, 0, CANVAS_W, WALL_H, p.wall_mortar, 1.0f);
     for (int row = 0; row * 20 < WALL_H; row++) {
         int off = (row & 1) ? 24 : 0;
@@ -48,6 +40,33 @@ void art_room(sr_canvas *c, const char *style)
             draw_fill(c, (float)x + 2, (float)row * 20 + 2, 44, 16,
                          sr_scale_rgb(p.wall, 0.9f + 0.1f * (float)((x / 48 + row) % 3) / 2.0f),
                          1.0f);
+    }
+}
+
+void art_room(sr_canvas *c, const room_art *art, const char *style)
+{
+    palette p = room_palette(style);
+    const art_sprite *wall = NULL;
+    if (art)
+        wall = style && strcmp(style, "brick") == 0 ? &art->brick : &art->stone;
+
+    if (wall && wall->pixels) {
+        for (int x = 0; x < CANVAS_W; x += wall->w)
+            draw_picture(c, wall->pixels, wall->w, wall->h, x, 0, wall->w, WALL_H, 1);
+    } else {
+        draw_wall_fallback(c, p);
+    }
+    if (art && art->floor.pixels) {
+        const art_sprite *floor = &art->floor;
+        for (int y = WALL_H; y < CANVAS_H; y += floor->h)
+            for (int x = 0; x < CANVAS_W; x += floor->w)
+                draw_picture(c, floor->pixels, floor->w, floor->h,
+                             x, y, floor->w, floor->h, 1);
+    } else {
+        for (int y = WALL_H; y < CANVAS_H; y += 32)
+            for (int x = 0; x < CANVAS_W; x += 32)
+                draw_fill(c, x, y, 32, 32,
+                          ((x / 32 + y / 32) & 1) ? p.floor_a : p.floor_b, 1);
     }
     draw_fill(c, 0, WALL_H - 6, CANVAS_W, 6, p.wall_shadow, 1.0f);
     draw_fill(c, 0, WALL_H, CANVAS_W, 10, 0x000000, 0.25f);
@@ -57,13 +76,18 @@ void art_room(sr_canvas *c, const char *style)
     /* runner from the door down the aisle to the floor */
     draw_fill(c, AISLE_X0 - 8, WALL_H, (AISLE_X1 - AISLE_X0) + 16,
                  FLOOR_Y - WALL_H + 40, p.runner_edge, 1.0f);
-    draw_fill(c, AISLE_X0 - 4, WALL_H, (AISLE_X1 - AISLE_X0) + 8,
-                 FLOOR_Y - WALL_H + 36, p.runner, 1.0f);
+    int runner_h = FLOOR_Y - WALL_H + 36;
+    draw_fill(c, AISLE_X0 - 5, WALL_H, AISLE_X1 - AISLE_X0 + 10,
+              runner_h + 2, sr_scale_rgb(p.runner, 0.58f), 1);
+    draw_fill(c, AISLE_X0 - 2, WALL_H, AISLE_X1 - AISLE_X0 + 4,
+              runner_h, p.runner, 1);
+    for (int y = WALL_H + 24; y < WALL_H + runner_h; y += 24)
+        draw_fill(c, AISLE_X0 - 2, y, AISLE_X1 - AISLE_X0 + 4, 1, 0x000000, 0.12f);
     /* HUD strip */
     draw_fill(c, 0, HUD_Y, CANVAS_W, CANVAS_H - HUD_Y, 0x000000, 0.55f);
 }
 
-void art_door(sr_canvas *c, const char *style, float open, int next_room)
+void art_door(sr_canvas *c, const room_art *art, const char *style, float open, int next_room)
 {
     palette p = room_palette(style);
     float lift;
@@ -74,16 +98,28 @@ void art_door(sr_canvas *c, const char *style, float open, int next_room)
     /* frame */
     draw_fill(c, DOOR_X - 8, DOOR_Y - 8, DOOR_W + 16, DOOR_H + 8, p.frame, 1.0f);
     /* the passage beyond: light spilling from the next room */
-    for (int i = 0; i < DOOR_H; i++) {
-        float t = (float)i / DOOR_H;
-        draw_fill(c, DOOR_X, (float)(DOOR_Y + i), DOOR_W, 1,
-                     sr_mix(0xfff1b8, 0xd9a441, t), 1.0f);
+    if (art && art->passage.pixels) {
+        const art_sprite *passage = &art->passage;
+        draw_picture(c, passage->pixels, passage->w, passage->h,
+                     DOOR_X, DOOR_Y, DOOR_W, DOOR_H, 1);
+    } else {
+        for (int i = 0; i < DOOR_H; i++) {
+            float t = (float)i / DOOR_H;
+            draw_fill(c, DOOR_X, DOOR_Y + i, DOOR_W, 1,
+                      sr_mix(0xfff1b8, 0xd9a441, t), 1);
+        }
     }
     /* door leaf slides up into the wall */
     lift = open * (DOOR_H - 6);
-    if (DOOR_H - lift > 0) {
+    int h = DOOR_H - (int)lroundf(lift);
+    if (art && art->door.pixels) {
+        const art_sprite *door = &art->door;
+        int rows = (door->h * h + DOOR_H - 1) / DOOR_H;
+        const uint32_t *bottom = door->pixels + (door->h - rows) * door->w;
+        draw_fill(c, DOOR_X, DOOR_Y, DOOR_W, h, p.door_dark, 1);
+        draw_picture(c, bottom, door->w, rows, DOOR_X, DOOR_Y, DOOR_W, h, 1);
+    } else {
         float top = DOOR_Y;
-        float h = DOOR_H - lift;
         draw_fill(c, DOOR_X, top, DOOR_W, h, p.door_wood, 1.0f);
         for (int k = 1; k < 4; k++)
             draw_fill(c, (float)(DOOR_X + k * DOOR_W / 4) - 1, top, 2, h,
@@ -93,8 +129,9 @@ void art_door(sr_canvas *c, const char *style, float open, int next_room)
             draw_disc(c, DOOR_X + DOOR_W - 12, DOOR_Y + DOOR_H / 2.0f, 4, 4,
                            0xe0c060, 1.0f);
     }
-    if (open > 0.0f)   /* light on the runner */
-        draw_fill(c, DOOR_X, DOOR_Y + DOOR_H, DOOR_W, 40, 0xfff1b8, 0.25f * open);
+    for (int i = 0; open > 0.0f && i < 8; i++)
+        draw_fill(c, DOOR_X, DOOR_Y + DOOR_H + i * 5, DOOR_W, 5,
+                  0xffbf72, 0.035f * (8 - i) * open);
     /* lamp above the door: red shut, green open */
     draw_disc(c, DOOR_X + DOOR_W / 2.0f, 6, 4, 4,
                    open >= 1.0f ? 0x40e070 : 0xe04040, 1.0f);
@@ -159,7 +196,7 @@ void art_prompt(sr_canvas *c, float x, float y, const char *text)
     draw_text(c, bx + 8, y - 23, text, 0xfff0c0, 1.0f);
 }
 
-static void load_sprite(chest_sprite *sprite, const char *root, const char *name)
+static void load_sprite(art_sprite *sprite, const char *root, const char *name)
 {
     char path[4096];
     kilix_asset_image image = {0};
@@ -183,9 +220,30 @@ static void load_sprite(chest_sprite *sprite, const char *root, const char *name
                 pixels[(size_t)y * image.width + x] = (a << 24) | (r << 16) | (g << 8) | b;
             }
         }
-        *sprite = (chest_sprite){pixels, (int)image.width, (int)image.height};
+        *sprite = (art_sprite){pixels, (int)image.width, (int)image.height};
     }
     kilix_asset_image_clear(&image);
+}
+
+void art_load_room(room_art *art, const char *root)
+{
+    static unsigned revision;
+    load_sprite(&art->stone, root, "wall-stone.png");
+    load_sprite(&art->brick, root, "wall-brick.png");
+    load_sprite(&art->floor, root, "floor.png");
+    load_sprite(&art->door, root, "door-leaf.png");
+    load_sprite(&art->passage, root, "door-passage.png");
+    art->revision = ++revision;
+}
+
+void art_free_room(room_art *art)
+{
+    free(art->stone.pixels);
+    free(art->brick.pixels);
+    free(art->floor.pixels);
+    free(art->door.pixels);
+    free(art->passage.pixels);
+    *art = (room_art){0};
 }
 
 void art_load_chest(chest_art *art, const char *root)
@@ -228,11 +286,11 @@ void art_chest(sr_canvas *c, const chest_art *art, int x, int y, bool open)
         draw_chest_placeholder(c, x, y - 32, open);
         return;
     }
-    const chest_sprite *sprite = open ? &art->open : &art->closed;
+    const art_sprite *sprite = open ? &art->open : &art->closed;
     draw_picture(c, sprite->pixels, sprite->w, sprite->h,
                  x, y - sprite->h, sprite->w, sprite->h, 1.0f);
     if (open) {
-        const chest_sprite *key = &art->key;
+        const art_sprite *key = &art->key;
         draw_picture(c, key->pixels, key->w, key->h,
                      x + (sprite->w - key->w) / 2, y - 34, key->w, key->h, 1.0f);
     }
