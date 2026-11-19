@@ -20,6 +20,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <glob.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1091,6 +1092,59 @@ static void test_menu(void)
     game_shutdown(&G);
 }
 
+static void menu_press(uint32_t key)
+{
+    key_event ev = {.key = key, .action = 1};
+    game_key(&G, &ev);
+}
+
+static void test_start_and_reset_menu(void)
+{
+    char err[256], state[2300], file[2400], pattern[2500];
+    sub(state, sizeof state, "menu-reset-state");
+    CHECK(game_init(&G, ".", state, false, err, sizeof err), "prepare save: %s", err);
+    CHECK(game_save_progress(state, 2), "save level 3");
+    snprintf(file, sizeof file, "%s/workspace/keepsake", state);
+    write_file(file, "keep me", 7);
+    game_shutdown(&G);
+
+    CHECK(game_init(&G, ".", state, true, err, sizeof err), "interactive launch: %s", err);
+    CHECK(G.menu.open && !G.started && G.omp.pid == 0 && G.shell.pid == 0,
+          "interactive launch waits at menu before starting the terminals");
+    menu_press(KEY_ESCAPE);
+    CHECK(G.menu.open, "Escape keeps the initial menu open");
+    G.spawn = false;  /* Drive the menu without running the terminal children. */
+    menu_press(KEY_ENTER);
+    CHECK(G.started && !G.menu.open && G.sc.level == 2,
+          "start continues the existing save");
+
+    menu_press(KEY_ESCAPE);
+    menu_press(KEY_DOWN);
+    menu_press(KEY_DOWN);
+    menu_press(KEY_ENTER);
+    CHECK(G.menu.confirm_reset && G.sc.level == 2 && access(file, F_OK) == 0,
+          "reset asks before changing the save");
+    menu_press(KEY_ESCAPE);
+    CHECK(G.menu.open && !G.menu.confirm_reset && access(file, F_OK) == 0,
+          "Escape cancels reset and keeps the save");
+
+    menu_press(KEY_ENTER);
+    menu_press(KEY_ENTER);
+    CHECK(G.menu.open && !G.started && G.sc.level == 0 && !G.sc.goal_met,
+          "confirmed reset returns to the menu at level 1");
+    CHECK(access(file, F_OK) != 0 && game_load_progress(state, G.levels.count) == 0,
+          "reset clears the active workspace and persisted level");
+    snprintf(pattern, sizeof pattern, "%s/reset-*/workspace/keepsake", state);
+    glob_t backup = {0};
+    CHECK(glob(pattern, 0, NULL, &backup) == 0 && backup.gl_pathc == 1,
+          "reset backs up the old workspace");
+    globfree(&backup);
+
+    menu_press(KEY_ENTER);
+    CHECK(G.started && !G.menu.open && G.sc.level == 0, "start after reset enters level 1");
+    game_shutdown(&G);
+}
+
 int main(void)
 {
     const char *dir = getenv("PUZZLLM_TEST_DIR");
@@ -1100,6 +1154,7 @@ int main(void)
     }
     snprintf(scratch, sizeof scratch, "%s", dir);
     test_menu();
+    test_start_and_reset_menu();
     test_neuroterm();
     test_keys();
     test_levels();

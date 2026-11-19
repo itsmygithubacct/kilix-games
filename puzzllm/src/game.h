@@ -23,6 +23,8 @@ typedef struct game_menu {
     bool open;
     bool loading;
     bool load_failed;
+    bool confirm_reset;
+    char notice[160];
     int selected;
     char **models;
     int count;
@@ -38,6 +40,7 @@ typedef struct game {
     level_list levels;
     scene sc;
     int state_lock;
+    bool started;
     bool spawn;             /* start the sandboxes (false in tests) */
     neuroterm omp_vt, shell_vt;
     pty_proc omp, shell;

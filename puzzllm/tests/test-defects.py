@@ -16,7 +16,14 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # (name, file, old, new, make target[, "neuronte" when it needs that build])
 DEFECTS = [
     ("escape cannot open the game menu",
-     "src/game.c", "            else open_menu(g);", "", "test-unit"),
+     "src/game.c", "            else if (!g->menu.open) open_menu(g);", "", "test-unit"),
+    ("interactive launch skips the menu",
+     "src/game.c", "    if (spawn) open_menu(g);", "", "test-unit"),
+    ("menu reset skips confirmation",
+     "src/game.c", "if (menu->selected == MENU_RESET) menu->confirm_reset = true;",
+     "if (menu->selected == MENU_RESET) reset_from_menu(g);", "test-unit"),
+    ("menu reset keeps the current room",
+     "src/game.c", "    game_enter_level(g, 0);", "", "test-unit"),
     ("selecting an Ollama model does not apply it",
      "src/game.c", '                snprintf(g->ollama_model, sizeof g->ollama_model, "%s", name);',
      "", "test-unit"),

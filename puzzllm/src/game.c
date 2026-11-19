@@ -87,12 +87,10 @@ static int lock_state(const char *state)
     return fd;
 }
 
-bool game_reset_progress(const char *state)
+/* The caller holds the state lock. */
+static bool reset_progress(const char *state)
 {
     char workspace[4096], backup[4096], path[4096];
-    if (!make_dirs(state)) return false;
-    int lock = lock_state(state);
-    if (lock < 0) return false;
     snprintf(workspace, sizeof workspace, "%s/workspace", state);
     snprintf(backup, sizeof backup, "%s/reset-XXXXXX", state);
     bool made_backup = mkdtemp(backup) != NULL;
@@ -121,6 +119,17 @@ bool game_reset_progress(const char *state)
     if (ok) ok = make_dirs(workspace);
     int error = errno;
     if (made_backup) rmdir(backup);  /* only removes an empty backup */
+    errno = error;
+    return ok;
+}
+
+bool game_reset_progress(const char *state)
+{
+    if (!make_dirs(state)) return false;
+    int lock = lock_state(state);
+    if (lock < 0) return false;
+    bool ok = reset_progress(state);
+    int error = errno;
     close(lock);
     errno = error;
     return ok;
@@ -357,10 +366,52 @@ static void poll_models(game_menu *menu)
     }
 }
 
+static void start_play(game *g)
+{
+    if (!g->started) {
+        g->started = true;
+        if (g->spawn) {
+            spawn_omp(g);
+            spawn_shell(g);
+        }
+    }
+    g->menu.open = false;
+}
+
+static void reset_from_menu(game *g)
+{
+    g->menu.confirm_reset = false;
+    if (g->state_lock < 0) {
+        snprintf(g->menu.notice, sizeof g->menu.notice, "Could not lock the save for reset.");
+        return;
+    }
+    pty_stop(&g->omp);
+    pty_stop(&g->shell);
+    pty_init(&g->omp);
+    pty_init(&g->shell);
+    g->started = false;
+    if (!reset_progress(g->state)) {
+        snprintf(g->menu.notice, sizeof g->menu.notice, "Reset failed: %s", strerror(errno));
+        return;
+    }
+    neuroterm_feed(&g->omp_vt, "\033c", 2);
+    neuroterm_feed(&g->shell_vt, "\033c", 2);
+    g->omp_note[0] = g->shell_note[0] = 0;
+    g->transition_pending = false;
+    g->tick_debt = g->poll_timer = 0;
+    game_enter_level(g, 0);
+    g->menu.selected = MENU_RESUME;
+    snprintf(g->menu.notice, sizeof g->menu.notice, "Progress reset. Previous files backed up.");
+}
+
 static void menu_key(game *g, const key_event *ev)
 {
     game_menu *menu = &g->menu;
     int last = menu->count + MENU_LOCAL;
+    if (menu->confirm_reset) {
+        if (ev->key == KEY_ENTER && ev->action != 2) reset_from_menu(g);
+        return;
+    }
     switch (ev->key) {
     case KEY_UP:
         if (menu->selected > 0) menu->selected--;
@@ -376,18 +427,21 @@ static void menu_key(game *g, const key_event *ev)
         break;
     case KEY_ENTER:
         if (ev->action == 2) break;
-        menu->open = false;
+        menu->notice[0] = 0;
+        if (menu->selected == MENU_RESUME) start_play(g);
         if (menu->selected == MENU_QUIT) g->quit = true;
+        if (menu->selected == MENU_RESET) menu->confirm_reset = true;
         if (menu->selected >= MENU_LOCAL) {
             const char *name = menu->selected == MENU_LOCAL ? "" :
                                menu->models[menu->selected - MENU_FIRST_OLLAMA];
             if (strcmp(name, g->ollama_model) != 0 || (g->spawn && pty_poll_exit(&g->omp))) {
                 snprintf(g->ollama_model, sizeof g->ollama_model, "%s", name);
-                if (g->spawn) {
+                if (g->spawn && g->started) {
                     pty_stop(&g->omp);
                     spawn_omp(g);
                 }
             }
+            if (g->started) menu->open = false;
         }
         break;
     default:
@@ -453,10 +507,8 @@ bool game_init(game *g, const char *root, const char *state, bool spawn,
         return false;
     }
     game_enter_level(g, game_load_progress(state, g->levels.count));
-    if (spawn) {
-        spawn_omp(g);
-        spawn_shell(g);
-    }
+    g->started = !spawn;
+    if (spawn) open_menu(g);
     return true;
 }
 
@@ -519,8 +571,9 @@ void game_key(game *g, const key_event *ev)
 
     if (ev->key == KEY_ESCAPE && ev->mods == 0) {
         if (press && ev->action != 2) {
-            if (g->menu.open) g->menu.open = false;
-            else open_menu(g);
+            if (g->menu.confirm_reset) g->menu.confirm_reset = false;
+            else if (!g->menu.open) open_menu(g);
+            else if (g->started) g->menu.open = false;
         }
         return;
     }
@@ -694,5 +747,6 @@ void game_render(game *g, sr_canvas *c)
     render_frame(c, &v);
     if (g->menu.open)
         render_menu(c, g->menu.models, g->menu.count, g->menu.selected,
-                    g->ollama_model, g->menu.loading, g->menu.load_failed);
+                    g->ollama_model, g->menu.loading, g->menu.load_failed,
+                    g->started, g->sc.level + 1, g->menu.confirm_reset, g->menu.notice);
 }

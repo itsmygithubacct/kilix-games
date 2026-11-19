@@ -48,8 +48,10 @@ Hints come one at a time, every 45 seconds or on H. Progress is kept in
 reached. If an omp or shell session ends, press Enter on its screen to
 start a new one.
 
-In the Escape menu, use Up and Down to choose **Resume game**, **Exit game**,
-or an agent model, then press Enter. The list refreshes each time you open
+The game opens on its menu. Use Up and Down to choose **Start game** or
+continue your save, **Exit game**, **Reset progress**, or an agent model.
+Press Enter to select. Reset asks for confirmation, backs up the current
+workspace, and returns you to the menu at level 1. The list refreshes each time you open
 the menu and includes the default llama.cpp model and the models installed
 on the local Ollama service. Model changes restart the agent with a fresh
 conversation in the same workspace. Choices apply until you quit.

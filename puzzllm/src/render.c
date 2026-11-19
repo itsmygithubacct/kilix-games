@@ -202,9 +202,13 @@ static void room_background(sr_canvas *c, const char *style)
 }
 
 void render_menu(sr_canvas *c, char *const *models, int count, int selected,
-                 const char *active_model, bool loading, bool failed)
+                 const char *active_model, bool loading, bool failed,
+                 bool started, int level, bool confirm_reset, const char *notice)
 {
-    static const char *const actions[] = {"Resume game", "Exit game", "Qwen 3.5 (llama.cpp)"};
+    static const char *const actions[] = {
+        [MENU_QUIT] = "Exit game", [MENU_RESET] = "Reset progress",
+        [MENU_LOCAL] = "Qwen 3.5 (llama.cpp)",
+    };
     int width = 560, row_h = 27;
     int rows = (c->h - 180) / row_h;
     int options = count + MENU_FIRST_OLLAMA;
@@ -217,6 +221,16 @@ void render_menu(sr_canvas *c, char *const *models, int count, int selected,
     char label[320];
 
     draw_fill(c, 0, 0, c->w, c->h, 0x0c1018, 0.72f);
+    if (confirm_reset) {
+        int top = (c->h - 130) / 2;
+        draw_fill(c, x, top, width, 130, 0x151d29, 1);
+        draw_stroke(c, x, top, width, 130, 2, 0x826b47, 1);
+        draw_text(c, x + 18, top + 16, "Reset progress?", 0xffde8c, 1);
+        draw_text(c, x + 18, top + 46, "Start at level 1. The current workspace will be backed up.",
+                  0xf2efeb, 1);
+        draw_text(c, x + 18, top + 93, "Enter reset    Esc cancel", 0xbccadb, 1);
+        return;
+    }
     draw_fill(c, x, y, width, height, 0x151d29, 1);
     draw_stroke(c, x, y, width, height, 2, 0x826b47, 1);
     draw_text(c, x + 18, y + 13, "Game menu", 0xffde8c, 1);
@@ -227,20 +241,27 @@ void render_menu(sr_canvas *c, char *const *models, int count, int selected,
         int row_y = y + 62 + (i - first) * row_h;
         if (i == selected)
             draw_fill(c, x + 11, row_y, width - 22, row_h - 2, 0x354356, 1);
-        if (i < MENU_FIRST_OLLAMA)
+        if (i == MENU_RESUME) {
+            if (started) snprintf(label, sizeof label, "Resume game");
+            else if (level > 1) snprintf(label, sizeof label, "Continue from level %d", level);
+            else snprintf(label, sizeof label, "Start game");
+        } else if (i < MENU_FIRST_OLLAMA)
             snprintf(label, sizeof label, "%s", actions[i]);
         else
             snprintf(label, sizeof label, "%s (Ollama)", models[i - MENU_FIRST_OLLAMA]);
         text_line(c, x + 20, row_y + 5, label, 0xf2efeb, (width - 40) / CELL_W);
     }
-    if (loading || failed || count == 0 || options > rows) {
-        if (loading) snprintf(label, sizeof label, "Looking for installed Ollama models...");
+    if (*notice || loading || failed || count == 0 || options > rows) {
+        if (*notice) snprintf(label, sizeof label, "%s", notice);
+        else if (loading) snprintf(label, sizeof label, "Looking for installed Ollama models...");
         else if (failed) snprintf(label, sizeof label, "Could not reach the local Ollama service.");
         else if (count == 0) snprintf(label, sizeof label, "No installed Ollama models found.");
         else snprintf(label, sizeof label, "Options %d-%d of %d", first + 1, first + rows, options);
-        draw_text(c, x + 18, y + height - 48, label, 0xa6b5c6, 1);
+        text_line(c, x + 18, y + height - 48, label, 0xa6b5c6, (width - 36) / CELL_W);
     }
-    draw_text(c, x + 18, y + height - 26, "Up/Down move    Enter select    Esc close", 0xbccadb, 1);
+    draw_text(c, x + 18, y + height - 26,
+              started ? "Up/Down move    Enter select    Esc close" : "Up/Down move    Enter select",
+              0xbccadb, 1);
 }
 
 void render_frame(sr_canvas *c, const view *v)
