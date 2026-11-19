@@ -203,9 +203,9 @@ static int play(const char *root, const char *state)
     return rc;
 }
 
-static void feed(vt *t, const char *s)
+static void feed(neuroterm *t, const char *s)
 {
-    vt_feed(t, s, strlen(s));
+    neuroterm_feed(t, s, strlen(s));
 }
 
 /* Headless: draw three states of the room to DIR as PPM files. */

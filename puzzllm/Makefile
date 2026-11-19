@@ -18,9 +18,12 @@ DEPFLAGS := -MMD -MP
 
 B        := build
 O        := $(B)/obj
-CORE     := vt keys pty levels json activity layout scene draw art render game \
+CORE     := neuroterm keys pty levels json activity layout scene draw art render game \
 	kilix_art damage
-CORE_OBJ := $(CORE:%=$(O)/%.o)
+VTERM := third_party/libvterm
+VTERM_SRC := encoding keyboard mouse parser pen screen state unicode vterm
+CORE_OBJ := $(CORE:%=$(O)/%.o) $(VTERM_SRC:%=$(O)/libvterm/%.o)
+override CPPFLAGS += -I$(VTERM)/include
 
 # The renderer. zell-neuronte's Neuronte renderer is built when a Neuronte
 # checkout (github.com/itsmygithubacct/neuronte) is at NEURONTE; its two
@@ -72,6 +75,12 @@ $(O):
 
 $(O)/%.o: src/%.c | $(O)
 	$(CC) $(CPPFLAGS) $(DEPFLAGS) $(CFLAGS) -c -o $@ $<
+
+$(O)/libvterm:
+	mkdir -p $@
+
+$(O)/libvterm/%.o: $(VTERM)/src/%.c | $(O)/libvterm
+	$(CC) $(CPPFLAGS) $(DEPFLAGS) $(filter-out -Wall -Wextra -Wpedantic,$(CFLAGS)) -c -o $@ $<
 
 # draw.o holds the renderer choice; this file changes when the choice does,
 # so switching RENDER or NEURONTE compiles it again.

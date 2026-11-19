@@ -268,7 +268,7 @@ static void spawn_omp(game *g)
     snprintf(sandbox, sizeof sandbox, "%s/libexec/puzzllm-sandbox", g->root);
     snprintf(st_env, sizeof st_env, "PUZZLLM_STATE=%s", g->state);
     snprintf(model_env, sizeof model_env, "PUZZLLM_OLLAMA_MODEL=%s", g->ollama_model);
-    vt_feed(&g->omp_vt, "\033c", 2);
+    neuroterm_feed(&g->omp_vt, "\033c", 2);
     g->omp_note[0] = '\0';
     if (!pty_spawn(&g->omp, argv, env, OMP_COLS, OMP_ROWS))
         snprintf(g->omp_note, sizeof g->omp_note, "could not start the agent sandbox");
@@ -284,7 +284,7 @@ static void spawn_shell(game *g)
 
     snprintf(sandbox, sizeof sandbox, "%s/libexec/puzzllm-sandbox", g->root);
     snprintf(st_env, sizeof st_env, "PUZZLLM_STATE=%s", g->state);
-    vt_feed(&g->shell_vt, "\033[2J\033[H", 7);
+    neuroterm_feed(&g->shell_vt, "\033[2J\033[H", 7);
     g->shell_note[0] = '\0';
     if (!pty_spawn(&g->shell, argv, env, SHELL_COLS, SHELL_ROWS))
         snprintf(g->shell_note, sizeof g->shell_note, "could not start the shell sandbox");
@@ -432,8 +432,8 @@ bool game_init(game *g, const char *root, const char *state, bool spawn,
         snprintf(err, errcap, "%s: %s", g->workspace, strerror(errno));
         return false;
     }
-    if (!vt_init(&g->omp_vt, OMP_COLS, OMP_ROWS) ||
-        !vt_init(&g->shell_vt, SHELL_COLS, SHELL_ROWS)) {
+    if (!neuroterm_init(&g->omp_vt, OMP_COLS, OMP_ROWS) ||
+        !neuroterm_init(&g->shell_vt, SHELL_COLS, SHELL_ROWS)) {
         snprintf(err, errcap, "out of memory");
         return false;
     }
@@ -466,8 +466,8 @@ void game_shutdown(game *g)
     pty_stop(&g->shell);
     pty_stop(&g->menu.discovery);
     clear_models(&g->menu);
-    vt_free(&g->omp_vt);
-    vt_free(&g->shell_vt);
+    neuroterm_free(&g->omp_vt);
+    neuroterm_free(&g->shell_vt);
     if (g->state_lock >= 0) close(g->state_lock);
     g->state_lock = -1;
 }
@@ -539,7 +539,7 @@ void game_key(game *g, const key_event *ev)
 
     if (g->sc.focus != FOCUS_ROOM) {
         pty_proc *p = g->sc.focus == FOCUS_OMP ? &g->omp : &g->shell;
-        vt *t = g->sc.focus == FOCUS_OMP ? &g->omp_vt : &g->shell_vt;
+        neuroterm *t = g->sc.focus == FOCUS_OMP ? &g->omp_vt : &g->shell_vt;
         char buf[256];
         size_t n;
         if (!press) return;
@@ -547,7 +547,7 @@ void game_key(game *g, const key_event *ev)
             if (ev->key == KEY_ENTER && g->spawn) focus_screen(g, g->sc.focus);
             return;
         }
-        n = keys_encode(ev, t->app_cursor, buf, sizeof buf);
+        n = neuroterm_key(t, ev, buf, sizeof buf);
         if (n > 0) pty_write(p, buf, n);
         return;
     }
@@ -589,17 +589,16 @@ void game_click(game *g, int x, int y)
     else focus_screen(g, FOCUS_ROOM);
 }
 
-static void pump(pty_proc *p, vt *t, char *note, size_t notecap, const char *who)
+static void pump(pty_proc *p, neuroterm *t, char *note, size_t notecap, const char *who)
 {
-    char buf[16384], reply[VT_REPLY_CAP];
+    char buf[16384], reply[256];
     for (int i = 0; i < 16; i++) {   /* bounded per frame */
         long n = pty_read(p, buf, sizeof buf);
         if (n <= 0) break;
-        vt_feed(t, buf, (size_t)n);
-        {
-            size_t r = vt_take_reply(t, reply, sizeof reply);
-            if (r > 0) pty_write(p, reply, r);
-        }
+        neuroterm_feed(t, buf, (size_t)n);
+        size_t bytes;
+        while ((bytes = neuroterm_read(t, reply, sizeof reply)) != 0)
+            pty_write(p, reply, bytes);
     }
     if (p->pid > 0 && pty_poll_exit(p) && note[0] == '\0')
         snprintf(note, notecap, "%s exited - press Enter here to restart", who);
@@ -669,8 +668,8 @@ bool game_resize(game *g, int w, int h)
 {
     layout old = L;
     if (!layout_set(w, h)) return false;
-    if (vt_resize(&g->omp_vt, OMP_COLS, OMP_ROWS)) pty_resize(&g->omp, OMP_COLS, OMP_ROWS);
-    if (vt_resize(&g->shell_vt, SHELL_COLS, SHELL_ROWS))
+    if (neuroterm_resize(&g->omp_vt, OMP_COLS, OMP_ROWS)) pty_resize(&g->omp, OMP_COLS, OMP_ROWS);
+    if (neuroterm_resize(&g->shell_vt, SHELL_COLS, SHELL_ROWS))
         pty_resize(&g->shell, SHELL_COLS, SHELL_ROWS);
     scene_relayout(&g->sc, &old);
     return true;

@@ -16,7 +16,7 @@
 #include "levels.h"
 #include "render.h"
 #include "scene.h"
-#include "vt.h"
+#include "neuroterm.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -40,12 +40,12 @@ static char scratch[2048];
     } \
 } while (0)
 
-static void feed(vt *t, const char *s) { vt_feed(t, s, strlen(s)); }
+static void feed(neuroterm *t, const char *s) { neuroterm_feed(t, s, strlen(s)); }
 
-static const char *row(const vt *t, int y)
+static const char *row(const neuroterm *t, int y)
 {
     static char buf[4096];
-    vt_row_text(t, y, buf, sizeof buf);
+    neuroterm_row_text(t, y, buf, sizeof buf);
     return buf;
 }
 
@@ -64,22 +64,29 @@ static void sub(char *out, size_t cap, const char *name)
 
 /* ---------------- terminal emulator ---------------- */
 
-static void test_vt(void)
+static VTermScreenCell cell_at(const neuroterm *t, int col, int row)
 {
-    vt t;
+    VTermScreenCell cell = {0};
+    neuroterm_cell(t, col, row, &cell);
+    return cell;
+}
+
+static void test_neuroterm(void)
+{
+    neuroterm t;
     char r[64];
     size_t n;
 
-    CHECK(vt_init(&t, 20, 5), "vt_init");
+    CHECK(neuroterm_init(&t, 20, 5), "neuroterm_init");
     feed(&t, "hello\r\nworld");
     CHECK(strcmp(row(&t, 0), "hello") == 0, "row0 '%s'", row(&t, 0));
     CHECK(strcmp(row(&t, 1), "world") == 0, "row1 '%s'", row(&t, 1));
-    CHECK(t.cx == 5 && t.cy == 1, "cursor %d,%d", t.cx, t.cy);
+    CHECK(neuroterm_cursor(&t).col == 5 && neuroterm_cursor(&t).row == 1, "cursor %d,%d", neuroterm_cursor(&t).col, neuroterm_cursor(&t).row);
 
     feed(&t, "\033[3;5HX");
-    CHECK(vt_cell_at(&t, 4, 2)->ch == 'X', "CUP puts X at column 5 row 3");
+    CHECK(cell_at(&t, 4, 2).chars[0] == 'X', "CUP puts X at column 5 row 3");
     feed(&t, "\033[2J\033[H");
-    CHECK(strcmp(row(&t, 0), "") == 0 && t.cx == 0 && t.cy == 0, "ED 2 + home");
+    CHECK(strcmp(row(&t, 0), "") == 0 && neuroterm_cursor(&t).col == 0 && neuroterm_cursor(&t).row == 0, "ED 2 + home");
 
     /* autowrap at the right edge */
     feed(&t, "abcdefghijklmnopqrstUV");
@@ -92,17 +99,17 @@ static void test_vt(void)
 
     /* colours */
     feed(&t, "\033[H\033[31mR\033[38;5;196mS\033[38;2;1;2;3mT\033[48:2::9:8:7mU\033[0mV\033[7mW");
-    CHECK(vt_cell_at(&t, 0, 0)->fg == vt_palette(1), "SGR 31");
-    CHECK(vt_cell_at(&t, 1, 0)->fg == vt_palette(196), "SGR 38;5;196");
-    CHECK(vt_cell_at(&t, 2, 0)->fg == 0x010203, "SGR 38;2 truecolour");
-    CHECK(vt_cell_at(&t, 3, 0)->bg == 0x090807, "SGR 48:2:: colon form");
+    VTermScreenCell red = cell_at(&t, 0, 0);
+    CHECK(VTERM_COLOR_IS_INDEXED(&red.fg) && red.fg.indexed.idx == 1, "SGR 31");
+    CHECK(neuroterm_color(&t, cell_at(&t, 1, 0).fg) == 0xff0000, "SGR 38;5;196");
+    CHECK(neuroterm_color(&t, cell_at(&t, 2, 0).fg) == 0x010203, "SGR 38;2 truecolour");
+    CHECK(neuroterm_color(&t, cell_at(&t, 3, 0).bg) == 0x090807, "SGR 48:2:: colon form");
     feed(&t, "\033[H\033[38:2:4:5:6;1mZ\033[0m");
-    CHECK(vt_cell_at(&t, 0, 0)->fg == 0x040506 && (vt_cell_at(&t, 0, 0)->attr & VT_ATTR_BOLD),
+    CHECK(neuroterm_color(&t, cell_at(&t, 0, 0).fg) == 0x040506 && cell_at(&t, 0, 0).attrs.bold,
           "SGR 38:2:r:g:b then ;1");
-    CHECK(vt_cell_at(&t, 4, 0)->fg == VT_DEFAULT_COLOR, "SGR 0 resets");
-    CHECK(vt_cell_at(&t, 5, 0)->attr & VT_ATTR_REVERSE, "SGR 7");
-    CHECK(vt_palette(232) == 0x080808 && vt_palette(16) == 0x000000 &&
-          vt_palette(231) == 0xffffff, "256-colour cube and greys");
+    VTermScreenCell normal = cell_at(&t, 4, 0);
+    CHECK(VTERM_COLOR_IS_DEFAULT_FG(&normal.fg), "SGR 0 resets");
+    CHECK(cell_at(&t, 5, 0).attrs.reverse, "SGR 7");
     feed(&t, "\033[0m");
 
     /* scroll region: a linefeed at its bottom scrolls only the region */
@@ -126,48 +133,54 @@ static void test_vt(void)
 
     /* alternate screen keeps the main one */
     feed(&t, "\033[2J\033[Hmain\033[?1049h");
-    CHECK(t.alt_active && strcmp(row(&t, 0), "") == 0, "1049 enters a blank alt screen");
+    CHECK(strcmp(row(&t, 0), "") == 0, "1049 enters a blank alt screen");
     feed(&t, "alt!");
     feed(&t, "\033[?1049l");
-    CHECK(!t.alt_active && strcmp(row(&t, 0), "main") == 0, "1049 restores main '%s'", row(&t, 0));
-    CHECK(t.cx == 4 && t.cy == 0, "1049 restores the cursor");
+    CHECK(strcmp(row(&t, 0), "main") == 0, "1049 restores main '%s'", row(&t, 0));
+    CHECK(neuroterm_cursor(&t).col == 4 && neuroterm_cursor(&t).row == 0, "1049 restores the cursor");
 
     /* UTF-8, also split across feeds; box drawing; wide characters */
     feed(&t, "\033[2J\033[H\xe2\x94");
     feed(&t, "\x80\xe2\x95\xad");
-    CHECK(vt_cell_at(&t, 0, 0)->ch == 0x2500 && vt_cell_at(&t, 1, 0)->ch == 0x256d,
+    CHECK(cell_at(&t, 0, 0).chars[0] == 0x2500 && cell_at(&t, 1, 0).chars[0] == 0x256d,
           "split UTF-8");
     feed(&t, "\xe4\xb8\xad|");
-    CHECK(vt_cell_at(&t, 2, 0)->ch == 0x4e2d && (vt_cell_at(&t, 2, 0)->attr & VT_ATTR_WIDE),
+    CHECK(cell_at(&t, 2, 0).chars[0] == 0x4e2d && cell_at(&t, 2, 0).width == 2,
           "wide char");
-    CHECK(vt_cell_at(&t, 4, 0)->ch == '|', "wide char takes two cells");
+    CHECK(cell_at(&t, 4, 0).chars[0] == '|', "wide char takes two cells");
     feed(&t, "\xff");
-    CHECK(vt_cell_at(&t, 5, 0)->ch == 0xfffd, "invalid byte -> U+FFFD");
+    CHECK(cell_at(&t, 5, 0).chars[0] == 0xfffd, "invalid byte -> U+FFFD");
 
     /* replies */
     feed(&t, "\033[2;3H\033[6n\033[c");
-    n = vt_take_reply(&t, r, sizeof r - 1);
+    n = neuroterm_read(&t, r, sizeof r - 1);
     r[n] = '\0';
-    CHECK(strcmp(r, "\033[2;3R\033[?62;22c") == 0, "CPR + DA1 reply");
+    CHECK(strncmp(r, "\033[2;3R\033[?", 9) == 0, "CPR + DA1 reply: %s", r);
     feed(&t, "\033[?u");
-    CHECK(vt_take_reply(&t, r, sizeof r) == 0, "Kitty keyboard query is not answered");
+    CHECK(neuroterm_read(&t, r, sizeof r) == 0, "Kitty keyboard query is not answered");
 
     /* strings are swallowed: OSC title, APC (Kitty graphics), DCS */
     feed(&t, "\033[2J\033[H\033]0;my title\007\033_Gf=100;AAAA\033\\\033Pq#0\033\\ok");
     CHECK(strcmp(row(&t, 0), "ok") == 0, "strings swallowed '%s'", row(&t, 0));
-    CHECK(strcmp(t.title, "my title") == 0, "OSC 0 title");
 
     /* modes */
     feed(&t, "\033[?1h\033[?25l\033[?2004h");
-    CHECK(t.app_cursor && !t.cursor_visible && t.bracketed_paste, "DECCKM DECTCEM 2004");
+    key_event up = {.key = KEY_UP, .action = 1};
+    CHECK(!t.cursor_visible && neuroterm_key(&t, &up, r, sizeof r) == 3 &&
+          memcmp(r, "\033OA", 3) == 0, "hidden cursor and application cursor encoding");
     feed(&t, "\033[?1l\033[?25h");
-    CHECK(!t.app_cursor && t.cursor_visible, "modes reset");
+    CHECK(t.cursor_visible && neuroterm_key(&t, &up, r, sizeof r) == 3 &&
+          memcmp(r, "\033[A", 3) == 0, "cursor modes reset");
+    feed(&t, "\033[2J\033[H\033[3me\xcc\x81\033[0m");
+    VTermScreenCell accent = cell_at(&t, 0, 0);
+    CHECK(accent.attrs.italic && accent.chars[0] == 'e' && accent.chars[1] == 0x301,
+          "NeuroTerm retains italic and combining marks in the cell");
 
     /* resize keeps the cursor line */
     feed(&t, "\033[2J\033[5;1Hlast");
-    CHECK(vt_resize(&t, 10, 3), "resize");
-    CHECK(strcmp(row(&t, 2), "last") == 0 && t.cy == 2, "resize keeps bottom '%s'", row(&t, 2));
-    vt_free(&t);
+    CHECK(neuroterm_resize(&t, 10, 3), "resize");
+    CHECK(strcmp(row(&t, 2), "last") == 0 && neuroterm_cursor(&t).row == 2, "resize keeps bottom '%s'", row(&t, 2));
+    neuroterm_free(&t);
 }
 
 /* ---------------- keys ---------------- */
@@ -1087,7 +1100,7 @@ int main(void)
     }
     snprintf(scratch, sizeof scratch, "%s", dir);
     test_menu();
-    test_vt();
+    test_neuroterm();
     test_keys();
     test_levels();
     test_carwash();

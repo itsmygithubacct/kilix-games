@@ -11,7 +11,7 @@
 #include "pty.h"
 #include "scene.h"
 #include "soft_raster.h"
-#include "vt.h"
+#include "neuroterm.h"
 
 #include <stdbool.h>
 
@@ -39,7 +39,7 @@ typedef struct game {
     scene sc;
     int state_lock;
     bool spawn;             /* start the sandboxes (false in tests) */
-    vt omp_vt, shell_vt;
+    neuroterm omp_vt, shell_vt;
     pty_proc omp, shell;
     activity act;
     goal_result goal;

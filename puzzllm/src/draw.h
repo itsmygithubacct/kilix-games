@@ -46,8 +46,9 @@ int draw_text_width(const char *s);
 
 /* One terminal character's ink in a w x h cell at (x, y); the caller has
  * filled its background. */
+enum { DRAW_GLYPH_BOLD = 1u, DRAW_GLYPH_ITALIC = 2u };
 void draw_glyph(sr_canvas *c, int x, int y, int w, int h, uint32_t scalar,
-                uint32_t rgb, bool bold);
+                uint32_t rgb, unsigned style);
 
 /* A premultiplied-ARGB picture of sw x sh scaled into w x h at (x, y). */
 void draw_picture(sr_canvas *c, const uint32_t *px, int sw, int sh,

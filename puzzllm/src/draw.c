@@ -554,18 +554,20 @@ int draw_text_width(const char *s)
 }
 
 void draw_glyph(sr_canvas *c, int x, int y, int w, int h, uint32_t scalar,
-                uint32_t rgb, bool bold)
+                uint32_t rgb, unsigned style)
 {
     if (c == NULL || scalar <= 0x20 || scalar == 0xa0) return;
 #ifdef PUZZLLM_NEURONTE
     if (nn()) {
-        nn_scalar(c, scalar, x, y, w, h, rgb, 1.0f, bold ? NEURONTE_STYLE_BOLD : 0);
+        unsigned neuronte_style = (style & DRAW_GLYPH_BOLD ? NEURONTE_STYLE_BOLD : 0) |
+                                  (style & DRAW_GLYPH_ITALIC ? NEURONTE_STYLE_ITALIC : 0);
+        nn_scalar(c, scalar, x, y, w, h, rgb, 1.0f, neuronte_style);
         return;
     }
 #endif
     (void)w;
     (void)h;
-    raster_glyph(c, x, y, scalar, rgb & 0xffffffu, 255, bold);
+    raster_glyph(c, x, y, scalar, rgb & 0xffffffu, 255, (style & DRAW_GLYPH_BOLD) != 0);
 }
 
 void draw_picture(sr_canvas *c, const uint32_t *px, int sw, int sh,
