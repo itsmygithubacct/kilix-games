@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
-static size_t utf8(uint32_t cp, char *o)
+size_t keys_utf8(uint32_t cp, char *o)
 {
     if (cp < 0x80) { o[0] = (char)cp; return 1; }
     if (cp < 0x800) {
@@ -132,11 +132,11 @@ size_t keys_encode(const key_event *ev, bool app_cursor, char *out, size_t cap)
     if (alt) b[n++] = 0x1b;
     if (ev->text_len > 0) {
         for (int i = 0; i < ev->text_len && i < KEY_TEXT_MAX; i++)
-            n += utf8(ev->text[i], b + n);
+            n += keys_utf8(ev->text[i], b + n);
     } else if (k >= 0x20 && k != 0x7f) {
         uint32_t c = k;
         if ((m & MOD_SHIFT) && c >= 'a' && c <= 'z') c -= 'a' - 'A';
-        n += utf8(c, b + n);
+        n += keys_utf8(c, b + n);
     } else {
         return 0;
     }

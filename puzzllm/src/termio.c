@@ -68,10 +68,10 @@ int termio_start(void)
     options.keyboard.flags = KITTYKB_FLAGS_DEFAULT;   /* with key text */
     options.framebuffer.max_width = 2560;
     options.framebuffer.max_height = 1600;
-    options.mouse_tracking = KITTYIN_MOUSE_TRACKING_BUTTON;
+    options.mouse_tracking = KITTYIN_MOUSE_TRACKING_DRAG;
     options.pixel_mouse = true;
     options.focus_events = false;
-    options.bracketed_paste = false;
+    options.bracketed_paste = true;
     if (getenv("PUZZLLM_SKIP_PROBE")) options.framebuffer.probe_graphics = false;
     if (kittyts_start(&session, STDIN_FILENO, STDOUT_FILENO, &options) != 0)
         return -1;
@@ -234,6 +234,31 @@ static void dispatch_key(const termio_handlers *h, const kittykb_event *k)
     h->key(h->ctx, &ev);
 }
 
+/* OSC 52 lets the host terminal publish the selection to its clipboard. */
+void termio_copy(const char *text)
+{
+    static const char base64[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const unsigned char *s = (const unsigned char *)text;
+    size_t len = strlen(text);
+    if (!active || !len) return;
+    fputs("\033]52;c;", stdout);
+    for (size_t i = 0; i < len; i += 3) {
+        size_t remain = len - i;
+        unsigned bits = (unsigned)s[i] << 16;
+        if (remain > 1) bits |= (unsigned)s[i + 1] << 8;
+        if (remain > 2) bits |= s[i + 2];
+        char encoded[] = {
+            base64[bits >> 18], base64[(bits >> 12) & 63],
+            remain > 1 ? base64[(bits >> 6) & 63] : '=',
+            remain > 2 ? base64[bits & 63] : '=',
+        };
+        fwrite(encoded, 1, sizeof encoded, stdout);
+    }
+    fputc('\a', stdout);
+    fflush(stdout);
+}
+
 int termio_read(const termio_handlers *h)
 {
     kittyin_event e;
@@ -242,12 +267,15 @@ int termio_read(const termio_handlers *h)
     while (kittyts_next_event(&session, &e)) {
         if (e.kind == KITTYIN_EVENT_KEY) {
             dispatch_key(h, &e.data.key);
+        } else if (e.kind == KITTYIN_EVENT_PASTE) {
+            const kittyin_paste_event *p = &e.data.paste;
+            h->paste(h->ctx, p->bytes, p->length, p->final);
         } else if (e.kind == KITTYIN_EVENT_MOUSE) {
             const kittyin_mouse_event *m = &e.data.mouse;
             int px, py;
             bool wheel = m->action == KITTYIN_MOUSE_WHEEL && m->wheel_y != 0;
-            bool click = m->action == KITTYIN_MOUSE_PRESS && m->button == 1;
-            if (!wheel && !click) continue;
+            bool left = m->button == 1 || (m->button == 0 && m->action == KITTYIN_MOUSE_RELEASE);
+            if (!wheel && !left) continue;
             if (m->pixel_coordinates) {
                 px = m->x - kittyts_origin_x(&session);
                 py = m->y - kittyts_origin_y(&session);
@@ -255,12 +283,16 @@ int termio_read(const termio_handlers *h)
                 px = m->x * kittyts_cell_width(&session) - kittyts_origin_x(&session);
                 py = m->y * kittyts_cell_height(&session) - kittyts_origin_y(&session);
             }
-            if (px < off_x || py < off_y) continue;
-            px = (px - off_x) * den / num;
-            py = (py - off_y) * den / num;
-            if (px >= canvas_w || py >= canvas_h) continue;
-            if (wheel) h->scroll(h->ctx, px, py, 3 * m->wheel_y);
-            else h->click(h->ctx, px, py);
+            px = px < off_x ? -1 : (px - off_x) * den / num;
+            py = py < off_y ? -1 : (py - off_y) * den / num;
+            bool inside = px >= 0 && py >= 0 && px < canvas_w && py < canvas_h;
+            if (wheel && inside) h->scroll(h->ctx, px, py, 3 * m->wheel_y);
+            else if (m->action == KITTYIN_MOUSE_PRESS && inside)
+                h->pointer(h->ctx, px, py, POINTER_DOWN);
+            else if (m->action == KITTYIN_MOUSE_MOVE)
+                h->pointer(h->ctx, px, py, POINTER_DRAG);
+            else if (m->action == KITTYIN_MOUSE_RELEASE)
+                h->pointer(h->ctx, px, py, POINTER_UP);
         }
     }
     return 0;

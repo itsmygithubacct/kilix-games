@@ -33,6 +33,7 @@ enum {
     SCREEN_TITLE_H = 22,
     SCREEN_PAD = 8,
     SCREEN_MAX_COLS = 150,
+    SCREEN_TEXT_ROWS_MAX = 9,
     WALL_H = 100,
     DOOR_W = 80, DOOR_H = 86, DOOR_Y = 14,
     AISLE_Y0 = 118,
@@ -100,6 +101,7 @@ typedef struct rect { int x, y, w, h; } rect;
 
 rect layout_screen(screen_id id);
 /* Top-left pixel of the text area of a screen. */
+rect layout_text_bounds(screen_id id);
 void layout_text_origin(screen_id id, int *x, int *y);
 
 #endif

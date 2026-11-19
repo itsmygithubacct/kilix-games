@@ -1443,6 +1443,73 @@ static void test_pane_scroll(void)
     layout_set(LAYOUT_DEFAULT_W, LAYOUT_DEFAULT_H);
 }
 
+static void test_pane_clipboard(void)
+{
+    char err[256], state[2300], bytes[128];
+    key_event copy = {.key = 'c', .mods = MOD_CTRL | MOD_ALT, .action = 1};
+    key_event paste = {.key = 'v', .mods = MOD_CTRL | MOD_ALT, .action = 1};
+    layout_set(LAYOUT_DEFAULT_W, LAYOUT_DEFAULT_H);
+    sub(state, sizeof state, "pane-clipboard");
+    if (!game_init(&G, ".", state, false, err, sizeof err)) {
+        CHECK(false, "pane clipboard: %s", err);
+        return;
+    }
+    rect omp = layout_text_bounds(SCREEN_OMP), act = layout_text_bounds(SCREEN_ACT);
+    rect goal = layout_text_bounds(SCREEN_GOAL), shell = layout_text_bounds(SCREEN_SHELL);
+    activity_add(&G.act, ACT_TOOL, "tool result");
+    game_pointer(&G, act.x, act.y, POINTER_DOWN);
+    game_pointer(&G, act.x + 3 * CELL_W, act.y, POINTER_UP);
+    game_key(&G, &copy);
+    CHECK(strcmp(G.clipboard, "tool") == 0, "system action text can be copied");
+
+    int hints = G.hints_shown;
+    game_pointer(&G, goal.x, goal.y, POINTER_DOWN);
+    game_pointer(&G, goal.x + 2 * CELL_W, goal.y, POINTER_UP);
+    game_key(&G, &copy);
+    CHECK(strcmp(G.clipboard, "Get") == 0 && G.hints_shown == hints,
+          "selection can copy the goal without advancing hints");
+
+    const char *output = "caf\xc3\xa9\r\n\xe7\x8c\xab!";
+    neuroterm_feed(&G.omp_vt, output, strlen(output));
+    game_pointer(&G, omp.x + 2 * CELL_W, omp.y + CELL_H, POINTER_DOWN);
+    game_pointer(&G, omp.x, omp.y, POINTER_DRAG);
+    game_pointer(&G, omp.x, omp.y, POINTER_UP);
+    game_key(&G, &copy);
+    CHECK(strcmp(G.clipboard, "caf\xc3\xa9\n\xe7\x8c\xab!") == 0 &&
+          G.sc.focus == FOCUS_ROOM, "reverse drag copies multiline Unicode terminal text");
+
+    int transfer[2];
+    char *idle[] = {"sleep", "60", NULL};
+    if (pty_spawn(&G.shell, idle, NULL, SHELL_COLS, SHELL_ROWS) && pipe(transfer) == 0) {
+        int master = G.shell.fd;
+        G.shell.fd = transfer[1];
+        fcntl(transfer[0], F_SETFL, O_NONBLOCK);
+        game_pointer(&G, shell.x, shell.y, POINTER_DOWN);
+        game_pointer(&G, shell.x, shell.y, POINTER_UP);
+        neuroterm_feed(&G.shell_vt, "\033[?2004h", 8);
+        game_key(&G, &paste);
+        const char *expected = "\033[200~caf\xc3\xa9\r\xe7\x8c\xab!\033[201~";
+        ssize_t n = read(transfer[0], bytes, sizeof bytes);
+        CHECK(n == (ssize_t)strlen(expected) && memcmp(bytes, expected, (size_t)n) == 0,
+              "clipboard pastes into the focused shell with bracketed paste");
+
+        game_paste(&G, (const unsigned char *)"a\r", 2, false);
+        CHECK(read(transfer[0], bytes, sizeof bytes) < 0 && errno == EAGAIN,
+              "outer paste chunks wait for the final event");
+        game_paste(&G, (const unsigned char *)"\nb\033", 3, true);
+        expected = "\033[200~a\rb\033[201~";
+        n = read(transfer[0], bytes, sizeof bytes);
+        CHECK(n == (ssize_t)strlen(expected) && memcmp(bytes, expected, (size_t)n) == 0,
+              "native paste joins chunks and strips embedded controls");
+        close(transfer[0]);
+        close(transfer[1]);
+        G.shell.fd = master;
+    } else {
+        CHECK(false, "clipboard transfer test stream initialized");
+    }
+    game_shutdown(&G);
+}
+
 int main(void)
 {
     const char *dir = getenv("PUZZLLM_TEST_DIR");
@@ -1455,6 +1522,7 @@ int main(void)
     test_pane_focus();
     test_goal_and_action_panes();
     test_pane_scroll();
+    test_pane_clipboard();
     test_thinking_menu();
     test_codex_menu();
     test_room_art();

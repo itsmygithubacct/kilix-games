@@ -498,6 +498,7 @@ void game_enter_level(game *g, int level)
     g->last_pane = FOCUS_OMP;
     g->hints_shown = cur_level(g)->nhints > 0 ? 1 : 0;
     g->goal_scroll = g->action_scroll = 0;
+    g->selection = (pane_selection){0};
     g->level_time = 0;
     g->was_met = false;
     activity_begin_room(&g->act, g->state, g->workspace);
@@ -591,6 +592,45 @@ void game_poll_goal(game *g)
 
 static view game_view(const game *g);
 
+static void paste_into_terminal(game *g, const char *text, size_t len)
+{
+    if (!len || g->menu.open || g->sc.focus == FOCUS_ROOM) return;
+    bool agent = g->sc.focus == FOCUS_OMP;
+    history *h = agent ? &g->omp_history : &g->shell_history;
+    pty_proc *p = agent ? &g->omp : &g->shell;
+    if (p->pid <= 0 || pty_poll_exit(p)) return;
+
+    char bytes[CLIPBOARD_CAP + 16];
+    vterm_keyboard_start_paste(h->terminal->term);
+    size_t n = neuroterm_read(h->terminal, bytes, 8);
+    for (size_t i = 0; i < len; i++) {
+        unsigned char ch = (unsigned char)text[i];
+        /* Paste text, excluding embedded terminal escape sequences and C0 keys. */
+        if (ch == '\r' && i + 1 < len && text[i + 1] == '\n') continue;
+        if (ch == '\n' || ch == '\r') bytes[n++] = '\r';
+        else if (ch == '\t' || (ch >= 0x20 && ch != 0x7f)) bytes[n++] = (char)ch;
+    }
+    vterm_keyboard_end_paste(h->terminal->term);
+    n += neuroterm_read(h->terminal, bytes + n, sizeof bytes - n);
+    h->offset = 0;
+    g->selection.active = false;
+    if (n > 0) pty_write(p, bytes, n);
+}
+
+void game_paste(game *g, const unsigned char *text, size_t len, bool final)
+{
+    if (len > sizeof g->paste - g->paste_len) g->paste_overflow = true;
+    if (!g->paste_overflow) {
+        memcpy(g->paste + g->paste_len, text, len);
+        g->paste_len += len;
+    }
+    if (final) {
+        if (!g->paste_overflow) paste_into_terminal(g, g->paste, g->paste_len);
+        g->paste_len = 0;
+        g->paste_overflow = false;
+    }
+}
+
 static void scroll_text(game *g, screen_id id, int rows)
 {
     view v = game_view(g);
@@ -603,6 +643,7 @@ static void scroll_text(game *g, screen_id id, int rows)
 static void next_hint(game *g)
 {
     if (g->hints_shown < cur_level(g)->nhints) {
+        if (g->selection.pane == SCREEN_GOAL) g->selection.active = false;
         g->hints_shown++;
         g->goal_scroll = 0;
         scroll_text(g, SCREEN_GOAL, LEVEL_TEXT);
@@ -675,6 +716,24 @@ void game_key(game *g, const key_event *ev)
         return;
     }
 
+    if ((ev->mods == (MOD_CTRL | MOD_ALT) || ev->mods == (MOD_CTRL | MOD_SHIFT)) &&
+        (ev->key == 'c' || ev->key == 'C' || ev->key == 'v' || ev->key == 'V')) {
+        if (ev->action == 1) {
+            if (ev->key == 'c' || ev->key == 'C') {
+                view v = game_view(g);
+                char copy[CLIPBOARD_CAP];
+                size_t len = render_copy_selection(&v, copy, sizeof copy);
+                if (len) {
+                    memcpy(g->clipboard, copy, len + 1);
+                    g->clipboard_generation++;
+                }
+            } else {
+                paste_into_terminal(g, g->clipboard, strlen(g->clipboard));
+            }
+        }
+        return;
+    }
+
     /* keys that work everywhere */
     if (press && (ev->key == KEY_F1 + 9 || (ctrl && ev->key == ']'))) {
         focus_screen(g, FOCUS_ROOM);
@@ -692,6 +751,7 @@ void game_key(game *g, const key_event *ev)
         history *scroll = g->sc.focus == FOCUS_OMP ? &g->omp_history : &g->shell_history;
         if (ev->mods == MOD_SHIFT && !scroll->alternate &&
             (ev->key == KEY_PAGE_UP || ev->key == KEY_PAGE_DOWN)) {
+            g->selection.active = false;
             history_scroll(scroll, ev->key == KEY_PAGE_UP ? t->rows : -t->rows);
             return;
         }
@@ -702,6 +762,8 @@ void game_key(game *g, const key_event *ev)
         n = neuroterm_key(t, ev, buf, sizeof buf);
         if (n > 0) {
             scroll->offset = 0;
+            if (g->selection.pane == (g->sc.focus == FOCUS_OMP ? SCREEN_OMP : SCREEN_SHELL))
+                g->selection.active = false;
             pty_write(p, buf, n);
         }
         return;
@@ -745,12 +807,50 @@ void game_click(game *g, int x, int y)
     else focus_screen(g, FOCUS_ROOM);
 }
 
+static int pointer_cell(rect r, int x, int y)
+{
+    x = x < r.x ? 0 : x >= r.x + r.w ? r.w - 1 : x - r.x;
+    y = y < r.y ? 0 : y >= r.y + r.h ? r.h - 1 : y - r.y;
+    return (y / CELL_H) * (r.w / CELL_W) + x / CELL_W;
+}
+
+void game_pointer(game *g, int x, int y, pointer_action action)
+{
+    pane_selection *s = &g->selection;
+    if (g->menu.open) {
+        s->dragging = false;
+        return;
+    }
+    if (action == POINTER_DOWN) {
+        *s = (pane_selection){.pane = SCREEN_NONE, .dragging = true};
+        for (int i = 0; i < SCREEN_COUNT; i++) {
+            screen_id id = (screen_id)i;
+            rect r = layout_text_bounds(id);
+            if (!inside(r, x, y)) continue;
+            s->pane = id;
+            s->start = s->end = pointer_cell(r, x, y);
+            break;
+        }
+        return;
+    }
+    if (!s->dragging) return;
+    if (s->pane != SCREEN_NONE) {
+        s->end = pointer_cell(layout_text_bounds(s->pane), x, y);
+        if (s->end != s->start || action == POINTER_DRAG) s->active = true;
+    }
+    if (action == POINTER_UP) {
+        s->dragging = false;
+        if (!s->active) game_click(g, x, y);
+    }
+}
+
 void game_scroll(game *g, int x, int y, int rows)
 {
     if (g->menu.open || !rows) return;
     for (int i = 0; i < SCREEN_COUNT; i++) {
         screen_id id = (screen_id)i;
         if (!inside(layout_screen(id), x, y)) continue;
+        if (g->selection.pane == id) g->selection = (pane_selection){0};
         if (id == SCREEN_GOAL || id == SCREEN_ACT) {
             scroll_text(g, id, id == SCREEN_GOAL ? rows : -rows);
             return;
@@ -866,6 +966,7 @@ bool game_resize(game *g, int w, int h)
 {
     layout old = L;
     if (!layout_set(w, h)) return false;
+    g->selection = (pane_selection){0};
     if (neuroterm_resize(&g->omp_vt, OMP_COLS, OMP_ROWS)) pty_resize(&g->omp, OMP_COLS, OMP_ROWS);
     if (neuroterm_resize(&g->shell_vt, SHELL_COLS, SHELL_ROWS))
         pty_resize(&g->shell, SHELL_COLS, SHELL_ROWS);
@@ -891,6 +992,7 @@ static view game_view(const game *g)
     v.act = &g->act;
     v.goal_scroll = g->goal_scroll;
     v.action_scroll = g->action_scroll;
+    v.selection = g->selection;
     v.omp_note = g->omp_note[0] ? g->omp_note : NULL;
     v.shell_note = g->shell_note[0] ? g->shell_note : NULL;
     v.goal_why = g->goal.why;

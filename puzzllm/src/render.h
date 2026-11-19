@@ -13,6 +13,12 @@
 
 #include <stdbool.h>
 
+typedef struct pane_selection {
+    screen_id pane;
+    int start, end;          /* row-major cell indices, inclusive */
+    bool active, dragging;
+} pane_selection;
+
 typedef struct view {
     const scene *sc;
     const level *lv;
@@ -24,6 +30,7 @@ typedef struct view {
     const history *omp_history, *shell_history;
     const activity *act;
     int goal_scroll, action_scroll;
+    pane_selection selection;
     const char *agent_model;
     bool codex;
     const char *omp_note;     /* shown over the omp screen when not NULL */
@@ -39,6 +46,7 @@ struct model_option;
 void render_menu(sr_canvas *c, const struct model_option *models, int count, int selected,
                  const char *active_model, bool loading, bool failed,
                  bool started, int level, bool confirm_reset, const char *notice, int thinking_support, bool thinking_enabled, bool codex);
+size_t render_copy_selection(const view *v, char *out, size_t cap);
 int render_scroll_limit(const view *v, screen_id id);
 void render_frame(sr_canvas *c, const view *v);
 #endif

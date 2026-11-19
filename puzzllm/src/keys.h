@@ -24,6 +24,8 @@ enum {
 enum { MOD_SHIFT = 1u << 0, MOD_ALT = 1u << 1, MOD_CTRL = 1u << 2, MOD_SUPER = 1u << 3 };
 enum { KEY_TEXT_MAX = 16 };
 
+typedef enum pointer_action { POINTER_DOWN, POINTER_DRAG, POINTER_UP } pointer_action;
+
 typedef struct key_event {
     uint32_t key;                 /* unicode scalar or KEY_* */
     uint32_t mods;                /* MOD_* */
@@ -31,6 +33,9 @@ typedef struct key_event {
     int text_len;
     int action;                   /* 1 press, 2 repeat, 3 release */
 } key_event;
+
+/* Encode a Unicode scalar into up to four bytes. */
+size_t keys_utf8(uint32_t scalar, char *out);
 
 /* Bytes for one key event; 0 for releases and keys with no encoding. */
 size_t keys_encode(const key_event *ev, bool app_cursor, char *out, size_t cap);

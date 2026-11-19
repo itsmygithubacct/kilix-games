@@ -48,7 +48,7 @@ int layout_set(int w, int h)
     n.act_y = n.goal_y + SCREEN_H(n.goal_rows) + panel_gap;
     n.act_cols = n.goal_cols;
     int action_budget = right_rows - n.goal_rows - 6; /* reserve six shell rows */
-    n.act_rows = clamp(clamp(right_rows / 4, 2, 9), 2, action_budget);
+    n.act_rows = clamp(clamp(right_rows / 4, 2, SCREEN_TEXT_ROWS_MAX), 2, action_budget);
     n.shell_x = n.goal_x;
     n.shell_y = n.act_y + SCREEN_H(n.act_rows) + panel_gap;
     n.shell_cols = n.goal_cols;
@@ -85,7 +85,14 @@ rect layout_screen(screen_id id)
 
 void layout_text_origin(screen_id id, int *x, int *y)
 {
+    rect r = layout_text_bounds(id);
+    *x = r.x;
+    *y = r.y;
+}
+
+rect layout_text_bounds(screen_id id)
+{
     rect r = layout_screen(id);
-    *x = r.x + SCREEN_PAD;
-    *y = r.y + SCREEN_TITLE_H + SCREEN_PAD;
+    return (rect){r.x + SCREEN_PAD, r.y + SCREEN_TITLE_H + SCREEN_PAD,
+                  r.w - 2 * SCREEN_PAD, r.h - SCREEN_H(0)};
 }

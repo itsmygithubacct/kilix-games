@@ -11,8 +11,9 @@
 
 typedef struct termio_handlers {
     void (*key)(void *ctx, const key_event *ev);
-    void (*click)(void *ctx, int canvas_x, int canvas_y);
+    void (*pointer)(void *ctx, int canvas_x, int canvas_y, pointer_action action);
     void (*scroll)(void *ctx, int canvas_x, int canvas_y, int rows);
+    void (*paste)(void *ctx, const unsigned char *text, size_t len, bool final);
     void *ctx;
 } termio_handlers;
 
@@ -30,6 +31,7 @@ void termio_size(int *w, int *h);
 /* One line about the session: sizes, scale, transport (for PUZZLLM_STATS). */
 const char *termio_describe(void);
 /* Drain input and dispatch it. -1 when stdin is gone. */
+void termio_copy(const char *text);
 int termio_read(const termio_handlers *h);
 
 #endif

@@ -109,6 +109,7 @@ static uint32_t kind_color(act_kind k)
 
 typedef struct pane_text {
     sr_canvas *canvas;
+    char (*copy)[LEVEL_TEXT + 32];
     int x, y, cols, rows, first, count;
 } pane_text;
 
@@ -118,7 +119,9 @@ static void pane_message(pane_text *pane, const char *text, uint32_t color)
     while (*text) {
         text = wrap_line(text, pane->cols, line);
         int row = pane->count++ - pane->first;
-        if (pane->canvas && row >= 0 && row < pane->rows)
+        if (row < 0 || row >= pane->rows) continue;
+        if (pane->copy) strcpy(pane->copy[row], line);
+        if (pane->canvas)
             text_line(pane->canvas, pane->x, pane->y + row * CELL_H, line, color, pane->cols);
     }
 }
@@ -165,19 +168,106 @@ int render_scroll_limit(const view *v, screen_id id)
     return pane.count > pane.rows ? pane.count - pane.rows : 0;
 }
 
-static void render_pane_text(sr_canvas *c, const view *v, screen_id id, int x, int y)
+static void render_pane_text(sr_canvas *c, const view *v, screen_id id, int x, int y,
+                             char (*copy)[LEVEL_TEXT + 32])
 {
     bool goal = id == SCREEN_GOAL;
     int limit = render_scroll_limit(v, id);
     int offset = goal ? v->goal_scroll : v->action_scroll;
     if (offset > limit) offset = limit;
     pane_text pane = {
-        .canvas = c, .x = x, .y = y,
+        .canvas = c, .copy = copy, .x = x, .y = y,
         .cols = goal ? GOAL_COLS : ACT_COLS, .rows = goal ? GOAL_ROWS : ACT_ROWS,
         .first = goal ? offset : limit - offset,
     };
     if (goal) goal_text(&pane, v);
     else action_text(&pane, v);
+}
+
+static void selection_range(pane_selection selection, int *first, int *last)
+{
+    bool forward = selection.start <= selection.end;
+    *first = forward ? selection.start : selection.end;
+    *last = forward ? selection.end : selection.start;
+}
+
+static size_t copy_terminal_row(const history *h, int row, int start, int end, char *out)
+{
+    size_t n = 0;
+    if (start > 0) {
+        VTermScreenCell cell;
+        if (history_cell(h, start - 1, row, &cell) && cell.width == 2) start--;
+    }
+    for (int col = start; col <= end;) {
+        VTermScreenCell cell;
+        if (!history_cell(h, col, row, &cell)) break;
+        if (!cell.chars[0]) {
+            out[n++] = ' ';
+        } else {
+            for (int i = 0; i < VTERM_MAX_CHARS_PER_CELL && cell.chars[i]; i++)
+                n += keys_utf8(cell.chars[i], out + n);
+        }
+        col += cell.width == 2 ? 2 : 1;
+    }
+    while (n && out[n - 1] == ' ') n--;
+    return n;
+}
+
+static size_t copy_text_row(const char *text, int start, int end, char *out)
+{
+    const char *first = NULL;
+    const char *p = text;
+    for (int col = 0; *p && col <= end; col++) {
+        if (col == start) first = p;
+        p++;
+        while (((unsigned char)*p & 0xc0) == 0x80) p++;
+    }
+    if (!first) return 0;
+    memcpy(out, first, (size_t)(p - first));
+    return (size_t)(p - first);
+}
+
+size_t render_copy_selection(const view *v, char *out, size_t cap)
+{
+    if (!v->selection.active || !cap) return 0;
+    screen_id id = v->selection.pane;
+    rect bounds = layout_text_bounds(id);
+    int cols = bounds.w / CELL_W;
+    int first, last;
+    selection_range(v->selection, &first, &last);
+    const history *terminal = id == SCREEN_OMP ? v->omp_history :
+                              id == SCREEN_SHELL ? v->shell_history : NULL;
+    char text[SCREEN_TEXT_ROWS_MAX][LEVEL_TEXT + 32] = {{0}};
+    if (!terminal) render_pane_text(NULL, v, id, 0, 0, text);
+
+    size_t used = 0;
+    for (int row = first / cols; row <= last / cols; row++) {
+        char line[SCREEN_MAX_COLS * VTERM_MAX_CHARS_PER_CELL * 4];
+        int start = row == first / cols ? first % cols : 0;
+        int end = row == last / cols ? last % cols : cols - 1;
+        size_t n = terminal ? copy_terminal_row(terminal, row, start, end, line) :
+                             copy_text_row(text[row], start, end, line);
+        if (n + (row != first / cols) >= cap - used) break;
+        if (row != first / cols) out[used++] = '\n';
+        memcpy(out + used, line, n);
+        used += n;
+    }
+    out[used] = 0;
+    return used;
+}
+
+static void render_selection(sr_canvas *c, pane_selection selection)
+{
+    if (!selection.active) return;
+    rect r = layout_text_bounds(selection.pane);
+    int cols = r.w / CELL_W, first, last;
+    selection_range(selection, &first, &last);
+    for (int row = first / cols; row <= last / cols; row++) {
+        int left = row == first / cols ? first % cols : 0;
+        int right = row == last / cols ? last % cols : cols - 1;
+        draw_fill(c, r.x + left * CELL_W, r.y + row * CELL_H,
+                  (right - left + 1) * CELL_W, CELL_H, 0x68abef, 0.30f);
+    }
 }
 
 static void note_over(sr_canvas *c, screen_id id, const char *note)
@@ -325,11 +415,13 @@ void render_frame(sr_canvas *c, const view *v)
     snprintf(hud, sizeof hud, "Goal  |  Room %d: %.100s", v->lv->number, v->lv->title);
     art_screen(c, layout_screen(SCREEN_GOAL), hud, false, near == SCREEN_GOAL);
     layout_text_origin(SCREEN_GOAL, &tx, &ty);
-    render_pane_text(c, v, SCREEN_GOAL, tx, ty);
+    render_pane_text(c, v, SCREEN_GOAL, tx, ty, NULL);
 
     art_screen(c, layout_screen(SCREEN_ACT), "System actions", false, false);
     layout_text_origin(SCREEN_ACT, &tx, &ty);
-    render_pane_text(c, v, SCREEN_ACT, tx, ty);
+    render_pane_text(c, v, SCREEN_ACT, tx, ty, NULL);
+
+    render_selection(c, v->selection);
 
     if (v->lv->check == CHECK_CHEST)
         art_chest(c, v->chest, (AISLE_X0 + AISLE_X1) / 2 + 48, START_Y - 34, s->goal_met);

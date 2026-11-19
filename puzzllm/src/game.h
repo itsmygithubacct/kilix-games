@@ -12,7 +12,7 @@
 #include "pty.h"
 #include "scene.h"
 #include "soft_raster.h"
-#include "history.h"
+#include "render.h"
 
 #include <stdbool.h>
 
@@ -45,6 +45,8 @@ typedef struct game_menu {
     size_t line_length;
 } game_menu;
 
+enum { CLIPBOARD_CAP = 16384 };
+
 typedef struct game {
     char root[2048];        /* the puzzllm/ directory */
     char state[2048];       /* persistent folder, e.g. ~/.local/share/puzzllm */
@@ -59,6 +61,12 @@ typedef struct game {
     neuroterm omp_vt, shell_vt;
     history omp_history, shell_history;
     int goal_scroll, action_scroll;
+    pane_selection selection;
+    char clipboard[CLIPBOARD_CAP];
+    unsigned long clipboard_generation;
+    char paste[CLIPBOARD_CAP];
+    size_t paste_len;
+    bool paste_overflow;
     pty_proc omp, shell;
     activity act;
     goal_result goal;
@@ -93,6 +101,8 @@ void game_poll_goal(game *g);
 void game_key(game *g, const key_event *ev);
 /* Mouse press at canvas coordinates. */
 void game_click(game *g, int x, int y);
+void game_pointer(game *g, int x, int y, pointer_action action);
+void game_paste(game *g, const unsigned char *text, size_t len, bool final);
 /* Wheel movement in rows, positive for down. */
 void game_scroll(game *g, int x, int y, int rows);
 /* Advance dt seconds: pump the terminals, poll the goal, and run the
