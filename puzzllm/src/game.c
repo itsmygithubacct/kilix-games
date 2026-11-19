@@ -1049,7 +1049,8 @@ static view game_view(const game *g)
     v.lv = cur_level(g);
     v.chest = &g->chest;
     v.room = &g->room;
-    v.level_count = g->levels.count;
+    if (g->sc.level + 1 < g->levels.count)
+        v.next_level = &g->levels.items[g->sc.level + 1];
     v.omp = &g->omp_vt;
     v.agent_model = g->use_codex ? "Codex" : g->ollama_model;
     v.codex = g->use_codex;

@@ -87,7 +87,43 @@ void art_room(sr_canvas *c, const room_art *art, const char *style)
     draw_fill(c, 0, HUD_Y, CANVAS_W, CANVAS_H - HUD_Y, 0x000000, 0.55f);
 }
 
-void art_door(sr_canvas *c, const room_art *art, const char *style, float open, int next_room)
+/* A simplified view down the next room's aisle at doorway scale. */
+static void draw_next_room(sr_canvas *c, const room_art *art, const char *style)
+{
+    int x = DOOR_X, y = DOOR_Y;
+    palette p = room_palette(style);
+    const art_sprite *wall = NULL;
+    if (art)
+        wall = style && strcmp(style, "brick") == 0 ? &art->brick : &art->stone;
+
+    draw_fill(c, x, y, DOOR_W, 28, p.wall, 1);
+    if (wall && wall->pixels)
+        draw_picture(c, wall->pixels, wall->w, wall->h, x, y, DOOR_W, 28, 1);
+    draw_fill(c, x, y + 28, DOOR_W, DOOR_H - 28, p.floor_a, 1);
+    if (art && art->floor.pixels) {
+        const art_sprite *floor = &art->floor;
+        draw_picture(c, floor->pixels, floor->w, floor->h,
+                     x, y + 28, DOOR_W, DOOR_H - 28, 1);
+    }
+    /* Back door and runner align with the room's near entrance. */
+    draw_fill(c, x + 32, y + 12, 16, 17, p.wall_shadow, 1);
+    draw_fill(c, x + 35, y + 14, 10, 14, p.door_wood, 1);
+    draw_fill(c, x + 31, y + 28, 18, DOOR_H - 28, p.runner_edge, 1);
+    draw_fill(c, x + 33, y + 28, 14, DOOR_H - 28, p.runner, 1);
+
+    for (int side = 0; side < 2; side++) {
+        int px = x + (side ? 52 : 8);
+        draw_fill(c, px, y + 33, 20, 24, 0x292e36, 1);
+        draw_fill(c, px + 2, y + 39, 16, 16, 0x101318, 1);
+        draw_fill(c, px + 15, y + 35, 2, 2, 0x4a9b73, 1);
+    }
+    draw_fill(c, x, y, DOOR_W, DOOR_H, 0x080b13, 0.17f);
+    draw_fill(c, x, y, 4, DOOR_H, 0x121419, 1);
+    draw_fill(c, x + DOOR_W - 4, y, 4, DOOR_H, 0x121419, 1);
+}
+
+void art_door(sr_canvas *c, const room_art *art, const char *style, float open,
+              int next_room, const char *next_style)
 {
     palette p = room_palette(style);
     float lift;
@@ -97,18 +133,10 @@ void art_door(sr_canvas *c, const room_art *art, const char *style, float open, 
     if (open > 1) open = 1;
     /* frame */
     draw_fill(c, DOOR_X - 8, DOOR_Y - 8, DOOR_W + 16, DOOR_H + 8, p.frame, 1.0f);
-    /* the passage beyond: light spilling from the next room */
-    if (art && art->passage.pixels) {
-        const art_sprite *passage = &art->passage;
-        draw_picture(c, passage->pixels, passage->w, passage->h,
-                     DOOR_X, DOOR_Y, DOOR_W, DOOR_H, 1);
-    } else {
-        for (int i = 0; i < DOOR_H; i++) {
-            float t = (float)i / DOOR_H;
-            draw_fill(c, DOOR_X, DOOR_Y + i, DOOR_W, 1,
-                      sr_mix(0xfff1b8, 0xd9a441, t), 1);
-        }
-    }
+    if (open > 0 && next_room > 0)
+        draw_next_room(c, art, next_style);
+    else
+        draw_fill(c, DOOR_X, DOOR_Y, DOOR_W, DOOR_H, p.wall_shadow, 1);
     /* door leaf slides up into the wall */
     lift = open * (DOOR_H - 6);
     int h = DOOR_H - (int)lroundf(lift);
@@ -129,9 +157,6 @@ void art_door(sr_canvas *c, const room_art *art, const char *style, float open, 
             draw_disc(c, DOOR_X + DOOR_W - 12, DOOR_Y + DOOR_H / 2.0f, 4, 4,
                            0xe0c060, 1.0f);
     }
-    for (int i = 0; open > 0.0f && i < 8; i++)
-        draw_fill(c, DOOR_X, DOOR_Y + DOOR_H + i * 5, DOOR_W, 5,
-                  0xffbf72, 0.035f * (8 - i) * open);
     /* lamp above the door: red shut, green open */
     draw_disc(c, DOOR_X + DOOR_W / 2.0f, 6, 4, 4,
                    open >= 1.0f ? 0x40e070 : 0xe04040, 1.0f);
@@ -232,7 +257,6 @@ void art_load_room(room_art *art, const char *root)
     load_sprite(&art->brick, root, "wall-brick.png");
     load_sprite(&art->floor, root, "floor.png");
     load_sprite(&art->door, root, "door-leaf.png");
-    load_sprite(&art->passage, root, "door-passage.png");
     art->revision = ++revision;
 }
 
@@ -242,7 +266,6 @@ void art_free_room(room_art *art)
     free(art->brick.pixels);
     free(art->floor.pixels);
     free(art->door.pixels);
-    free(art->passage.pixels);
     *art = (room_art){0};
 }
 

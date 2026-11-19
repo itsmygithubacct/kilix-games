@@ -21,7 +21,7 @@ typedef struct chest_art {
 } chest_art;
 
 typedef struct room_art {
-    art_sprite stone, brick, floor, door, passage;
+    art_sprite stone, brick, floor, door;
     unsigned revision;
 } room_art;
 
@@ -35,7 +35,8 @@ void art_chest(sr_canvas *c, const chest_art *art, int x, int y, bool open);
 void art_room(sr_canvas *c, const room_art *art, const char *style);
 /* The door at the top of the aisle. open: 0 shut .. 1 fully open.
  * next_room is the number on its sign, 0 when there is no next room yet. */
-void art_door(sr_canvas *c, const room_art *art, const char *style, float open, int next_room);
+void art_door(sr_canvas *c, const room_art *art, const char *style, float open,
+              int next_room, const char *next_style);
 /* A screen's unchanging parts: shadow, glass, title bar, and its text area
  * filled with background. Drawn once into the cached room. */
 void art_screen_glass(sr_canvas *c, rect r, uint32_t background);

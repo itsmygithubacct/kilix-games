@@ -24,7 +24,7 @@ typedef struct view {
     const level *lv;
     const chest_art *chest;
     const room_art *room;
-    int level_count;
+    const level *next_level;
     const neuroterm *omp;            /* may be NULL */
     const neuroterm *shell;          /* may be NULL */
     const history *omp_history, *shell_history;

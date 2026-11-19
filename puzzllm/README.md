@@ -161,8 +161,9 @@ The levels so far:
 6. A stub room for the next challenge.
 
 The generated pixel art in `assets/` includes blue stone and red brick walls,
-slate floor tiles, the sliding wooden door and its lit passage, and Room 4’s
-closed chest, open chest, and key.
+slate floor tiles, the sliding wooden door, and Room 4’s
+closed chest, open chest, and key. The open doorway shows a small view
+into the next room using the same wall and floor textures.
 
 ## The sandbox
 

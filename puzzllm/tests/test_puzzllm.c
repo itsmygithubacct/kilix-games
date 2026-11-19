@@ -1032,7 +1032,7 @@ static void test_render_and_flow(void)
     game_render(&G, &open);
     CHECK(differing(&shut, &open, door) > DOOR_W * DOOR_H / 2, "the door looks different open");
     CHECK(at(&open, DOOR_X + DOOR_W / 2, DOOR_Y + 30) != at(&shut, DOOR_X + DOOR_W / 2, DOOR_Y + 30),
-          "light through the doorway");
+          "next room visible through the doorway");
 
     /* text on the omp screen reaches the canvas */
     feed(&G.omp_vt, "W");
@@ -1283,8 +1283,8 @@ static void test_room_art(void)
     layout_set(LAYOUT_DEFAULT_W, LAYOUT_DEFAULT_H);
     art_load_room(&art, ".");
     bool loaded = art.stone.pixels && art.brick.pixels && art.floor.pixels &&
-                  art.door.pixels && art.passage.pixels;
-    CHECK(loaded, "all five generated room assets load");
+                  art.door.pixels;
+    CHECK(loaded, "all four generated room assets load");
     if (loaded && sr_canvas_init(&frame, CANVAS_W, CANVAS_H)) {
         int x = 24, y = 50;
         art_room(&frame, &art, "stone");
@@ -1296,12 +1296,22 @@ static void test_room_art(void)
         art_room(&frame, &art, "brick");
         CHECK(at(&frame, x, y) == (art.brick.pixels[y * art.brick.w + x] & 0xffffff),
               "the brick room uses the brick wall texture");
-        art_door(&frame, &art, "brick", 0, 2);
+        art_door(&frame, &art, "brick", 0, 2, "stone");
         CHECK(at(&frame, DOOR_X + x, DOOR_Y + y) == (art.door.pixels[y * art.door.w + x] & 0xffffff),
               "the closed door uses the wood sprite");
-        art_door(&frame, &art, "brick", 1, 2);
-        CHECK(at(&frame, DOOR_X + x, DOOR_Y + y) == (art.passage.pixels[y * art.passage.w + x] & 0xffffff),
-              "the open door reveals the lit passage");
+        uint32_t threshold = at(&frame, DOOR_X + x, DOOR_Y + DOOR_H + 8);
+        art_door(&frame, &art, "brick", 1, 2, "stone");
+        uint32_t stone = at(&frame, DOOR_X + x, DOOR_Y + 18);
+        CHECK(at(&frame, DOOR_X + 10, DOOR_Y + 45) ==
+              at(&frame, DOOR_X + DOOR_W - 11, DOOR_Y + 45) &&
+              at(&frame, DOOR_X + 10, DOOR_Y + 45) !=
+              at(&frame, DOOR_X + DOOR_W / 2, DOOR_Y + 45),
+              "the open doorway shows two screens and a central aisle");
+        art_door(&frame, &art, "brick", 1, 2, "brick");
+        CHECK(at(&frame, DOOR_X + x, DOOR_Y + 18) != stone,
+              "the doorway uses the destination room's wall");
+        CHECK(at(&frame, DOOR_X + x, DOOR_Y + DOOR_H + 8) == threshold,
+              "the doorway preview stays inside the frame");
     } else {
         CHECK(false, "room art canvas initialized");
     }

@@ -398,10 +398,11 @@ void render_frame(sr_canvas *c, const view *v)
     screen_id near = s->focus == FOCUS_ROOM ? scene_near_screen(s) : SCREEN_NONE;
     int tx, ty;
     char hud[256];
-    int next_room = s->level + 2;
 
     room_background(c, v->room, v->lv->room);
-    art_door(c, v->room, v->lv->room, s->door, next_room <= v->level_count ? next_room : 0);
+    art_door(c, v->room, v->lv->room, s->door,
+             v->next_level ? v->next_level->number : 0,
+             v->next_level ? v->next_level->room : NULL);
 
     if (v->codex) snprintf(hud, sizeof hud, "Codex  -  OpenAI agent");
     else snprintf(hud, sizeof hud, "omp  -  %.36s",
