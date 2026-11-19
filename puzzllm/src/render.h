@@ -23,7 +23,7 @@ typedef struct view {
     const scene *sc;
     const level *lv;
     const room_art *room;
-    const level *next_level;
+    int next_room;
     const neuroterm *omp;            /* may be NULL */
     const neuroterm *shell;          /* may be NULL */
     const history *omp_history, *shell_history;

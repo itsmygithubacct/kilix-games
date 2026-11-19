@@ -482,9 +482,7 @@ void render_frame(sr_canvas *c, const view *v)
     char hud[256];
 
     room_background(c, v->room, v->lv->room);
-    art_door(c, v->room, v->lv->room, s->door,
-             v->next_level ? v->next_level->number : 0,
-             v->next_level ? v->next_level->room : NULL);
+    art_door(c, v->room, v->lv->room, s->door, v->next_room);
 
     if (v->codex) snprintf(hud, sizeof hud, "Codex  -  OpenAI agent");
     else snprintf(hud, sizeof hud, "omp  -  %.36s",

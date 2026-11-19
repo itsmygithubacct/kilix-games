@@ -1059,7 +1059,7 @@ static void test_render_and_flow(void)
     game_render(&G, &open);
     CHECK(differing(&shut, &open, door) > DOOR_W * DOOR_H / 2, "the door looks different open");
     CHECK(at(&open, DOOR_X + DOOR_W / 2, DOOR_Y + 30) != at(&shut, DOOR_X + DOOR_W / 2, DOOR_Y + 30),
-          "next room visible through the doorway");
+          "the opening behind the door is visible");
 
     CHECK(differing(&shut, &open, (rect){DOOR_X + DOOR_W + 16, 42, 76, 19}) > 0 &&
           differing(&shut, &open, (rect){DOOR_X - 40, 33, 30, 30}) == 0,
@@ -1432,22 +1432,22 @@ static void test_room_art(void)
         art_room(&frame, &art, "brick");
         CHECK(at(&frame, x, y) == (art.brick.pixels[y * art.brick.w + x] & 0xffffff),
               "the brick room uses the brick wall texture");
-        art_door(&frame, &art, "brick", 0, 2, "stone");
+        art_door(&frame, &art, "brick", 0, 2);
         CHECK(at(&frame, DOOR_X + x, DOOR_Y + y) == (art.door.pixels[y * art.door.w + x] & 0xffffff),
               "the closed door uses the wood sprite");
         uint32_t threshold = at(&frame, DOOR_X + x, DOOR_Y + DOOR_H + 8);
-        art_door(&frame, &art, "brick", 1, 2, "stone");
-        uint32_t stone = at(&frame, DOOR_X + x, DOOR_Y + 18);
-        CHECK(at(&frame, DOOR_X + 10, DOOR_Y + 45) ==
-              at(&frame, DOOR_X + DOOR_W - 11, DOOR_Y + 45) &&
-              at(&frame, DOOR_X + 10, DOOR_Y + 45) !=
-              at(&frame, DOOR_X + DOOR_W / 2, DOOR_Y + 45),
-              "the open doorway shows two screens and a central aisle");
-        art_door(&frame, &art, "brick", 1, 2, "brick");
-        CHECK(at(&frame, DOOR_X + x, DOOR_Y + 18) != stone,
-              "the doorway uses the destination room's wall");
+        art_door(&frame, &art, "brick", 0.5f, 2);
+        CHECK(at(&frame, DOOR_X + x, DOOR_Y + y) == 0 &&
+              at(&frame, DOOR_X + x, DOOR_Y + 20) != 0,
+              "the leaf reveals black as it slides");
+        art_door(&frame, &art, "brick", 1, 2);
+        int colored = 0;
+        for (int row = DOOR_Y + 6; row < DOOR_Y + DOOR_H; row++)
+            for (int col = DOOR_X; col < DOOR_X + DOOR_W; col++)
+                colored += at(&frame, col, row) != 0;
+        CHECK(colored == 0, "the open doorway has a solid black interior");
         CHECK(at(&frame, DOOR_X + x, DOOR_Y + DOOR_H + 8) == threshold,
-              "the doorway preview stays inside the frame");
+              "the black opening stays inside its frame");
     } else {
         CHECK(false, "room art canvas initialized");
     }
