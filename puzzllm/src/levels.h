@@ -20,6 +20,7 @@
  * check: chest       the game supplies a ZIP and checks its extracted key.
  * check: none        never met: a "coming soon" stub room.
  * require: nonempty            at least one byte
+ * require: equals TEXT         exactly TEXT, allowing surrounding whitespace
  * require: contains TEXT       TEXT appears (contains-ci: in any case)
  * require: contains-any-ci A | B | C
  *                              at least one of them appears, in any case
@@ -47,7 +48,7 @@ enum {
 typedef enum level_check_kind { CHECK_NONE = 0, CHECK_FILE, CHECK_CHEST } level_check_kind;
 typedef enum level_req_kind {
     REQ_NONEMPTY = 1, REQ_CONTAINS, REQ_CONTAINS_CI, REQ_MAX_BYTES, REQ_BYTES, REQ_ONLY,
-    REQ_CONTAINS_ANY_CI, REQ_LACKS_CI
+    REQ_CONTAINS_ANY_CI, REQ_LACKS_CI, REQ_EQUALS
 } level_req_kind;
 
 typedef struct level_req {

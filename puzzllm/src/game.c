@@ -286,6 +286,14 @@ static void spawn_agent(game *g)
         activity_add(&g->act, ACT_INFO, "agent sandbox started");
 }
 
+static void stop_room_agent(game *g)
+{
+    pty_stop(&g->omp);
+    pty_init(&g->omp);
+    neuroterm_feed(&g->omp_vt, "\033c", 2);
+    snprintf(g->omp_note, sizeof g->omp_note, "Focus the agent pane to start a session.");
+}
+
 static void spawn_shell(game *g)
 {
     char sandbox[4096], st_env[2100];
@@ -414,7 +422,7 @@ static thinking_support bundled_thinking(void)
 
 static void restart_agent(game *g)
 {
-    if (g->spawn && g->started) {
+    if (g->spawn && g->started && !g->transition_pending && g->omp.pid != 0) {
         pty_stop(&g->omp);
         spawn_agent(g);
     }
@@ -581,7 +589,8 @@ static void focus_screen(game *g, focus_id f)
     g->sc.focus = f;
     if (f != FOCUS_ROOM) g->last_pane = f;
     for (int i = 0; i < 4; i++) g->held_until[i] = 0;
-    if (p != NULL && g->spawn && (p->pid == 0 || pty_poll_exit(p))) {
+    if (p != NULL && g->spawn && (f != FOCUS_OMP || !g->transition_pending) &&
+        (p->pid == 0 || pty_poll_exit(p))) {
         if (f == FOCUS_OMP) spawn_agent(g);
         else spawn_shell(g);
     }
@@ -764,11 +773,14 @@ void game_update(game *g, double dt)
         if (ev == SCENE_NEXT_ROOM) {
             if (!save_level(g->state, "transition", g->sc.level)) {
                 activity_add(&g->act, ACT_ERROR, "Could not save room transition.");
-            } else if (finish_transition(g, g->sc.level)) {
-                game_enter_level(g, g->sc.level + 1);
             } else {
-                activity_add(&g->act, ACT_ERROR, "Could not archive room files. Retrying.");
-                g->transition_pending = true;
+                stop_room_agent(g);
+                if (finish_transition(g, g->sc.level)) {
+                    game_enter_level(g, g->sc.level + 1);
+                } else {
+                    activity_add(&g->act, ACT_ERROR, "Could not archive room files. Retrying.");
+                    g->transition_pending = true;
+                }
             }
             g->tick_debt = 0;
             break;

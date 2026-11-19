@@ -15,6 +15,11 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # (name, file, old, new, make target[, "neuronte" when it needs that build])
 DEFECTS = [
+    ("the agent keeps running after a room transition",
+     "src/game.c", "                stop_room_agent(g);", "", "test-unit"),
+    ("the strawberry check accepts the count as a substring",
+     "src/levels.c", 'if (length != strlen(q->text) || memcmp(data + first, q->text, length) != 0) {',
+     'if (!contains(data + first, length, q->text, false)) {', "test-unit"),
     ("the Codex option leaves the previous agent selected",
      "src/game.c", "bool codex = menu->selected == MENU_CODEX;", "bool codex = false;", "test-unit"),
     ("the activity feed ignores Codex tool events",

@@ -85,15 +85,16 @@ Python 3. It uses port 11434 by default and respects a loopback
 
 ## Level 1: Hello, world
 
-Get the agent to create `hello_world.txt`. The goal is met when the
+Get the agent to create `~/workspace/hello_world.txt`. The goal is met when the
 workspace holds a regular file of that name (a symlink does not count), of
 1 to 4096 bytes, containing "hello" and "world" in any case. `Hello, World!`
 passes and an empty file does not. The player may also create the file by
 hand in the shell; that counts the same. A 0.8B model often says it wrote
 the file when it did not, so check with `ls` and `cat` in the shell.
 
-The system actions feed clears when you walk into a new room.
-Completing a room moves its workspace files into `workspace/level_N/`.
+When you leave a room, the coding agent stops before its files move into
+`workspace/level_N/`. The system actions feed clears. Focus the coding pane
+in the next room to start a fresh session.
 With the game closed, run `bin/puzzllm --reset-progress` to start at level 1.
 The previous workspace is kept under a `reset-*` directory in the game state.
 
@@ -105,7 +106,7 @@ Levels live in [`levels/levels.txt`](levels/levels.txt), one block each:
 level: 1
 title: Hello, world
 room: stone
-goal: Get the agent to create hello_world.txt saying Hello, World!
+goal: Get the agent to write Hello, World! to ~/workspace/hello_world.txt.
 hint: Walk to the agent screen on the left and press Enter to talk to the agent.
 check: file hello_world.txt
 require: nonempty
@@ -118,7 +119,8 @@ require: max-bytes 4096
 makes a room that is never finished, which is a stub. `require` can be
 `nonempty`, `contains TEXT`, `contains-ci TEXT`, `contains-any-ci A | B`
 (at least one of them, in any case), `lacks-ci A | B` (none of them),
-`max-bytes N`, `bytes N` (exactly N bytes, up to 16 MiB) or `only CHARS`
+`equals TEXT` (ignoring surrounding whitespace), `max-bytes N`,
+`bytes N` (exactly N bytes, up to 16 MiB) or `only CHARS`
 (no other byte anywhere). `room` picks the room's look (`stone` or
 `brick`). A new level is a new block, not new code. The full format is in
 [`src/levels.h`](src/levels.h).
@@ -126,18 +128,8 @@ makes a room that is never finished, which is a stub. `require` can be
 The levels so far:
 
 1. **Hello, world:** `hello_world.txt` saying Hello, World!
-2. **The carwash:** `carwash.txt` saying that to take the car to the
-   carwash you must drive, because the car has to be at the carwash to be
-   washed. Small models tend to say "walk, it's close". The check wants
-   the carwash named, drive, and a reason, and refuses advice to walk:
-   ```
-   require: lacks-ci should walk | better to walk | recommend walking | walking is better | walk instead
-   require: contains-any-ci carwash | car wash | car-wash
-   require: contains-any-ci drive | driving | drove
-   require: contains-any-ci because | since | so that | otherwise | has to be | must be | needs to be | need to be
-   ```
-   It matches words, not meaning, so the player decides whether the
-   agent really understood.
+2. **Strawberry:** count the r's in strawberry and write the number by itself
+   to `~/workspace/strawberry.txt`. Surrounding whitespace is optional.
 3. **A million ones:** `1.txt` holding exactly 1,000,000 ones and nothing
    else, so no spaces and no line ending:
    ```
@@ -216,7 +208,7 @@ lets the model think, which is off by default because 0.8B tends to loop.
 `make test` runs four suites, all headless:
 
 - `test-unit` covers the terminal emulator, key encoding, level parsing and
-  checks (the carwash and the million ones included), JSON, the activity
+  checks (strawberry and the million ones included), JSON, the activity
   feed, Kilix's pictures and walk timing, the 60 Hz tick, the layout at ten
   pane sizes and resizing, both renderers, the frame-to-frame damage, rendering,
   and the whole level-1 flow. In a

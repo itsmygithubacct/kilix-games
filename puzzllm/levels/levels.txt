@@ -4,10 +4,10 @@
 level: 1
 title: Hello, world
 room: stone
-goal: Get the agent to create hello_world.txt saying Hello, World!
+goal: Get the agent to write Hello, World! to ~/workspace/hello_world.txt.
 hint: Walk to the agent screen on the left and press Enter to talk to the agent.
-hint: Ask plainly: create a file named hello_world.txt containing Hello, World!
-hint: The agent can say it wrote the file even when the file is missing. Check with ls in the shell.
+hint: Ask it to create hello_world.txt in ~/workspace, the current directory, containing Hello, World!
+hint: The agent can say it wrote the file even when the file is missing. Check with ls ~/workspace in the shell.
 hint: If it wrote the wrong file, tell it exactly what went wrong and ask again.
 hint: You may also finish the goal yourself in the shell, bottom right.
 check: file hello_world.txt
@@ -17,22 +17,16 @@ require: contains-ci world
 require: max-bytes 4096
 
 level: 2
-title: The carwash
+title: Strawberry
 room: brick
-goal: Get the agent to write carwash.txt: you must drive to the carwash, because the car has to be there.
-hint: Ask: My car is dirty and the carwash is 50 m away. Walk or drive? Write your answer to carwash.txt.
-hint: Small models often answer walk, because it is close. But what gets washed?
-hint: If it says walk, ask it how the car gets washed if the car stays at home.
-hint: The file must name the carwash, say drive, and give a reason (because...). It must not say to walk.
-hint: Check with cat carwash.txt in the shell. The check reads the file, not the chat.
-hint: You may also write the statement yourself in the shell, bottom right.
-check: file carwash.txt
-require: nonempty
-require: max-bytes 4096
-require: lacks-ci should walk | better to walk | recommend walking | walking is better | walk instead
-require: contains-any-ci carwash | car wash | car-wash
-require: contains-any-ci drive | driving | drove
-require: contains-any-ci because | since | so that | otherwise | has to be | must be | needs to be | need to be
+goal: Get the agent to count the r's in strawberry and write the number to ~/workspace/strawberry.txt.
+hint: Ask the agent to count every r and write only the number to strawberry.txt in ~/workspace.
+hint: Spell strawberry one letter at a time. Count each r, including repeated letters.
+hint: The agent can use a program to count occurrences in the string strawberry.
+hint: Check the file in the shell with cat ~/workspace/strawberry.txt.
+check: file strawberry.txt
+require: max-bytes 32
+require: equals 3
 
 level: 3
 title: A million ones

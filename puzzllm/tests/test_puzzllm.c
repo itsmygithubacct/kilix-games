@@ -26,6 +26,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 static int failures, checks;
@@ -313,8 +314,33 @@ static void test_levels(void)
     CHECK(!levels_check(&L.items[L.count - 1], ws).met, "the stub room is never met");
 }
 
-/* Level 2: a statement that you must drive to the carwash, and why. */
-static void test_carwash(void)
+static void test_strawberry(void)
+{
+    level_list levels;
+    char err[256], ws[2300], path[2400];
+    CHECK(levels_load(&levels, "levels/levels.txt", err, sizeof err), "levels.txt: %s", err);
+    const level *lv = &levels.items[1];
+    CHECK(strcmp(lv->file, "strawberry.txt") == 0, "room 2 checks strawberry.txt");
+    CHECK(strstr(levels.items[0].goal, "~/workspace/hello_world.txt") != NULL,
+          "room 1 names the workspace destination");
+    sub(ws, sizeof ws, "strawberry-ws");
+    mkdir(ws, 0700);
+    snprintf(path, sizeof path, "%s/strawberry.txt", ws);
+    CHECK(!levels_check(lv, ws).met, "room 2 needs the answer file");
+    write_file(path, "3", 1);
+    CHECK(levels_check(lv, ws).met, "the bare count is correct");
+    write_file(path, " \t3\r\n", 5);
+    CHECK(levels_check(lv, ws).met, "the count may have surrounding whitespace");
+    write_file(path, "2\n", 2);
+    CHECK(!levels_check(lv, ws).met, "the wrong count is refused");
+    write_file(path, "There are 3", 11);
+    CHECK(!levels_check(lv, ws).met, "a substring is not the answer");
+    write_file(path, "3\0x", 3);
+    CHECK(!levels_check(lv, ws).met, "embedded NUL cannot hide extra content");
+}
+
+/* Exercise reusable phrase checks with a synthetic level. */
+static void test_phrase_checks(void)
 {
     static const char *good[] = {
         "To take your car to the carwash you must drive, because the car has to be at the carwash to be washed.",
@@ -338,11 +364,13 @@ static void test_carwash(void)
     goal_result r;
     int wrong = 0;
 
-    CHECK(levels_load(&L, "levels/levels.txt", err, sizeof err), "levels.txt: %s", err);
-    lv = &L.items[1];
-    CHECK(lv->check == CHECK_FILE && strcmp(lv->file, "carwash.txt") == 0,
-          "level 2 checks carwash.txt");
-    CHECK(lv->nhints >= 4, "level 2 has hints");
+    CHECK(levels_parse(&L, "level: 1\ntitle: Example\ngoal: Test phrases\ncheck: file carwash.txt\n"
+                          "require: lacks-ci should walk | better to walk | recommend walking | walk instead\n"
+                          "require: contains-any-ci carwash | car wash | car-wash\n"
+                          "require: contains-any-ci drive | driving | drove\n"
+                          "require: contains-any-ci because | since | so that | otherwise | has to be | must be | needs to be | need to be\n",
+                          err, sizeof err), "phrase rules: %s", err);
+    lv = &L.items[0];
     sub(ws, sizeof ws, "level2-ws");
     mkdir(ws, 0700);
     snprintf(path, sizeof path, "%s/carwash.txt", ws);
@@ -1013,6 +1041,10 @@ static void test_render_and_flow(void)
     cell0 = (rect){tx, ty, CELL_W, CELL_H};
     CHECK(differing(&open, &cur, cell0) > 4, "a typed W is drawn");
 
+    char *idle[] = {"/bin/cat", NULL};
+    CHECK(pty_spawn(&G.omp, idle, NULL, OMP_COLS, OMP_ROWS), "start a test agent");
+    CHECK(pty_spawn(&G.shell, idle, NULL, SHELL_COLS, SHELL_ROWS), "start a test shell");
+    pid_t agent_pid = G.omp.pid, shell_pid = G.shell.pid;
     /* walk up through the door: room 2, progress saved */
     {
         key_event up;
@@ -1024,6 +1056,11 @@ static void test_render_and_flow(void)
         for (int i = 0; i < 600 && G.sc.level == 0; i++) game_update(&G, 1.0 / 60);
     }
     CHECK(G.sc.level == 1, "walked into room 2");
+    CHECK(agent_pid > 0 && G.omp.pid == 0 && waitpid(agent_pid, NULL, WNOHANG) < 0 &&
+          errno == ECHILD, "leaving the room stops and reaps its agent");
+    CHECK(shell_pid > 0 && G.shell.pid == shell_pid && !pty_poll_exit(&G.shell),
+          "the shell survives the room change");
+    CHECK(strcmp(row(&G.omp_vt, 0), "") == 0, "the old agent screen is cleared");
     CHECK(!has_line(&G.act, "GOAL MET"), "room 2 clears room 1 activity");
     snprintf(prog, sizeof prog, "%s/workspace/level_1/hello_world.txt", state);
     CHECK(access(hello, F_OK) != 0 && access(prog, F_OK) == 0,
@@ -1320,7 +1357,8 @@ int main(void)
     test_neuroterm();
     test_keys();
     test_levels();
-    test_carwash();
+    test_phrase_checks();
+    test_strawberry();
     test_million_ones();
     test_json();
     test_activity();

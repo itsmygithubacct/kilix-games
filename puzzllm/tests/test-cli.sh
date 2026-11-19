@@ -31,14 +31,14 @@ echo >> "$scratch/state/workspace/1.txt"
 "$bin" --check-level 3 > "$scratch/out"; rc=$?
 [ $rc -eq 1 ] && grep -q 'one too many: often a line ending' "$scratch/out" &&
     pass "level 3 not met with a line ending" || fail "level 3 newline rc=$rc $(cat "$scratch/out")"
-echo 'You should walk to the carwash, because it is close.' > "$scratch/state/workspace/carwash.txt"
+printf '2\n' > "$scratch/state/workspace/strawberry.txt"
 "$bin" --check-level 2 > "$scratch/out"; rc=$?
-[ $rc -eq 1 ] && grep -q 'says "should walk"' "$scratch/out" &&
-    pass "level 2 refuses walking" || fail "level 2 walk rc=$rc $(cat "$scratch/out")"
-echo 'Drive to the carwash, because the car has to be there to be washed.' > "$scratch/state/workspace/carwash.txt"
+[ $rc -eq 1 ] && grep -q 'must contain only the correct answer' "$scratch/out" &&
+    pass "level 2 refuses the wrong count" || fail "level 2 wrong rc=$rc $(cat "$scratch/out")"
+printf '3\n' > "$scratch/state/workspace/strawberry.txt"
 "$bin" --check-level 2 > "$scratch/out"; rc=$?
-[ $rc -eq 0 ] && grep -q 'level 2: met' "$scratch/out" && pass "level 2 met by driving" ||
-    fail "level 2 drive rc=$rc $(cat "$scratch/out")"
+[ $rc -eq 0 ] && grep -q 'level 2: met' "$scratch/out" && pass "level 2 accepts the count" ||
+    fail "level 2 correct rc=$rc $(cat "$scratch/out")"
 "$bin" --check-level 9 2>/dev/null; rc=$?
 [ $rc -eq 2 ] && pass "unknown level is an error" || fail "level 9 rc=$rc"
 "$bin" --bogus 2>/dev/null; rc=$?

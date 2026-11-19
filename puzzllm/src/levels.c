@@ -171,6 +171,9 @@ bool levels_parse(level_list *out, const char *text, char *err, size_t errcap)
             } else if (strncmp(val, "contains-ci ", 12) == 0) {
                 r->kind = REQ_CONTAINS_CI;
                 if (!copy_field(r->text, sizeof r->text, trim(val + 12))) goto bad_value;
+            } else if (strncmp(val, "equals ", 7) == 0) {
+                r->kind = REQ_EQUALS;
+                if (!copy_field(r->text, sizeof r->text, trim(val + 7))) goto bad_value;
             } else if (strncmp(val, "contains ", 9) == 0) {
                 r->kind = REQ_CONTAINS;
                 if (!copy_field(r->text, sizeof r->text, trim(val + 9))) goto bad_value;
@@ -389,6 +392,17 @@ goal_result levels_check(const level *lv, const char *workspace)
             if (q->kind == REQ_LACKS_CI && hit >= 0) {
                 snprintf(r.why, sizeof r.why, "%.120s says \"%.100s\", which it must not",
                          lv->file, parts[hit]);
+                free(data);
+                return r;
+            }
+        }
+        if (q->kind == REQ_EQUALS) {
+            size_t first = 0, last = (size_t)n;
+            while (first < last && isspace((unsigned char)data[first])) first++;
+            while (last > first && isspace((unsigned char)data[last - 1])) last--;
+            size_t length = last - first;
+            if (length != strlen(q->text) || memcmp(data + first, q->text, length) != 0) {
+                snprintf(r.why, sizeof r.why, "%.160s must contain only the correct answer", lv->file);
                 free(data);
                 return r;
             }
