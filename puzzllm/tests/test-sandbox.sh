@@ -63,6 +63,14 @@ if command -v man >/dev/null && man -w unzip >/dev/null 2>&1; then
     done
 fi
 
+if command -v tmux >/dev/null; then
+    if python3 "$here/tests/test-tmux.py" "$sandbox" > "$scratch/tmux.log" 2>&1; then
+        pass "agent reads the named shell pane and the log survives shell exit"
+    else
+        fail "shared tmux shell: $(tail -n 6 "$scratch/tmux.log" | tr '\n' ' ')"
+    fi
+fi
+
 # host side: nothing escaped
 if [ -z "$(ls -A "$scratch/outside")" ]; then pass "outside folder untouched"
 else fail "outside folder has: $(ls -A "$scratch/outside")"; fi

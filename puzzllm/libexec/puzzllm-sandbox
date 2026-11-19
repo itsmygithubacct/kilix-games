@@ -147,6 +147,18 @@ count-check)
     ;;
 esac
 
+# Only the shell server needs to create the socket. Agents connect to
+# the same pathname from their separate namespaces.
+case "$mode" in
+agent|agent-exec|shell|shell-exec)
+    (umask 077 && mkdir -p "$state/tmux") || die "cannot create tmux state"
+    tmux_mount=--ro-bind
+    [ "$mode" = shell ] && tmux_mount=--bind
+    args+=("$tmux_mount" "$state/tmux" /opt/puzzllm/tmux
+           --setenv TMUX_TMPDIR /opt/puzzllm/tmux)
+    ;;
+esac
+
 case "$mode" in
 agent|agent-exec)
     args+=(--bind "$state/workspace" "$box_home"
@@ -202,7 +214,8 @@ codex)
 shell|shell-exec)
     args+=(--bind "$state/workspace" "$box_home"
            --chdir "$box_home"
-           --ro-bind "$here/puzzllm-shellrc" /opt/puzzllm/shellrc)
+           --ro-bind "$here/puzzllm-shellrc" /opt/puzzllm/shellrc
+           --ro-bind "$here/puzzllm-shell-init" /opt/puzzllm/bin/puzzllm-shell-init)
     ;;
 *)
     die "usage: puzzllm-sandbox agent|codex|shell|agent-exec -- CMD|shell-exec -- CMD|paths"
@@ -259,7 +272,7 @@ codex)
     exec bwrap "${args[@]}" --remount-ro / -- /opt/puzzllm/bin/puzzllm-codex-init "$codex_command" "$@"
     ;;
 shell)
-    exec bwrap "${args[@]}" --remount-ro / -- /bin/bash --rcfile /opt/puzzllm/shellrc -i
+    exec bwrap "${args[@]}" --remount-ro / -- /opt/puzzllm/bin/puzzllm-shell-init
     ;;
 agent-exec|shell-exec)
     [ "${1:-}" = -- ] && shift

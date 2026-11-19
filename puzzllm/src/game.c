@@ -183,7 +183,8 @@ static bool archive_workspace(const char *workspace, int number)
             break;
         }
         const char *name = entry->d_name;
-        if (!strcmp(name, ".") || !strcmp(name, "..")) continue;
+        /* The running shell keeps appending to this log across rooms. */
+        if (!strcmp(name, ".") || !strcmp(name, "..") || !strcmp(name, "shell.log")) continue;
         const char *digits = name + (strncmp(name, "level_", 6) == 0 ? 6 : 0);
         if (digits != name && *digits && digits[strspn(digits, "0123456789")] == 0) {
             struct stat st;

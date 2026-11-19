@@ -1,0 +1,22 @@
+#!/bin/bash
+# The tmux server runs inside the player shell sandbox.
+set -eu
+command -v tmux >/dev/null || { printf 'PuzzLLM requires tmux for the shell pane.\n' >&2; exit 2; }
+log=$HOME/shell.log
+if [[ -L "$log" || ( -e "$log" && ! -f "$log" ) ]]; then
+    printf '~/shell.log must be a regular file.\n' >&2
+    exit 2
+fi
+umask 077
+export SHELL=/bin/bash
+touch -- "$log"
+
+# Wait to start Bash until its output pipe is hooked up, including the prompt.
+exec tmux -f /dev/null new-session -d -s shell -n shell -c "$HOME" \
+    'tmux wait-for puzzllm-shell-log && exec /bin/bash --rcfile /opt/puzzllm/shellrc -i' \
+    \; set-option -g status off \
+    \; set-option -g mouse on \
+    \; select-pane -t shell:shell.0 -T shell \
+    \; pipe-pane -O -t shell:shell.0 'exec cat >> "$HOME/shell.log"' \
+    \; wait-for -S puzzllm-shell-log \
+    \; attach-session -t shell

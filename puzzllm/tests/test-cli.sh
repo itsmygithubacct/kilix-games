@@ -107,9 +107,11 @@ printf 'level 1\n' > "$PUZZLLM_STATE/transition"
 mkdir "$workspace/level_1"
 printf 'old\n' > "$workspace/level_1/hello_world.txt"
 printf 'Hello, World!\n' > "$workspace/hello_world.txt"
+printf 'shell transcript\n' > "$workspace/shell.log"
 "$bin" --check-level 1 > "$scratch/out"; rc=$?
 [ "$rc" -eq 1 ] && grep -q '^level 2$' "$PUZZLLM_STATE/progress" &&
     [ ! -e "$PUZZLLM_STATE/transition" ] &&
+    grep -q '^shell transcript$' "$workspace/shell.log" &&
     grep -q '^old$' "$workspace/level_1/hello_world.txt" &&
     grep -q '^Hello, World!$' "$workspace/level_1/hello_world.txt.1" &&
     pass "interrupted transition resumes without overwriting archived files" ||

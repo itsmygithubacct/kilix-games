@@ -276,7 +276,8 @@ void activity_scan_workspace(activity *a, const char *workspace)
         struct stat st;
         long long mt;
         int i;
-        if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) continue;
+        if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0 ||
+            strcmp(e->d_name, "shell.log") == 0) continue;
         if (strlen(e->d_name) >= sizeof a->files[0].name) continue;
         snprintf(path, sizeof path, "%s/%s", workspace, e->d_name);
         if (lstat(path, &st) != 0) continue;

@@ -27,7 +27,14 @@ Neuronte nets draw the text, the terminal characters and Kilix himself (see
 | top right | the goal, status, and hints |
 | middle right | system actions, including tool calls and workspace changes |
 | above the shell | CPU, RAM, GPU, VRAM, and disk read/write activity |
-| bottom right | a bash shell in the same game home directory |
+| bottom right | a bash shell in the shared game home, inside tmux |
+
+The shell runs in a tmux session and window called `shell`. The coding
+agent using Ollama or llama.cpp can inspect it with
+`tmux capture-pane -p -t shell` (add `-S -` for scrollback). The shell
+appends its raw output to `~/shell.log` across rooms and sessions.
+Codex can read the log from its command sandbox. Resetting progress
+backs up the log with the other files.
 
 The resource bar samples the coding harness and any model process it can
 attribute to that session. CPU is shown as a percentage of one logical
@@ -222,6 +229,7 @@ NeuroTerm's `embed.mk` and `include/neuroterm_terminal.h`.
 
 | Part | Default | Override |
 |---|---|---|
+| tmux | `tmux` on `PATH` for the player shell | |
 | bubblewrap | `bwrap` on `PATH` | |
 | omp | `omp` on `PATH`, then `~/.local/bin/omp` | `PUZZLLM_OMP` |
 | llama-server | `llama-server` on `PATH`, then a Kilix LLM bench build under `~/.local/share/kilix-llm/bench/engine/` | `PUZZLLM_LLAMA_SERVER` |

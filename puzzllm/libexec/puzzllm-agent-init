@@ -87,4 +87,5 @@ health || { say "llama-server did not come up"; exec bash -i; }
 
 say "Qwen 3.5 ready; starting omp"
 exec /opt/puzzllm/bin/omp --model "puzzllm-local/$model_id" \
+    --append-system-prompt "Inspect the player's shell with tmux capture-pane -p -t shell. Its output is recorded in ~/shell.log." \
     --allow-home --no-title --no-lsp --no-extensions --no-skills --no-rules "$@"
