@@ -1251,6 +1251,45 @@ static void test_model_details_menu(void)
     layout_set(LAYOUT_DEFAULT_W, LAYOUT_DEFAULT_H);
 }
 
+static void test_tooltips(void)
+{
+    char err[256], state[2300];
+    sub(state, sizeof state, "tooltips");
+    layout_set(LAYOUT_DEFAULT_W, LAYOUT_DEFAULT_H);
+    CHECK(game_init(&G, ".", state, false, err, sizeof err), "tooltip menu: %s", err);
+    CHECK(!G.tooltips, "tooltips default off");
+    G.sc.x = 200;
+    G.sc.y = WALK_Y0;
+    G.sc.dir = 1;
+    CHECK(scene_near_screen(&G.sc) == SCREEN_OMP, "tooltip test is near a terminal");
+    sr_canvas off = {0}, on = {0};
+    bool allocated = sr_canvas_init(&off, CANVAS_W, CANVAS_H) &&
+                     sr_canvas_init(&on, CANVAS_W, CANVAS_H);
+    CHECK(allocated, "tooltip canvases allocated");
+    if (allocated) game_render(&G, &off);
+    menu_press(KEY_ESCAPE);
+    for (int i = 0; i < MENU_TOOLTIPS; i++) menu_press(KEY_DOWN);
+    menu_press(KEY_ENTER);
+    CHECK(G.tooltips && G.menu.open, "menu turns tooltips on");
+    menu_press(KEY_ESCAPE);
+    if (allocated) {
+        game_render(&G, &on);
+        CHECK(differing(&off, &on, (rect){40, WALK_Y0 - 120, 320, 40}) > 0,
+              "the toggle shows the yellow character prompt");
+    }
+    sr_canvas_free(&off);
+    sr_canvas_free(&on);
+    game_shutdown(&G);
+
+    CHECK(game_init(&G, ".", state, false, err, sizeof err) && G.tooltips,
+          "tooltip preference survives relaunch");
+    menu_press(KEY_ESCAPE);
+    for (int i = 0; i < MENU_TOOLTIPS; i++) menu_press(KEY_DOWN);
+    menu_press(KEY_ENTER);
+    CHECK(!G.tooltips, "menu turns tooltips off again");
+    game_shutdown(&G);
+}
+
 static void test_compute_menu(void)
 {
     char err[256], state[2300];
@@ -1608,6 +1647,7 @@ int main(void)
     test_codex_menu();
     test_room_art();
     test_compute_menu();
+    test_tooltips();
     test_model_details_menu();
     test_start_and_reset_menu();
     test_neuroterm();

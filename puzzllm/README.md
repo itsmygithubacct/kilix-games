@@ -92,6 +92,9 @@ reported maximum and requires at least 16,384 tokens. If Ollama reports
 that it started a runner with less context than requested, the agent pane
 shows an error instead of using the truncated completion.
 
+**Tooltips** controls the yellow prompts above Kilix. They start off and
+the game remembers your choice.
+
 **Model prompt and tools** opens a scrollable view of the PuzzLLM prompt
 and write schema used for Ollama. Use Left and Right to see which settings
 are supplied by the other backends.

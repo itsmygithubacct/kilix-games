@@ -319,7 +319,7 @@ static void room_background(sr_canvas *c, const room_art *art, const char *style
 void render_menu(sr_canvas *c, const model_option *models, int count, int selected,
                  const char *active_model, bool loading, bool failed,
                  bool started, int level, bool confirm_reset, const char *notice, int support, bool thinking_enabled, bool codex,
-                 compute_mode compute)
+                 compute_mode compute, bool tooltips)
 {
     static const char *const actions[] = {
         [MENU_QUIT] = "Exit game", [MENU_RESET] = "Reset progress",
@@ -371,7 +371,9 @@ void render_menu(sr_canvas *c, const model_option *models, int count, int select
         } else if (i == MENU_COMPUTE) {
             const char *mode = compute == COMPUTE_CPU ? "CPU" : compute == COMPUTE_GPU ? "GPU" : "Auto";
             snprintf(label, sizeof label, "Compute: %s", codex ? "managed in Codex" : mode);
-        } else if (i < MENU_FIRST_OLLAMA)
+        } else if (i == MENU_TOOLTIPS)
+            snprintf(label, sizeof label, "Tooltips: %s", tooltips ? "On" : "Off");
+        else if (i < MENU_FIRST_OLLAMA)
             snprintf(label, sizeof label, "%s", actions[i]);
         else
             snprintf(label, sizeof label, "%s (Ollama)", models[i - MENU_FIRST_OLLAMA].name);
@@ -512,7 +514,7 @@ void render_frame(sr_canvas *c, const view *v)
     render_selection(c, v->selection);
 
     art_kilix(c, s->x, s->y, s->dir, s->step_ticks, s->idle_ticks);
-    if (s->focus == FOCUS_ROOM) {
+    if (v->tooltips && s->focus == FOCUS_ROOM) {
         if (near == SCREEN_OMP) art_prompt(c, s->x, s->y - ART_KILIX_HEIGHT - 6, "Enter: talk to the agent");
         else if (near == SCREEN_SHELL) art_prompt(c, s->x, s->y - ART_KILIX_HEIGHT - 6, "Enter: use the shell");
         else if (near == SCREEN_GOAL) art_prompt(c, s->x, s->y - ART_KILIX_HEIGHT - 6, "Enter: next hint");

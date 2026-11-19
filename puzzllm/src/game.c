@@ -52,14 +52,21 @@ static bool save_level(const char *state, const char *name, int level)
 
 static const char *const compute_name[] = {"auto", "cpu", "gpu"};
 
-static compute_mode load_compute(const char *state)
+static bool load_preference(const char *state, const char *name, char value[8])
 {
-    char path[4096], value[8];
-    snprintf(path, sizeof path, "%s/compute", state);
+    char path[4096];
+    snprintf(path, sizeof path, "%s/%s", state, name);
     FILE *f = fopen(path, "r");
-    if (!f) return COMPUTE_AUTO;
+    if (!f) return false;
     bool read = fscanf(f, "%7s", value) == 1;
     fclose(f);
+    return read;
+}
+
+static compute_mode load_compute(const char *state)
+{
+    char value[8];
+    bool read = load_preference(state, "compute", value);
     if (read && strcmp(value, compute_name[COMPUTE_CPU]) == 0) return COMPUTE_CPU;
     if (read && strcmp(value, compute_name[COMPUTE_GPU]) == 0) return COMPUTE_GPU;
     return COMPUTE_AUTO;
@@ -602,6 +609,13 @@ static void menu_key(game *g, const key_event *ev)
                 snprintf(menu->notice, sizeof menu->notice, "Could not save the compute setting.");
             }
         }
+        if (menu->selected == MENU_TOOLTIPS) {
+            bool enabled = !g->tooltips;
+            if (g->state_lock >= 0 && save_state_line(g->state, "tooltips", enabled ? "on" : "off"))
+                g->tooltips = enabled;
+            else
+                snprintf(menu->notice, sizeof menu->notice, "Could not save the tooltip setting.");
+        }
         if (menu->selected == MENU_MODEL_DETAILS) {
             menu->details_open = true;
             menu->details_scroll = 0;
@@ -702,6 +716,8 @@ bool game_init(game *g, const char *root, const char *state, bool spawn,
         return false;
     }
     g->compute = load_compute(state);
+    char tips[8];
+    g->tooltips = load_preference(state, "tooltips", tips) && strcmp(tips, "on") == 0;
     scene_init(&g->sc, 0, g->levels.count);
 
     int previous = load_level(state, "transition", g->levels.count);
@@ -1186,6 +1202,7 @@ static view game_view(const game *g)
     v.shell_note = g->shell_note[0] ? g->shell_note : NULL;
     v.goal_why = g->goal.why;
     v.hints_shown = g->hints_shown;
+    v.tooltips = g->tooltips;
     v.blink = ((long)(g->now * 2.0)) % 2 == 0;
     return v;
 }
@@ -1201,5 +1218,5 @@ void game_render(game *g, sr_canvas *c)
         render_menu(c, g->menu.models, g->menu.count, g->menu.selected,
                     v.agent_model, g->menu.loading, g->menu.load_failed,
                     g->started, g->sc.level + 1, g->menu.confirm_reset, g->menu.notice,
-                    g->thinking_support, g->thinking_enabled, g->use_codex, g->compute);
+                    g->thinking_support, g->thinking_enabled, g->use_codex, g->compute, g->tooltips);
 }
