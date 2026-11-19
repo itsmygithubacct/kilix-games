@@ -186,11 +186,12 @@ void art_screen(sr_canvas *c, rect r, const char *title, bool focused, bool near
 {
     uint32_t bezel = focused ? 0xd8b440 : near ? 0x8090a8 : 0x2c2f38;
 
-    /* the bezel: a ring four pixels wide around the glass */
-    draw_fill(c, (float)r.x - 4, (float)r.y - 4, (float)r.w + 8, 4, bezel, 1.0f);
-    draw_fill(c, (float)r.x - 4, (float)(r.y + r.h), (float)r.w + 8, 4, bezel, 1.0f);
-    draw_fill(c, (float)r.x - 4, (float)r.y, 4, (float)r.h, bezel, 1.0f);
-    draw_fill(c, (float)(r.x + r.w), (float)r.y, 4, (float)r.h, bezel, 1.0f);
+    draw_fill(c, r.x - SCREEN_BEZEL, r.y - SCREEN_BEZEL,
+              r.w + 2 * SCREEN_BEZEL, SCREEN_BEZEL, bezel, 1);
+    draw_fill(c, r.x - SCREEN_BEZEL, r.y + r.h,
+              r.w + 2 * SCREEN_BEZEL, SCREEN_BEZEL, bezel, 1);
+    draw_fill(c, r.x - SCREEN_BEZEL, r.y, SCREEN_BEZEL, r.h, bezel, 1);
+    draw_fill(c, r.x + r.w, r.y, SCREEN_BEZEL, r.h, bezel, 1);
     draw_text(c, (float)r.x + 8, (float)r.y + 3, title,
               focused ? 0xffe27a : 0xc8ccd6, 1.0f);
     /* power light */
@@ -198,17 +199,50 @@ void art_screen(sr_canvas *c, rect r, const char *title, bool focused, bool near
               focused ? 0x50f080 : 0x2f8f50, 1.0f);
 }
 
+static rect intersect(rect a, rect b)
+{
+    int x = a.x > b.x ? a.x : b.x;
+    int y = a.y > b.y ? a.y : b.y;
+    int right = a.x + a.w < b.x + b.w ? a.x + a.w : b.x + b.w;
+    int bottom = a.y + a.h < b.y + b.h ? a.y + a.h : b.y + b.h;
+    return (rect){x, y, right - x, bottom - y};
+}
+
 void art_kilix(sr_canvas *c, float x, float y, int dir, int step_ticks, int idle_ticks)
 {
     kilix_pose pose = kilix_pose_at(dir, step_ticks, idle_ticks);
     const kilix_picture *p = kilix_art_get(pose.art);
     int fx = (int)lroundf(x), fy = (int)lroundf(y);
+    int width = p && p->width > 34 ? p->width : 34;
+    int height = p ? p->height : 0;
+    /* Allow for the idle bob, the shadow and rasterization at the edges. */
+    rect footprint = intersect((rect){fx - width / 2 - 8, fy - height - 8, width + 16, height + 20},
+                               (rect){0, 0, c->w, c->h});
+    if (footprint.w <= 0 || footprint.h <= 0) return;
+    rect panes[ROOM_PANE_COUNT];
+    layout_room_panes(panes);
+    /* Save just the pane pixels covered by the character's bounding box. */
+    uint32_t original[(size_t)footprint.w * footprint.h];
+    for (int i = 0; i < ROOM_PANE_COUNT; i++) {
+        rect r = panes[i] = intersect(footprint, panes[i]);
+        for (int j = 0; r.w > 0 && j < r.h; j++) {
+            size_t offset = (size_t)(r.y + j - footprint.y) * footprint.w + r.x - footprint.x;
+            memcpy(original + offset, c->px + (size_t)(r.y + j) * c->w + r.x, r.w * sizeof *original);
+        }
+    }
 
-    /* Zell's shadow: on the floor line, under the feet */
     draw_disc(c, x, y, 17.0f, 5.0f, 0x071719, 0.45f);
-    if (p == NULL) return;
-    draw_picture(c, p->pixels, p->width, p->height, fx - p->width / 2,
-                 fy - p->height + pose.offset_y, p->width, p->height, 1.0f);
+    if (p)
+        draw_picture(c, p->pixels, p->width, p->height, fx - p->width / 2,
+                     fy - p->height + pose.offset_y, p->width, p->height, 1);
+
+    for (int i = 0; i < ROOM_PANE_COUNT; i++) {
+        rect r = panes[i];
+        for (int j = 0; r.w > 0 && j < r.h; j++) {
+            size_t offset = (size_t)(r.y + j - footprint.y) * footprint.w + r.x - footprint.x;
+            memcpy(c->px + (size_t)(r.y + j) * c->w + r.x, original + offset, r.w * sizeof *original);
+        }
+    }
 }
 
 void art_prompt(sr_canvas *c, float x, float y, const char *text)

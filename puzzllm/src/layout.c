@@ -29,7 +29,6 @@ int layout_set(int w, int h)
     n.aisle_x0 = half - 20;
     n.aisle_x1 = half + 20;
     n.start_x = half;
-    n.start_y = h - 60;
 
     int height = n.floor_y + 6 - top;
     col_w = half - gap - 16;
@@ -55,6 +54,11 @@ int layout_set(int w, int h)
     n.shell_y = n.resource_y + RESOURCE_H + status_gap;
     n.shell_cols = n.goal_cols;
     n.shell_rows = (terminal_bottom - n.shell_y - SCREEN_H(0)) / CELL_H;
+
+    int omp_bottom = n.omp_y + SCREEN_H(n.omp_rows);
+    int shell_bottom = n.shell_y + SCREEN_H(n.shell_rows);
+    int pane_bottom = omp_bottom > shell_bottom ? omp_bottom : shell_bottom;
+    n.start_y = clamp(h - 60, pane_bottom + SCREEN_BEZEL + WALK_PANE_CLEARANCE, n.walk_y1);
 
     {
         int moved = n.w != L.w || n.h != L.h;
@@ -102,4 +106,14 @@ rect layout_text_bounds(screen_id id)
 rect layout_resources(void)
 {
     return (rect){L.goal_x, L.resource_y, SCREEN_W(GOAL_COLS), RESOURCE_H};
+}
+
+void layout_room_panes(rect panes[ROOM_PANE_COUNT])
+{
+    for (int i = 0; i < SCREEN_COUNT; i++) {
+        rect r = layout_screen((screen_id)i);
+        panes[i] = (rect){r.x - SCREEN_BEZEL, r.y - SCREEN_BEZEL,
+                          r.w + 2 * SCREEN_BEZEL, r.h + 2 * SCREEN_BEZEL};
+    }
+    panes[SCREEN_COUNT] = layout_resources();
 }

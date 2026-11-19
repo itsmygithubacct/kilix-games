@@ -32,6 +32,14 @@ bool scene_door_passable(const scene *s)
 
 bool scene_walkable(const scene *s, float x, float y)
 {
+    rect panes[ROOM_PANE_COUNT];
+    layout_room_panes(panes);
+    for (int i = 0; i < ROOM_PANE_COUNT; i++) {
+        rect r = panes[i];
+        if (x >= r.x - WALK_PANE_CLEARANCE && x < r.x + r.w + WALK_PANE_CLEARANCE &&
+            y >= r.y - WALK_PANE_CLEARANCE && y < r.y + r.h + WALK_PANE_CLEARANCE)
+            return false;
+    }
     if (x >= WALK_X0 && x <= WALK_X1 && y >= WALK_Y0 && y <= WALK_Y1) return true;
     if (x >= AISLE_X0 && x <= AISLE_X1 && y <= WALK_Y1) {
         if (y >= AISLE_Y0) return true;
@@ -95,6 +103,8 @@ void scene_relayout(scene *s, const layout *old)
         if (s->y >= (float)old->walk_y0) y = (float)L.h - ((float)old->h - s->y);
         else if (s->y >= (float)old->floor_y) y = (float)L.walk_y0;
     }
+    if (y >= WALK_Y0 && !scene_walkable(s, x, y) && scene_walkable(s, x, START_Y))
+        y = START_Y;
     if (scene_walkable(s, x, y)) {
         s->x = x;
         s->y = y;
