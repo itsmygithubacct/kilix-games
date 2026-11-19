@@ -15,6 +15,23 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # (name, file, old, new, make target[, "neuronte" when it needs that build])
 DEFECTS = [
+    ("escape cannot open the game menu",
+     "src/game.c", "            else open_menu(g);", "", "test-unit"),
+    ("selecting an Ollama model does not apply it",
+     "src/game.c", '                snprintf(g->ollama_model, sizeof g->ollama_model, "%s", name);',
+     "", "test-unit"),
+    ("cloud entries are listed as local models",
+     "libexec/puzzllm-ollama",
+     '            and not entry.get("remote_host") and not entry.get("remote_model")\n',
+     "", "test-sandbox"),
+    ("the Ollama bridge permits another model",
+     "libexec/puzzllm-ollama", ' or request.get("model") != self.server.model',
+     "", "test-sandbox"),
+    ("the Ollama bridge accepts external media",
+     "libexec/puzzllm-ollama", 'not text_content(message.get("content"))',
+     "False", "test-sandbox"),
+    ("the Ollama bridge permits management paths",
+     "libexec/puzzllm-ollama", "        if self.path != CHAT:", "        if False:", "test-sandbox"),
     # --- sandbox ---
     ("sandbox shares the network",
      "libexec/puzzllm-sandbox",

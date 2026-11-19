@@ -17,6 +17,20 @@
 
 enum { HINT_SECONDS = 45 };
 
+enum { OLLAMA_NAME_CAP = 256 };
+
+typedef struct game_menu {
+    bool open;
+    bool loading;
+    bool load_failed;
+    int selected;
+    char **models;
+    int count;
+    pty_proc discovery;
+    char line[OLLAMA_NAME_CAP];
+    size_t line_length;
+} game_menu;
+
 typedef struct game {
     char root[2048];        /* the puzzllm/ directory */
     char state[2048];       /* persistent folder, e.g. ~/.local/share/puzzllm */
@@ -38,6 +52,8 @@ typedef struct game {
     double tick_debt;       /* seconds not yet run as scene ticks */
     bool release_events;    /* the terminal reports key releases */
     bool quit;
+    game_menu menu;
+    char ollama_model[OLLAMA_NAME_CAP];
     bool transition_pending;
     char omp_note[96], shell_note[96];
 } game;

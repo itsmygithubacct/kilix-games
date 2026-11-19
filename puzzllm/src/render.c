@@ -199,6 +199,48 @@ static void room_background(sr_canvas *c, const char *style)
     memcpy(c->px, bg.px, (size_t)c->w * (size_t)c->h * sizeof *c->px);
 }
 
+void render_menu(sr_canvas *c, char *const *models, int count, int selected,
+                 const char *active_model, bool loading, bool failed)
+{
+    static const char *const actions[] = {"Resume game", "Exit game", "Qwen 3.5 (llama.cpp)"};
+    int width = 560, row_h = 27;
+    int rows = (c->h - 180) / row_h;
+    int options = count + MENU_FIRST_OLLAMA;
+    if (rows > 14) rows = 14;
+    if (rows > options) rows = options;
+    int first = selected >= rows ? selected - rows + 1 : 0;
+    int height = 125 + rows * row_h;
+    int x = (c->w - width) / 2;
+    int y = (c->h - height) / 2;
+    char label[320];
+
+    draw_fill(c, 0, 0, c->w, c->h, 0x0c1018, 0.72f);
+    draw_fill(c, x, y, width, height, 0x151d29, 1);
+    draw_stroke(c, x, y, width, height, 2, 0x826b47, 1);
+    draw_text(c, x + 18, y + 13, "Game menu", 0xffde8c, 1);
+    snprintf(label, sizeof label, "Agent model: %s", *active_model ? active_model : actions[MENU_LOCAL]);
+    text_line(c, x + 18, y + 39, label, 0xbccadb, (width - 36) / CELL_W);
+
+    for (int i = first; i < first + rows; i++) {
+        int row_y = y + 62 + (i - first) * row_h;
+        if (i == selected)
+            draw_fill(c, x + 11, row_y, width - 22, row_h - 2, 0x354356, 1);
+        if (i < MENU_FIRST_OLLAMA)
+            snprintf(label, sizeof label, "%s", actions[i]);
+        else
+            snprintf(label, sizeof label, "%s (Ollama)", models[i - MENU_FIRST_OLLAMA]);
+        text_line(c, x + 20, row_y + 5, label, 0xf2efeb, (width - 40) / CELL_W);
+    }
+    if (loading || failed || count == 0 || options > rows) {
+        if (loading) snprintf(label, sizeof label, "Looking for installed Ollama models...");
+        else if (failed) snprintf(label, sizeof label, "Could not reach the local Ollama service.");
+        else if (count == 0) snprintf(label, sizeof label, "No installed Ollama models found.");
+        else snprintf(label, sizeof label, "Options %d-%d of %d", first + 1, first + rows, options);
+        draw_text(c, x + 18, y + height - 48, label, 0xa6b5c6, 1);
+    }
+    draw_text(c, x + 18, y + height - 26, "Up/Down move    Enter select    Esc close", 0xbccadb, 1);
+}
+
 void render_frame(sr_canvas *c, const view *v)
 {
     const scene *s = v->sc;
@@ -210,7 +252,9 @@ void render_frame(sr_canvas *c, const view *v)
     room_background(c, v->lv->room);
     art_door(c, v->lv->room, s->door, next_room <= v->level_count ? next_room : 0);
 
-    art_screen(c, layout_screen(SCREEN_OMP), "omp  -  coding agent (Qwen 3.5, local)",
+    snprintf(hud, sizeof hud, "omp  -  %.36s",
+             v->agent_model && v->agent_model[0] ? v->agent_model : "Qwen 3.5 (llama.cpp)");
+    art_screen(c, layout_screen(SCREEN_OMP), hud,
                s->focus == FOCUS_OMP, near == SCREEN_OMP);
     layout_text_origin(SCREEN_OMP, &tx, &ty);
     if (v->omp) vt_cells(c, v->omp, tx, ty, s->focus == FOCUS_OMP && v->blink);
@@ -241,10 +285,10 @@ void render_frame(sr_canvas *c, const view *v)
 
     if (s->focus == FOCUS_ROOM)
         snprintf(hud, sizeof hud,
-                 "Arrows/WASD walk   Enter use screen   F1 agent  F2 shell   H hint   Ctrl+Q quit");
+                 "Arrows/WASD walk   Enter use screen   F1 agent  F2 shell   H hint   Esc menu");
     else
         snprintf(hud, sizeof hud,
-                 "Typing into the %s.   F10 or Ctrl+] back to the room   F1 agent  F2 shell",
+                 "Typing into the %s.   F10 or Ctrl+] back to the room   Esc menu",
                  s->focus == FOCUS_OMP ? "agent (omp)" : "shell");
     draw_text(c, 16, HUD_Y + 2, hud, 0xe6e6e6, 1.0f);
 }

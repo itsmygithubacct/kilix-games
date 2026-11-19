@@ -32,7 +32,7 @@ while True:
     c, _ = s.accept(); c.close()
 ' "$port_file" &
 listener=$!
-trap 'kill "$listener" 2>/dev/null; wait "$listener" 2>/dev/null' EXIT
+trap 'if [ -n "${ollama_pid:-}" ]; then kill "$ollama_pid" 2>/dev/null; wait "$ollama_pid" 2>/dev/null; fi; kill "$listener" 2>/dev/null; wait "$listener" 2>/dev/null' EXIT
 for _ in $(seq 50); do [ -s "$port_file" ] && break; sleep 0.1; done
 port=$(cat "$port_file")
 if timeout 3 bash -c "exec 3<>/dev/tcp/127.0.0.1/$port" 2>/dev/null; then
@@ -105,6 +105,25 @@ if PUZZLLM_ROOT=$here "$here/build/puzzllm" --check-level 1 >/dev/null; then
     pass "goal met by hand from the shell"
 else
     fail "shell could not meet the goal by hand"
+fi
+
+# Ollama is exposed to the agent through a model-specific bridge only.
+python3 "$here/tests/fake-ollama.py" "$scratch/ollama-port" > "$scratch/ollama-host.log" 2>&1 &
+ollama_pid=$!
+for _ in $(seq 50); do [ -s "$scratch/ollama-port" ] && break; sleep 0.1; done
+export OLLAMA_HOST="127.0.0.1:$(cat "$scratch/ollama-port")"
+found=$("$here/libexec/puzzllm-ollama" list)
+if [ "$found" = "$(printf '%s\n' 'test/agent:7b' 'test/other:latest')" ]; then
+    pass "Ollama discovery lists installed local models only"
+else
+    fail "Ollama discovery returned: $found"
+fi
+if PUZZLLM_OMP=$here/tests/fake-ollama-omp PUZZLLM_OLLAMA_MODEL=test/agent:7b \
+        timeout 20 "$sandbox" agent < /dev/null > "$scratch/ollama-agent.log" 2>&1 &&
+        grep -q 'completion received' "$scratch/ollama-agent.log"; then
+    pass "Ollama selection streams the chosen model and rejects other requests"
+else
+    fail "Ollama agent chain: $(tail -n 10 "$scratch/ollama-agent.log" | tr '\n' ' ')"
 fi
 
 echo "test-sandbox: $fails failed"

@@ -40,6 +40,12 @@ box_home=/kilix
 
 die() { printf 'puzzllm-sandbox: %s\n' "$*" >&2; exit 2; }
 
+ollama=${PUZZLLM_OLLAMA_MODEL:-}
+if [ -n "$ollama" ]; then
+    [[ $ollama =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.:/-]{0,254}$ ]] || die "invalid Ollama model name"
+    model_id=$ollama
+fi
+
 command -v bwrap >/dev/null 2>&1 || die "bubblewrap (bwrap) is not installed"
 
 find_omp() {
@@ -115,9 +121,9 @@ agent|agent-exec)
            --chdir "$box_home/workspace")
     [ -n "$omp_bin" ] && [ -x "$omp_bin" ] &&
         args+=(--ro-bind "$(readlink -f "$omp_bin")" /opt/puzzllm/bin/omp)
-    [ -n "$llama_bin" ] && [ -x "$llama_bin" ] &&
+    [ -z "$ollama" ] && [ -n "$llama_bin" ] && [ -x "$llama_bin" ] &&
         args+=(--ro-bind "$(dirname "$(readlink -f "$llama_bin")")" /opt/puzzllm/llama)
-    [ -n "$model" ] && [ -f "$model" ] &&
+    [ -z "$ollama" ] && [ -n "$model" ] && [ -f "$model" ] &&
         args+=(--ro-bind "$(readlink -f "$model")" /opt/puzzllm/model.gguf)
     args+=(--ro-bind "$here/puzzllm-agent-init" /opt/puzzllm/bin/puzzllm-agent-init
            --setenv PUZZLLM_PORT "$port"
@@ -125,7 +131,7 @@ agent|agent-exec)
            --setenv PUZZLLM_CTX "$ctx"
            --setenv PUZZLLM_THINK "${PUZZLLM_THINK:-0}"
            --setenv PUZZLLM_GPU "${PUZZLLM_GPU:-}")
-    if [ -n "${PUZZLLM_GPU:-}" ]; then
+    if [ -z "$ollama" ] && [ -n "${PUZZLLM_GPU:-}" ]; then
         for n in /dev/dri /dev/nvidiactl /dev/nvidia-uvm /dev/nvidia-modeset \
                  /dev/nvidia[0-9]*; do
             [ -e "$n" ] && args+=(--dev-bind "$n" "$n")
@@ -149,23 +155,30 @@ case "$mode" in
 agent)
     [ -n "$omp_bin" ] && [ -x "$omp_bin" ] ||
         die "omp not found (set PUZZLLM_OMP)"
-    [ -n "$llama_bin" ] && [ -x "$llama_bin" ] ||
-        die "llama-server not found (set PUZZLLM_LLAMA_SERVER)"
-    [ -n "$model" ] && [ -f "$model" ] ||
-        die "Qwen 3.5 weights not found (set PUZZLLM_MODEL); nothing is downloaded"
+    model_name="Qwen 3.5 (local)"
+    if [ -n "$ollama" ]; then
+        model_name="$ollama (Ollama)"
+        args+=(--ro-bind @OLLAMA_SOCKET@ /opt/puzzllm/ollama.sock
+               --ro-bind "$here/puzzllm-ollama" /opt/puzzllm/bin/puzzllm-ollama
+               --setenv PUZZLLM_OLLAMA_MODEL "$ollama")
+    else
+        [ -n "$llama_bin" ] && [ -x "$llama_bin" ] ||
+            die "llama-server not found (set PUZZLLM_LLAMA_SERVER)"
+        [ -n "$model" ] && [ -f "$model" ] ||
+            die "Qwen 3.5 weights not found (set PUZZLLM_MODEL); nothing is downloaded"
+    fi
     # omp's provider config lives in the sandbox's own agent folder, never
     # in the user's ~/.omp: one local provider, on the sandbox's loopback.
     cat > "$state/agent/models.yml" <<EOF
-# Written by puzzllm-sandbox on every start. One provider: the llama-server
-# that runs inside the sandbox on its private loopback.
+# Written by puzzllm-sandbox on every start. One provider on private loopback.
 providers:
   puzzllm-local:
     baseUrl: http://127.0.0.1:$port/v1
     api: openai-completions
     apiKey: puzzllm-local
     models:
-      - id: $model_id
-        name: Qwen 3.5 (local)
+      - id: "$model_id"
+        name: "$model_name"
         reasoning: false
         input: [text]
         contextWindow: $ctx
@@ -176,6 +189,10 @@ EOF
     cfg=$state/agent/config.yml
     if ! grep -q '^setupVersion:' "$cfg" 2>/dev/null; then
         printf 'setupVersion: 2\n' >> "$cfg"
+    fi
+    if [ -n "$ollama" ]; then
+        exec "$here/puzzllm-ollama" host "$state" "$ollama" \
+            bwrap "${args[@]}" --remount-ro / -- /opt/puzzllm/bin/puzzllm-agent-init "$@"
     fi
     exec bwrap "${args[@]}" --remount-ro / -- /opt/puzzllm/bin/puzzllm-agent-init "$@"
     ;;

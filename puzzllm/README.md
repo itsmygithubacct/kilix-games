@@ -23,7 +23,7 @@ Neuronte nets draw the text, the terminal characters and Kilix himself (see
 
 | Screen | What it is |
 |---|---|
-| left, big | omp, the coding agent, talking to Qwen 3.5 |
+| left, big | omp, the coding agent, using the selected model |
 | top right | the goal and its status in a dedicated block, above hints and agent activity |
 | bottom right | a bash shell in the same sandbox and the same workspace |
 
@@ -39,6 +39,7 @@ aisle through it to reach the next room.
 | F1 / F2 | type into omp / the shell from anywhere |
 | F10 or Ctrl+] | stop typing and walk again |
 | H | next hint |
+| Esc | open or close the game menu from any screen |
 | Ctrl+Q | quit (while walking) |
 | mouse | click a screen to type into it, the floor to walk again |
 
@@ -46,6 +47,16 @@ Hints come one at a time, every 45 seconds or on H. Progress is kept in
 `~/.local/share/puzzllm/progress`, so the game resumes in the room you
 reached. If an omp or shell session ends, press Enter on its screen to
 start a new one.
+
+In the Escape menu, use Up and Down to choose **Resume game**, **Exit game**,
+or an agent model, then press Enter. The list refreshes each time you open
+the menu and includes the default llama.cpp model and the models installed
+on the local Ollama service. Model changes restart the agent with a fresh
+conversation in the same workspace. Choices apply until you quit.
+
+Ollama must be running locally. PuzzLLM reads the local model list using
+Python 3. It uses port 11434 by default and respects a loopback
+`OLLAMA_HOST`. Ollama models vary in their support for chat and tool calls.
 
 ## Level 1: Hello, world
 
@@ -140,6 +151,8 @@ sandboxes started by [`libexec/puzzllm-sandbox`](libexec/puzzllm-sandbox):
   server to answer, then starts omp. omp's `models.yml` is written fresh in
   the sandbox's own `agent/` folder, with one provider, `puzzllm-local`. The
   user's `~/.omp` is never mounted, so no other provider or key is visible.
+  If you select Ollama, the agent keeps its private network namespace and
+  reaches only the chosen model's chat endpoint through a local Unix socket.
 
 `make test-sandbox` proves this from inside both sandboxes. Writes outside
 the workspace fail. The host loopback and outside addresses are unreachable.

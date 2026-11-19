@@ -1,0 +1,228 @@
+#!/usr/bin/python3 -I
+"""Discover installed models and bridge a single local model into the sandbox."""
+
+import http.client
+import http.server
+import json
+import os
+import re
+import signal
+import socket
+import socketserver
+import subprocess
+import sys
+import tempfile
+import threading
+from urllib.parse import urlsplit
+
+HOST = "127.0.0.1"
+SOCKET = "/opt/puzzllm/ollama.sock"
+CHAT = "/v1/chat/completions"
+NAME = re.compile(r"[a-zA-Z0-9_][a-zA-Z0-9_.:/-]{0,254}")
+
+
+def ollama_connection(timeout):
+    address = os.environ.get("OLLAMA_HOST") or HOST
+    if "://" not in address:
+        address = "http://" + address
+    parsed = urlsplit(address)
+    if parsed.hostname in (HOST, "localhost", "0.0.0.0"):
+        address = HOST
+    elif parsed.hostname in ("::", "::1"):
+        address = "::1"
+    else:
+        raise ValueError("Ollama must be on the local computer")
+    return http.client.HTTPConnection(address, parsed.port or 11434, timeout=timeout)
+
+
+def installed_models():
+    connection = ollama_connection(2)
+    try:
+        connection.request("GET", "/api/tags")
+        with connection.getresponse() as response:
+            if response.status != 200:
+                raise ValueError("the local Ollama service refused the model list")
+            models = json.load(response)["models"]
+        return sorted({
+            entry["name"] for entry in models
+            if NAME.fullmatch(entry["name"])
+            and not entry.get("remote_host") and not entry.get("remote_model")
+            and not entry["name"].lower().endswith((":cloud", "-cloud"))
+        })
+    finally:
+        connection.close()
+
+
+CHAT_FIELDS = {
+    "model", "messages", "stream", "stream_options", "tools", "tool_choice",
+    "parallel_tool_calls", "max_tokens", "max_completion_tokens", "temperature",
+    "top_p", "stop", "seed", "frequency_penalty", "presence_penalty",
+    "response_format", "logprobs", "top_logprobs", "reasoning_effort",
+}
+
+
+def text_content(content):
+    return (content is None or isinstance(content, str) or
+            (isinstance(content, list) and all(
+                isinstance(part, dict) and part.get("type") == "text" and
+                isinstance(part.get("text"), str) for part in content
+            )))
+
+
+class ChatHandler(http.server.BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+    def do_POST(self):
+        if self.path != CHAT:
+            self.send_error(404)
+            return
+        try:
+            size = int(self.headers.get("Content-Length", "0"))
+            if not 0 < size <= 32 * 1024 * 1024:
+                raise ValueError()
+            request = json.loads(self.rfile.read(size))
+            if not isinstance(request, dict) or request.get("model") != self.server.model:
+                raise ValueError()
+            # omp uses text and function tools. Keep media URLs and other
+            # externally resolved inputs away from the host service.
+            messages = request.get("messages")
+            if not isinstance(messages, list) or any(
+                not isinstance(message, dict) or
+                not text_content(message.get("content"))
+                for message in messages
+            ):
+                raise ValueError()
+            tools = request.get("tools") or []
+            if not isinstance(tools, list) or any(
+                not isinstance(tool, dict) or tool.get("type") != "function" for tool in tools
+            ):
+                raise ValueError()
+            request = {key: value for key, value in request.items() if key in CHAT_FIELDS}
+        except (ValueError, UnicodeError, OSError):
+            self.send_error(400)
+            return
+
+        try:
+            if self.server.model not in installed_models():
+                self.send_error(409, "Selected local model is unavailable")
+                return
+        except (OSError, ValueError, TypeError, KeyError, http.client.HTTPException):
+            self.send_error(502, "Local Ollama is unavailable")
+            return
+
+        connection = ollama_connection(300)
+        try:
+            connection.request("POST", CHAT, json.dumps(request),
+                               {"Content-Type": "application/json"})
+            response = connection.getresponse()
+        except (OSError, http.client.HTTPException):
+            connection.close()
+            self.send_error(502, "Local Ollama is unavailable")
+            return
+        try:
+            self.send_response(response.status)
+            self.send_header("Content-Type", response.getheader("Content-Type", "application/json"))
+            self.end_headers()
+            # Close-delimit the reply and forward each available streaming chunk.
+            while chunk := response.read1(65536):
+                self.wfile.write(chunk)
+        except (OSError, http.client.HTTPException):
+            pass
+        finally:
+            connection.close()
+
+
+class HostServer(socketserver.ThreadingUnixStreamServer):
+    daemon_threads = True
+
+    def get_request(self):
+        client, address = super().get_request()
+        client.settimeout(30)
+        return client, address
+
+
+def run_host(state, model, argv):
+    if model not in installed_models():
+        raise ValueError("the selected model is no longer installed")
+    # Bind by a short relative name so long state directory paths work too.
+    with tempfile.TemporaryDirectory(prefix="ollama-", dir=os.path.abspath(state)) as directory:
+        cwd = os.getcwd()
+        try:
+            os.chdir(directory)
+            server = HostServer("socket", ChatHandler)
+        finally:
+            os.chdir(cwd)
+        with server:
+            server.model = model
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            argv = [os.path.join(directory, "socket") if arg == "@OLLAMA_SOCKET@" else arg
+                    for arg in argv]
+            child = subprocess.Popen(argv)
+
+            def terminate(*_):
+                if child.poll() is None:
+                    child.terminate()
+
+            signal.signal(signal.SIGTERM, terminate)
+            signal.signal(signal.SIGHUP, terminate)
+            try:
+                return child.wait()
+            finally:
+                terminate()
+
+
+def forward(source, target):
+    try:
+        while data := source.recv(65536):
+            target.sendall(data)
+    except OSError:
+        pass
+    finally:
+        try:
+            target.shutdown(socket.SHUT_WR)
+        except OSError:
+            pass
+
+
+class GuestHandler(socketserver.BaseRequestHandler):
+    def handle(self):
+        with socket.socket(socket.AF_UNIX) as peer:
+            try:
+                peer.connect(SOCKET)
+            except OSError:
+                return
+            request = threading.Thread(target=forward, args=(self.request, peer), daemon=True)
+            request.start()
+            forward(peer, self.request)
+            # An HTTP reply may finish while the client still has its write end open.
+            try:
+                self.request.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            request.join()
+
+
+class GuestServer(socketserver.ThreadingTCPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+
+def main():
+    mode, *args = sys.argv[1:]
+    if mode == "list":
+        for name in installed_models():
+            print(name)
+    elif mode == "host":
+        return run_host(args[0], args[1], args[2:])
+    elif mode == "guest":
+        with GuestServer((HOST, int(args[0])), GuestHandler) as server:
+            server.serve_forever()
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except (OSError, ValueError, TypeError, KeyError, http.client.HTTPException) as error:
+        print(f"Ollama: {error}", file=sys.stderr)
+        sys.exit(1)

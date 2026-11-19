@@ -261,13 +261,14 @@ static const level *cur_level(const game *g)
 
 static void spawn_omp(game *g)
 {
-    char sandbox[4096], st_env[2100];
+    char sandbox[4096], st_env[2100], model_env[OLLAMA_NAME_CAP + 32];
     char *argv[] = {sandbox, "agent", NULL};
-    char *env[] = {st_env, "TERM=xterm-256color", NULL};
+    char *env[] = {st_env, model_env, "TERM=xterm-256color", NULL};
 
     snprintf(sandbox, sizeof sandbox, "%s/libexec/puzzllm-sandbox", g->root);
     snprintf(st_env, sizeof st_env, "PUZZLLM_STATE=%s", g->state);
-    vt_feed(&g->omp_vt, "\033[2J\033[H", 7);
+    snprintf(model_env, sizeof model_env, "PUZZLLM_OLLAMA_MODEL=%s", g->ollama_model);
+    vt_feed(&g->omp_vt, "\033c", 2);
     g->omp_note[0] = '\0';
     if (!pty_spawn(&g->omp, argv, env, OMP_COLS, OMP_ROWS))
         snprintf(g->omp_note, sizeof g->omp_note, "could not start the agent sandbox");
@@ -287,6 +288,111 @@ static void spawn_shell(game *g)
     g->shell_note[0] = '\0';
     if (!pty_spawn(&g->shell, argv, env, SHELL_COLS, SHELL_ROWS))
         snprintf(g->shell_note, sizeof g->shell_note, "could not start the shell sandbox");
+}
+
+static void clear_models(game_menu *menu)
+{
+    for (int i = 0; i < menu->count; i++) free(menu->models[i]);
+    free(menu->models);
+    menu->models = NULL;
+    menu->count = 0;
+}
+
+static void open_menu(game *g)
+{
+    game_menu *menu = &g->menu;
+    char helper[4096];
+    char *argv[] = {helper, "list", NULL};
+    menu->open = true;
+    menu->selected = 0;
+    memset(g->held_until, 0, sizeof g->held_until);
+    if (!g->spawn || menu->loading) return;
+    clear_models(menu);
+    menu->line_length = 0;
+    snprintf(helper, sizeof helper, "%s/libexec/puzzllm-ollama", g->root);
+    menu->loading = pty_spawn(&menu->discovery, argv, NULL, 80, 24);
+    menu->load_failed = !menu->loading;
+}
+
+static void add_model(game_menu *menu)
+{
+    size_t n = menu->line_length;
+    if (n == 0 || n >= sizeof menu->line) return;
+    const char *allowed = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_";
+    if (strspn(menu->line, allowed) == 0 ||
+        strspn(menu->line, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.:/-") != n)
+        return;
+    char **list = realloc(menu->models, (size_t)(menu->count + 1) * sizeof *list);
+    if (!list) return;
+    menu->models = list;
+    char *name = strdup(menu->line);
+    if (name) menu->models[menu->count++] = name;
+}
+
+static void poll_models(game_menu *menu)
+{
+    char buf[4096];
+    for (int reads = 0; menu->loading && reads < 8; reads++) {
+        long bytes = pty_read(&menu->discovery, buf, sizeof buf);
+        if (bytes > 0) {
+            for (long i = 0; i < bytes; i++) {
+                if (buf[i] == '\n') {
+                    if (menu->line_length < sizeof menu->line) {
+                        menu->line[menu->line_length] = 0;
+                        add_model(menu);
+                    }
+                    menu->line_length = 0;
+                } else if (buf[i] != '\r' && menu->line_length < sizeof menu->line) {
+                    menu->line[menu->line_length++] = buf[i];
+                }
+            }
+        } else {
+            if (bytes < 0 && pty_poll_exit(&menu->discovery)) {
+                menu->loading = false;
+                menu->load_failed = menu->discovery.exit_status != 0;
+                pty_stop(&menu->discovery);
+            }
+            break;
+        }
+    }
+}
+
+static void menu_key(game *g, const key_event *ev)
+{
+    game_menu *menu = &g->menu;
+    int last = menu->count + MENU_LOCAL;
+    switch (ev->key) {
+    case KEY_UP:
+        if (menu->selected > 0) menu->selected--;
+        break;
+    case KEY_DOWN:
+        if (menu->selected < last) menu->selected++;
+        break;
+    case KEY_HOME:
+        menu->selected = 0;
+        break;
+    case KEY_END:
+        menu->selected = last;
+        break;
+    case KEY_ENTER:
+        if (ev->action == 2) break;
+        menu->open = false;
+        if (menu->selected == MENU_QUIT) g->quit = true;
+        if (menu->selected >= MENU_LOCAL) {
+            const char *name = menu->selected == MENU_LOCAL ? "" :
+                               menu->models[menu->selected - MENU_FIRST_OLLAMA];
+            if (strcmp(name, g->ollama_model) != 0 || (g->spawn && pty_poll_exit(&g->omp))) {
+                snprintf(g->ollama_model, sizeof g->ollama_model, "%s", name);
+                if (g->spawn) {
+                    pty_stop(&g->omp);
+                    spawn_omp(g);
+                }
+            }
+        }
+        break;
+    default:
+        break;
+    }
 }
 
 void game_enter_level(game *g, int level)
@@ -317,6 +423,7 @@ bool game_init(game *g, const char *root, const char *state, bool spawn,
     g->state_lock = -1;
     pty_init(&g->omp);
     pty_init(&g->shell);
+    pty_init(&g->menu.discovery);
     activity_init(&g->act);
 
     snprintf(path, sizeof path, "%s/levels/levels.txt", root);
@@ -357,6 +464,8 @@ void game_shutdown(game *g)
 {
     pty_stop(&g->omp);
     pty_stop(&g->shell);
+    pty_stop(&g->menu.discovery);
+    clear_models(&g->menu);
     vt_free(&g->omp_vt);
     vt_free(&g->shell_vt);
     if (g->state_lock >= 0) close(g->state_lock);
@@ -407,6 +516,18 @@ void game_key(game *g, const key_event *ev)
 {
     bool press = ev->action != 3;
     bool ctrl = (ev->mods & MOD_CTRL) != 0;
+
+    if (ev->key == KEY_ESCAPE && ev->mods == 0) {
+        if (press && ev->action != 2) {
+            if (g->menu.open) g->menu.open = false;
+            else open_menu(g);
+        }
+        return;
+    }
+    if (g->menu.open) {
+        if (press) menu_key(g, ev);
+        return;
+    }
 
     /* keys that work everywhere */
     if (press && (ev->key == KEY_F1 + 9 || (ctrl && ev->key == ']'))) {
@@ -461,6 +582,7 @@ static bool inside(rect r, int x, int y)
 
 void game_click(game *g, int x, int y)
 {
+    if (g->menu.open) return;
     if (inside(layout_screen(SCREEN_OMP), x, y)) focus_screen(g, FOCUS_OMP);
     else if (inside(layout_screen(SCREEN_SHELL), x, y)) focus_screen(g, FOCUS_SHELL);
     else if (inside(layout_screen(SCREEN_ACT), x, y)) next_hint(g);
@@ -485,7 +607,12 @@ static void pump(pty_proc *p, vt *t, char *note, size_t notecap, const char *who
 
 void game_update(game *g, double dt)
 {
-
+    poll_models(&g->menu);
+    if (g->spawn) {
+        pump(&g->omp, &g->omp_vt, g->omp_note, sizeof g->omp_note, "the agent");
+        pump(&g->shell, &g->shell_vt, g->shell_note, sizeof g->shell_note, "the shell");
+    }
+    if (g->menu.open) return;
     if (g->transition_pending) {
         g->poll_timer -= dt;
         if (g->poll_timer > 0) return;
@@ -498,10 +625,6 @@ void game_update(game *g, double dt)
     }
     g->now += dt;
     g->level_time += dt;
-    if (g->spawn) {
-        pump(&g->omp, &g->omp_vt, g->omp_note, sizeof g->omp_note, "the agent");
-        pump(&g->shell, &g->shell_vt, g->shell_note, sizeof g->shell_note, "the shell");
-    }
     g->poll_timer -= dt;
     if (g->poll_timer <= 0) {
         g->poll_timer = 0.5;
@@ -561,6 +684,7 @@ void game_render(game *g, sr_canvas *c)
     v.lv = cur_level(g);
     v.level_count = g->levels.count;
     v.omp = &g->omp_vt;
+    v.agent_model = g->ollama_model;
     v.shell = &g->shell_vt;
     v.act = &g->act;
     v.omp_note = g->omp_note[0] ? g->omp_note : NULL;
@@ -569,4 +693,7 @@ void game_render(game *g, sr_canvas *c)
     v.hints_shown = g->hints_shown;
     v.blink = ((long)(g->now * 2.0)) % 2 == 0;
     render_frame(c, &v);
+    if (g->menu.open)
+        render_menu(c, g->menu.models, g->menu.count, g->menu.selected,
+                    g->ollama_model, g->menu.loading, g->menu.load_failed);
 }

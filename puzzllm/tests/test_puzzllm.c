@@ -1041,6 +1041,43 @@ static void test_render_and_flow(void)
     sr_canvas_free(&cur);
 }
 
+static void test_menu(void)
+{
+    char err[256], state[2300];
+    key_event ev = {0};
+    sub(state, sizeof state, "menu-state");
+    CHECK(game_init(&G, ".", state, false, err, sizeof err), "menu game: %s", err);
+    G.sc.focus = FOCUS_SHELL;
+    ev.action = 1;
+    ev.key = KEY_ESCAPE;
+    game_key(&G, &ev);
+    CHECK(G.menu.open, "escape opens menu from the shell");
+    double now = G.now;
+    game_update(&G, 1.0);
+    CHECK(G.now == now, "menu pauses room movement and hints");
+
+    G.menu.models = calloc(2, sizeof *G.menu.models);
+    G.menu.models[0] = strdup("first:latest");
+    G.menu.models[1] = strdup("last:latest");
+    G.menu.count = 2;
+    ev.key = KEY_END;
+    game_key(&G, &ev);
+    ev.key = KEY_ENTER;
+    game_key(&G, &ev);
+    CHECK(!G.menu.open && strcmp(G.ollama_model, "last:latest") == 0,
+          "selecting a listed model applies it and closes the menu");
+    CHECK(G.sc.focus == FOCUS_SHELL && G.sc.level == 0,
+          "model choice preserves room and terminal focus");
+    ev.key = KEY_ESCAPE;
+    game_key(&G, &ev);
+    ev.key = KEY_DOWN;
+    game_key(&G, &ev);
+    ev.key = KEY_ENTER;
+    game_key(&G, &ev);
+    CHECK(G.quit, "exit game uses normal quit path");
+    game_shutdown(&G);
+}
+
 int main(void)
 {
     const char *dir = getenv("PUZZLLM_TEST_DIR");
@@ -1049,6 +1086,7 @@ int main(void)
         return 2;
     }
     snprintf(scratch, sizeof scratch, "%s", dir);
+    test_menu();
     test_vt();
     test_keys();
     test_levels();
