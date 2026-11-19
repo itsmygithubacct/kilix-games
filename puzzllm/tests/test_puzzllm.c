@@ -573,11 +573,11 @@ static void test_scene(void)
     s.x = 200; s.y = WALK_Y0; s.dir = 1;
     CHECK(scene_near_screen(&s) == SCREEN_OMP, "below the omp screen");
     s.x = 640; s.y = 200; s.dir = 3;
-    CHECK(scene_near_screen(&s) == SCREEN_SHELL, "aisle facing right: shell");
+    CHECK(scene_near_screen(&s) == SCREEN_ACT, "aisle facing right: goals and activity");
     s.dir = 2;
     CHECK(scene_near_screen(&s) == SCREEN_OMP, "aisle facing left: omp");
     s.x = 1000; s.y = WALK_Y0; s.dir = 1;
-    CHECK(scene_near_screen(&s) == SCREEN_ACT, "below the activity screen");
+    CHECK(scene_near_screen(&s) == SCREEN_SHELL, "below the shell");
     s.x = 640; s.y = WALK_Y1; s.dir = 0;
     CHECK(scene_near_screen(&s) == SCREEN_NONE, "middle of the floor: nothing");
 
@@ -747,7 +747,7 @@ static void test_layout(void)
 
     layout_set(1280, 800);
     CHECK(OMP_COLS == 70 && OMP_ROWS == 30 && SHELL_COLS == 70 && SHELL_ROWS == 13 &&
-          ACT_ROWS == 13, "1280x800 keeps the room's first layout");
+          ACT_ROWS == 13, "1280x800 fits both right panels");
     CHECK(START_X == 640 && START_Y == 740 && AISLE_X0 == 616 && AISLE_X1 == 664 &&
           WALK_Y0 == 668 && WALK_Y1 == 768 && DOOR_X == 600, "1280x800 floor and aisle");
     layout_set(300, 200);
@@ -766,12 +766,12 @@ static void test_layout(void)
         aisle = (rect){AISLE_X0, WALL_H, AISLE_X1 - AISLE_X0, FLOOR_Y - WALL_H};
         CHECK(CANVAS_W == w && CANVAS_H == h, "%dx%d is drawn at its own size", w, h);
         CHECK(omp.x >= 0 && act.x + act.w <= w && shell.x + shell.w <= w &&
-              act.y + act.h <= FLOOR_Y && omp.y + omp.h <= FLOOR_Y && omp.y > WALL_H,
+              shell.y + shell.h <= FLOOR_Y && omp.y + omp.h <= FLOOR_Y && omp.y > WALL_H,
               "%dx%d: screens inside the room", w, h);
         CHECK(!overlaps(omp, aisle) && !overlaps(shell, aisle) && !overlaps(act, aisle) &&
-              !overlaps(shell, act) && !overlaps(omp, shell),
+              act.y + act.h <= shell.y && !overlaps(omp, shell),
               "%dx%d: screens clear of each other and the aisle", w, h);
-        CHECK(OMP_COLS >= 20 && OMP_COLS <= SCREEN_MAX_COLS && SHELL_ROWS >= 4,
+        CHECK(OMP_COLS >= 20 && OMP_COLS <= SCREEN_MAX_COLS && SHELL_ROWS >= 4 && ACT_ROWS >= 8,
               "%dx%d: usable terminals (%dx%d, %dx%d)", w, h, OMP_COLS, OMP_ROWS,
               SHELL_COLS, SHELL_ROWS);
         CHECK(WALK_Y1 < HUD_Y && WALK_Y0 > FLOOR_Y && DOOR_X + DOOR_W / 2 == w / 2,
@@ -1005,6 +1005,10 @@ static void test_render_and_flow(void)
         for (int i = 0; i < 600 && G.sc.level == 0; i++) game_update(&G, 1.0 / 60);
     }
     CHECK(G.sc.level == 1, "walked into room 2");
+    CHECK(!has_line(&G.act, "GOAL MET"), "room 2 clears room 1 activity");
+    snprintf(prog, sizeof prog, "%s/workspace/level_1/hello_world.txt", state);
+    CHECK(access(hello, F_OK) != 0 && access(prog, F_OK) == 0,
+          "room 1 file moves into its archive");
     CHECK(G.sc.y == START_Y && G.sc.door == 0, "room 2 entrance, door shut");
     snprintf(prog, sizeof prog, "%s/progress", state);
     {
@@ -1023,6 +1027,7 @@ static void test_render_and_flow(void)
 
     /* goal already met on entry: the door is open at once */
     unlink(prog);
+    write_file(hello, "Hello, World!\n", 14);
     CHECK(game_init(&G, ".", state, false, err, sizeof err), "fresh start");
     CHECK(G.sc.level == 0 && G.sc.goal_met && G.sc.door == 1.0f, "earlier work opens the door");
     /* deleting the file closes it again */

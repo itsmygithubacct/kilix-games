@@ -187,6 +187,22 @@ static bool newest_session(const char *state, char *out, size_t cap)
     return best >= 0;
 }
 
+void activity_begin_room(activity *a, const char *state, const char *workspace)
+{
+    struct stat st;
+    a->head = a->count = 0;
+    a->generation++;
+    a->partial_len = 0;
+    a->session_path[0] = 0;
+    a->session_offset = 0;
+    if (newest_session(state, a->session_path, sizeof a->session_path) &&
+        stat(a->session_path, &st) == 0)
+        a->session_offset = st.st_size;
+    a->nfiles = 0;
+    a->files_primed = false;
+    activity_scan_workspace(a, workspace);
+}
+
 static void poll_session(activity *a, const char *state)
 {
     char path[4096];

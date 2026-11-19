@@ -1,21 +1,28 @@
 /* game.c - see game.h. */
+#define _GNU_SOURCE
 #include "game.h"
 #include "render.h"
 
+#include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <sys/file.h>
+#include <sys/random.h>
+#include <sys/wait.h>
+#include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 
-int game_load_progress(const char *state, int level_count)
+static int load_level(const char *state, const char *name, int level_count)
 {
     char path[4096];
     FILE *f;
     int n = 1;
-    snprintf(path, sizeof path, "%s/progress", state);
+    snprintf(path, sizeof path, "%s/%s", state, name);
     f = fopen(path, "r");
-    if (f == NULL) return 0;
+    if (f == NULL) return -1;
     if (fscanf(f, "level %d", &n) != 1) n = 1;
     fclose(f);
     if (n < 1) n = 1;
@@ -23,17 +30,28 @@ int game_load_progress(const char *state, int level_count)
     return n - 1;
 }
 
-bool game_save_progress(const char *state, int level)
+static bool save_level(const char *state, const char *name, int level)
 {
     char path[4096], tmp[4200];
     FILE *f;
-    snprintf(path, sizeof path, "%s/progress", state);
+    snprintf(path, sizeof path, "%s/%s", state, name);
     snprintf(tmp, sizeof tmp, "%s.tmp", path);
     f = fopen(tmp, "w");
     if (f == NULL) return false;
     fprintf(f, "level %d\n", level + 1);
     if (fclose(f) != 0) return false;
     return rename(tmp, path) == 0;
+}
+
+int game_load_progress(const char *state, int level_count)
+{
+    int level = load_level(state, "progress", level_count);
+    return level < 0 ? 0 : level;
+}
+
+bool game_save_progress(const char *state, int level)
+{
+    return save_level(state, "progress", level);
 }
 
 /* mkdir -p, mode 0700 for anything it creates. */
@@ -52,6 +70,188 @@ static bool make_dirs(const char *path)
         }
     }
     return true;
+}
+
+/* Hold the lock for the lifetime of a live game or a reset. */
+static int lock_state(const char *state)
+{
+    char path[4096];
+    snprintf(path, sizeof path, "%s/play.lock", state);
+    int fd = open(path, O_CREAT | O_CLOEXEC | O_RDWR | O_NOFOLLOW, 0600);
+    if (fd >= 0 && flock(fd, LOCK_EX | LOCK_NB) != 0) {
+        int error = errno;
+        close(fd);
+        errno = error;
+        return -1;
+    }
+    return fd;
+}
+
+bool game_reset_progress(const char *state)
+{
+    char workspace[4096], backup[4096], path[4096];
+    if (!make_dirs(state)) return false;
+    int lock = lock_state(state);
+    if (lock < 0) return false;
+    snprintf(workspace, sizeof workspace, "%s/workspace", state);
+    snprintf(backup, sizeof backup, "%s/reset-XXXXXX", state);
+    bool made_backup = mkdtemp(backup) != NULL;
+    bool ok = made_backup;
+    if (ok) {
+        int len = snprintf(path, sizeof path, "%s/workspace", backup);
+        if (len < 0 || (size_t)len >= sizeof path) {
+            errno = ENAMETOOLONG;
+            ok = false;
+        } else {
+            ok = rename(workspace, path) == 0 || errno == ENOENT;
+        }
+    }
+    if (ok) {
+        snprintf(path, sizeof path, "%s/chest-key", state);
+        ok = unlink(path) == 0 || errno == ENOENT;
+    }
+    if (ok) {
+        snprintf(path, sizeof path, "%s/transition", state);
+        ok = unlink(path) == 0 || errno == ENOENT;
+    }
+    if (ok) {
+        snprintf(path, sizeof path, "%s/progress", state);
+        ok = unlink(path) == 0 || errno == ENOENT;
+    }
+    if (ok) ok = make_dirs(workspace);
+    int error = errno;
+    if (made_backup) rmdir(backup);  /* only removes an empty backup */
+    close(lock);
+    errno = error;
+    return ok;
+}
+
+static bool archive_workspace(const char *workspace, int number)
+{
+    char folder[32];
+    snprintf(folder, sizeof folder, "level_%d", number);
+    DIR *dir = opendir(workspace);
+    if (!dir) return false;
+    int source = dirfd(dir);
+    int dest = -1;
+    if (mkdirat(source, folder, 0700) == 0 || errno == EEXIST)
+        dest = openat(source, folder, O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    bool ok = dest >= 0;
+    while (ok) {
+        errno = 0;
+        struct dirent *entry = readdir(dir);
+        if (!entry) {
+            ok = errno == 0;
+            break;
+        }
+        const char *name = entry->d_name;
+        if (!strcmp(name, ".") || !strcmp(name, "..")) continue;
+        const char *digits = name + (strncmp(name, "level_", 6) == 0 ? 6 : 0);
+        if (digits != name && *digits && digits[strspn(digits, "0123456789")] == 0) {
+            struct stat st;
+            if (fstatat(source, name, &st, AT_SYMLINK_NOFOLLOW) == 0 &&
+                S_ISDIR(st.st_mode)) continue;
+        }
+        char candidate[256];
+        snprintf(candidate, sizeof candidate, "%s", name);
+        for (unsigned suffix = 1; ; suffix++) {
+            if (renameat2(source, name, dest, candidate, RENAME_NOREPLACE) == 0 ||
+                errno == ENOENT) break;
+            if (errno != EEXIST) {
+                ok = false;
+                break;
+            }
+            snprintf(candidate, sizeof candidate, "%.240s.%u", name, suffix);
+        }
+    }
+    if (dest >= 0) close(dest);
+    closedir(dir);
+    return ok;
+}
+
+/* The marker lets a restart finish an interrupted move before starting play. */
+static bool finish_transition(const game *g, int previous)
+{
+    char marker[4096];
+    if (!archive_workspace(g->workspace, previous + 1) ||
+        !game_save_progress(g->state, previous + 1)) return false;
+    snprintf(marker, sizeof marker, "%s/transition", g->state);
+    return unlink(marker) == 0;
+}
+
+enum { CHEST_KEY_BYTES = 33 };
+
+static bool read_key(const char *path, char key[CHEST_KEY_BYTES])
+{
+    struct stat st;
+    int fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+    if (fd < 0) return false;
+    bool ok = fstat(fd, &st) == 0 && S_ISREG(st.st_mode) &&
+              st.st_size == CHEST_KEY_BYTES && read(fd, key, CHEST_KEY_BYTES) == CHEST_KEY_BYTES;
+    close(fd);
+    return ok;
+}
+
+static bool prepare_chest(const game *g)
+{
+    static const char *const passwords[] = {"zell", "qwen", "puzl", "kilx", "pleb"};
+    char chest[4096], secret[4096], staging[2200], keypath[2300], zipfile[2300];
+    char key[CHEST_KEY_BYTES];
+    unsigned char random[17];
+    struct stat st;
+
+    snprintf(chest, sizeof chest, "%s/chest.zip", g->workspace);
+    snprintf(secret, sizeof secret, "%s/chest-key", g->state);
+    if (lstat(chest, &st) == 0 && S_ISREG(st.st_mode) && read_key(secret, key))
+        return true;
+
+    do {
+        if (getrandom(random, sizeof random, 0) != sizeof random) return false;
+    } while (random[16] == 255);
+    for (int i = 0; i < 16; i++) snprintf(key + 2 * i, 3, "%02x", random[i]);
+    key[32] = '\n';
+
+    snprintf(staging, sizeof staging, "%s/chest-XXXXXX", g->state);
+    if (!mkdtemp(staging)) return false;
+    snprintf(keypath, sizeof keypath, "%s/key.txt", staging);
+    snprintf(zipfile, sizeof zipfile, "%s/chest.zip", staging);
+    int fd = open(keypath, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+    bool ok = fd >= 0 && write(fd, key, sizeof key) == sizeof key;
+    if (fd >= 0 && close(fd) != 0) ok = false;
+    if (ok) {
+        pid_t child = fork();
+        if (child == 0) {
+            if (chdir(staging) == 0)
+                execl("/usr/bin/zip", "zip", "-q", "-P", passwords[random[16] % 5],
+                      "chest.zip", "key.txt", (char *)NULL);
+            _exit(127);
+        }
+        int status;
+        pid_t done = -1;
+        if (child > 0)
+            do { done = waitpid(child, &status, 0); } while (done < 0 && errno == EINTR);
+        ok = done > 0 && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+    }
+    if (ok) ok = rename(keypath, secret) == 0 && rename(zipfile, chest) == 0;
+    unlink(keypath);
+    unlink(zipfile);
+    rmdir(staging);
+    return ok;
+}
+
+goal_result game_check_level(const game *g, int index)
+{
+    const level *lv = &g->levels.items[index];
+    if (lv->check != CHECK_CHEST) return levels_check(lv, g->workspace);
+
+    goal_result result = {false, "extract key.txt from chest.zip"};
+    char path[4096], expected[CHEST_KEY_BYTES], actual[CHEST_KEY_BYTES];
+    snprintf(path, sizeof path, "%s/chest-key", g->state);
+    if (!read_key(path, expected)) return result;
+    snprintf(path, sizeof path, "%s/key.txt", g->workspace);
+    if (read_key(path, actual) && memcmp(expected, actual, sizeof actual) == 0)
+        result = (goal_result){true, "the chest key fits"};
+    return result;
 }
 
 static const level *cur_level(const game *g)
@@ -95,6 +295,9 @@ void game_enter_level(game *g, int level)
     g->hints_shown = cur_level(g)->nhints > 0 ? 1 : 0;
     g->level_time = 0;
     g->was_met = false;
+    activity_begin_room(&g->act, g->state, g->workspace);
+    if (cur_level(g)->check == CHECK_CHEST && g->state_lock >= 0 && !prepare_chest(g))
+        activity_add(&g->act, ACT_ERROR, "Could not prepare chest.zip (requires zip).");
     activity_add(&g->act, ACT_GOAL, "Room %d: %s", level + 1, cur_level(g)->title);
     game_poll_goal(g);
     if (g->sc.goal_met) g->sc.door = 1.0f;   /* already done earlier */
@@ -111,6 +314,7 @@ bool game_init(game *g, const char *root, const char *state, bool spawn,
     snprintf(g->state, sizeof g->state, "%s", state);
     snprintf(g->workspace, sizeof g->workspace, "%s/workspace", state);
     g->spawn = spawn;
+    g->state_lock = -1;
     pty_init(&g->omp);
     pty_init(&g->shell);
     activity_init(&g->act);
@@ -126,8 +330,21 @@ bool game_init(game *g, const char *root, const char *state, bool spawn,
         snprintf(err, errcap, "out of memory");
         return false;
     }
+    g->state_lock = lock_state(state);
+    if (g->state_lock < 0 && (spawn || errno != EWOULDBLOCK)) {
+        snprintf(err, errcap, "cannot lock game state: %s", strerror(errno));
+        game_shutdown(g);
+        return false;
+    }
     scene_init(&g->sc, 0, g->levels.count);
-    activity_scan_workspace(&g->act, g->workspace);   /* prime: no "new" spam */
+
+    int previous = load_level(state, "transition", g->levels.count);
+    if (g->state_lock >= 0 && previous >= 0 && (previous + 1 >= g->levels.count ||
+                          !finish_transition(g, previous))) {
+        snprintf(err, errcap, "could not finish archiving room %d", previous + 1);
+        game_shutdown(g);
+        return false;
+    }
     game_enter_level(g, game_load_progress(state, g->levels.count));
     if (spawn) {
         spawn_omp(g);
@@ -142,11 +359,13 @@ void game_shutdown(game *g)
     pty_stop(&g->shell);
     vt_free(&g->omp_vt);
     vt_free(&g->shell_vt);
+    if (g->state_lock >= 0) close(g->state_lock);
+    g->state_lock = -1;
 }
 
 void game_poll_goal(game *g)
 {
-    g->goal = levels_check(cur_level(g), g->workspace);
+    g->goal = game_check_level(g, g->sc.level);
     g->sc.goal_met = g->goal.met;
     if (g->goal.met && !g->was_met)
         activity_add(&g->act, ACT_GOAL, "GOAL MET: %s. The door opens.", g->goal.why);
@@ -267,6 +486,16 @@ static void pump(pty_proc *p, vt *t, char *note, size_t notecap, const char *who
 void game_update(game *g, double dt)
 {
 
+    if (g->transition_pending) {
+        g->poll_timer -= dt;
+        if (g->poll_timer > 0) return;
+        g->poll_timer = 0.5;
+        if (finish_transition(g, g->sc.level)) {
+            g->transition_pending = false;
+            game_enter_level(g, g->sc.level + 1);
+        }
+        return;
+    }
     g->now += dt;
     g->level_time += dt;
     if (g->spawn) {
@@ -299,9 +528,14 @@ void game_update(game *g, double dt)
         if (g->held_until[3] > t) dy += 1;
         ev = scene_tick(&g->sc, dx, dy);
         if (ev == SCENE_NEXT_ROOM) {
-            int next = g->sc.level + 1;
-            game_save_progress(g->state, next);
-            game_enter_level(g, next);
+            if (!save_level(g->state, "transition", g->sc.level)) {
+                activity_add(&g->act, ACT_ERROR, "Could not save room transition.");
+            } else if (finish_transition(g, g->sc.level)) {
+                game_enter_level(g, g->sc.level + 1);
+            } else {
+                activity_add(&g->act, ACT_ERROR, "Could not archive room files. Retrying.");
+                g->transition_pending = true;
+            }
             g->tick_debt = 0;
             break;
         }

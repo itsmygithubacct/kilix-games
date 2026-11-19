@@ -75,6 +75,46 @@ if grep -q '^neuronte' "$here/build/render.ident" 2>/dev/null; then
         *) fail "missing weights: $out" ;; esac
 fi
 
+# Resume the chest room, then solve it through a real encrypted archive.
+printf 'level 4\n' > "$PUZZLLM_STATE/progress"
+workspace=$PUZZLLM_STATE/workspace
+"$bin" --check-level 4 > "$scratch/out"; rc=$?
+[ "$rc" -eq 1 ] && [ -f "$workspace/chest.zip" ] &&
+    pass "chest room creates a ZIP and awaits the key" || fail "chest setup rc=$rc"
+printf '%032d\n' 0 > "$workspace/key.txt"
+"$bin" --check-level 4 > "$scratch/out"; rc=$?
+[ "$rc" -eq 1 ] && pass "wrong key leaves the door shut" || fail "wrong key rc=$rc"
+unzip -t -P wrong "$workspace/chest.zip" >/dev/null 2>&1; rc=$?
+[ "$rc" -ne 0 ] && pass "chest rejects a wrong password" || fail "chest is unencrypted"
+hits=0
+for candidate in zell qwen puzl kilx pleb; do
+    if unzip -P "$candidate" -p "$workspace/chest.zip" key.txt > "$scratch/key" 2>/dev/null; then
+        cp "$scratch/key" "$workspace/key.txt"
+        hits=$((hits + 1))
+    fi
+done
+"$bin" --check-level 4 > "$scratch/out"; rc=$?
+[ "$hits" -eq 1 ] && [ "$rc" -eq 0 ] &&
+    pass "exactly one candidate extracts a working key" || fail "chest matches=$hits goal=$rc"
+"$bin" --reset-progress > "$scratch/out" &&
+    [ ! -e "$PUZZLLM_STATE/progress" ] && [ ! -e "$workspace/key.txt" ] &&
+    [ ! -e "$PUZZLLM_STATE/chest-key" ] &&
+    find "$PUZZLLM_STATE" -path '*/reset-*/workspace/chest.zip' | grep -q . &&
+    pass "reset clears progress and keeps a workspace backup" || fail "reset"
+
+# Restart with a saved transition and a partially populated archive.
+printf 'level 1\n' > "$PUZZLLM_STATE/transition"
+mkdir "$workspace/level_1"
+printf 'old\n' > "$workspace/level_1/hello_world.txt"
+printf 'Hello, World!\n' > "$workspace/hello_world.txt"
+"$bin" --check-level 1 > "$scratch/out"; rc=$?
+[ "$rc" -eq 1 ] && grep -q '^level 2$' "$PUZZLLM_STATE/progress" &&
+    [ ! -e "$PUZZLLM_STATE/transition" ] &&
+    grep -q '^old$' "$workspace/level_1/hello_world.txt" &&
+    grep -q '^Hello, World!$' "$workspace/level_1/hello_world.txt.1" &&
+    pass "interrupted transition resumes without overwriting archived files" ||
+    fail "transition recovery rc=$rc"
+
 # a broken level file is reported with its line
 mkdir -p "$scratch/root/levels"
 printf 'level: 1\ntitle: t\ngoal: g\ncheck: file ../escape\n' > "$scratch/root/levels/levels.txt"

@@ -24,8 +24,8 @@ Neuronte nets draw the text, the terminal characters and Kilix himself (see
 | Screen | What it is |
 |---|---|
 | left, big | omp, the coding agent, talking to Qwen 3.5 |
-| top right | a bash shell in the same sandbox and the same workspace |
-| bottom right | the goal, its hints, and what the agent is doing: its tool calls and their results, what it said, files created, changed and removed |
+| top right | the goal and its status in a dedicated block, above hints and agent activity |
+| bottom right | a bash shell in the same sandbox and the same workspace |
 
 The room is drawn at the pane's own size, so a bigger pane gets bigger
 terminals. Walk Kilix up to a screen and press Enter to type into it. The door's lamp
@@ -56,7 +56,10 @@ passes and an empty file does not. The player may also create the file by
 hand in the shell; that counts the same. A 0.8B model often says it wrote
 the file when it did not, so check with `ls` and `cat` in the shell.
 
-Room 2 is a stub: its sign reads "coming soon" and its door stays shut.
+The upper-right activity feed clears when you walk into a new room.
+Completing a room moves its workspace files into `workspace/level_N/`.
+With the game closed, run `bin/puzzllm --reset-progress` to start at level 1.
+The previous workspace is kept under a `reset-*` directory in the game state.
 
 ## Levels are data
 
@@ -110,7 +113,10 @@ The levels so far:
    command or a short program, and to leave off the line ending that
    `echo` and `print` add. When the check fails it says why, for example
    `1.txt has 1,000,001 bytes, one too many: often a line ending at the end`.
-4. A stub room for the next challenge.
+4. The treasure chest. Extract `key.txt` from the password-protected
+   `chest.zip` to open the door. The game uses `zip` to create the chest,
+   and you can open it with `unzip` in the shell. Resuming keeps the same chest.
+5. A stub room for the next challenge.
 
 ## The sandbox
 

@@ -11,7 +11,7 @@ static int clamp(int v, int lo, int hi)
 int layout_set(int w, int h)
 {
     layout n;
-    int half, gap = 48, top = 112, bottom, col_w, right_h;
+    int half, gap = 48, top = 112, bottom, col_w, right_h, act_h;
 
     w = clamp(w, LAYOUT_MIN_W, LAYOUT_MAX_W);
     h = clamp(h, LAYOUT_MIN_H, LAYOUT_MAX_H);
@@ -31,7 +31,7 @@ int layout_set(int w, int h)
     n.start_x = half;
     n.start_y = h - 60;
 
-    /* screens: omp on the left, shell over the activity screen on the
+    /* screens: omp on the left, goals and activity over the shell on the
      * right, between the wall and the floor, in whole cells */
     bottom = n.floor_y - 10;
     col_w = half - gap - 16;
@@ -41,14 +41,16 @@ int layout_set(int w, int h)
     n.omp_rows = clamp((bottom - top - SCREEN_TITLE_H - 2 * SCREEN_PAD) / CELL_H, 6, 80);
 
     right_h = (bottom - top - 22) / 2;
-    n.shell_x = half + gap;
-    n.shell_y = top;
-    n.shell_cols = n.omp_cols;
-    n.shell_rows = clamp((right_h - SCREEN_TITLE_H - 2 * SCREEN_PAD) / CELL_H, 4, 40);
-    n.act_x = n.shell_x;
-    n.act_y = top + right_h + 22;
+    act_h = right_h < SCREEN_H(8) ? SCREEN_H(8) : right_h;
+    n.act_x = half + gap;
+    n.act_y = top;
     n.act_cols = n.omp_cols;
-    n.act_rows = n.shell_rows;
+    n.act_rows = clamp((act_h - SCREEN_TITLE_H - 2 * SCREEN_PAD) / CELL_H, 8, 40);
+    n.shell_x = n.act_x;
+    n.shell_y = top + act_h + 22;
+    n.shell_cols = n.omp_cols;
+    n.shell_rows = clamp((bottom - n.shell_y - SCREEN_TITLE_H - 2 * SCREEN_PAD) / CELL_H,
+                         4, 40);
 
     {
         int moved = n.w != L.w || n.h != L.h;

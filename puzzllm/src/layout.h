@@ -1,10 +1,10 @@
 /* layout.h - where things are in the room, for the pane's size.
  *
  *   +------------------------- back wall ---[door]---------------------+
- *   | +-- omp (agent) ------------+  aisle  +-- shell -----------------+ |
+ *   | +-- omp (agent) ------------+  aisle  +-- goal / hints / activity + |
  *   | |                           |         |                          | |
  *   | |                           |         +--------------------------+ |
- *   | |                           |         +-- agent / goal / hints --+ |
+ *   | |                           |         +-- shell -----------------+ |
  *   | |                           |         |                          | |
  *   | +---------------------------+         +--------------------------+ |
  *   |                          floor                                      |

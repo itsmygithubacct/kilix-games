@@ -23,6 +23,7 @@ typedef struct game {
     char workspace[2100];
     level_list levels;
     scene sc;
+    int state_lock;
     bool spawn;             /* start the sandboxes (false in tests) */
     vt omp_vt, shell_vt;
     pty_proc omp, shell;
@@ -37,6 +38,7 @@ typedef struct game {
     double tick_debt;       /* seconds not yet run as scene ticks */
     bool release_events;    /* the terminal reports key releases */
     bool quit;
+    bool transition_pending;
     char omp_note[96], shell_note[96];
 } game;
 
@@ -60,6 +62,8 @@ bool game_resize(game *g, int w, int h);
 void game_render(game *g, sr_canvas *c);
 /* Progress file: STATE/progress, one line "level N". */
 int game_load_progress(const char *state, int level_count);
+bool game_reset_progress(const char *state);
+goal_result game_check_level(const game *g, int level);
 bool game_save_progress(const char *state, int level);
 
 #endif

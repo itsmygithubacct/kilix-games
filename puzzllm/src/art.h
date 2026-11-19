@@ -15,6 +15,7 @@
 
 #include <stdbool.h>
 
+void art_chest(sr_canvas *c, int x, int y, bool open);
 /* Floor, walls and the aisle runner. style is the level's "room:" value. */
 void art_room(sr_canvas *c, const char *style);
 /* The door at the top of the aisle. open: 0 shut .. 1 fully open.

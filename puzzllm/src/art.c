@@ -156,3 +156,21 @@ void art_prompt(sr_canvas *c, float x, float y, const char *text)
     draw_stroke(c, bx, y - 26, (float)w, 22, 1, 0xd8b440, 1.0f);
     draw_text(c, bx + 8, y - 23, text, 0xfff0c0, 1.0f);
 }
+
+void art_chest(sr_canvas *c, int x, int y, bool open)
+{
+    draw_fill(c, x + 4, y + 28, 56, 7, 0x211817, 0.65f);
+    draw_fill(c, x, y + 10, 56, 22, 0x3c241d, 1);
+    draw_fill(c, x + 3, y + 12, 50, 17, 0x935428, 1);
+    draw_fill(c, x + 2, y + (open ? -8 : 0), 52, 11, 0xbd7837, 1);
+    draw_fill(c, x + 8, y + 10, 4, 21, 0xe4ab50, 1);
+    draw_fill(c, x + 44, y + 10, 4, 21, 0xe4ab50, 1);
+    draw_fill(c, x + 24, y + 8, 8, 8, 0xf0c66a, 1);
+    draw_fill(c, x + 27, y + 10, 2, 4, 0x53341e, 1);
+    if (open) {
+        draw_fill(c, x + 16, y + 3, 9, 8, 0xffdd79, 1);
+        draw_fill(c, x + 18, y + 5, 4, 4, 0x53341e, 1);
+        draw_fill(c, x + 24, y + 6, 15, 3, 0xffdd79, 1);
+        draw_fill(c, x + 35, y + 8, 3, 4, 0xffdd79, 1);
+    }
+}

@@ -138,6 +138,8 @@ bool levels_parse(level_list *out, const char *text, char *err, size_t errcap)
             if (have_check) { set_err(err, errcap, line_no, "second check in one level"); return false; }
             if (strcmp(val, "none") == 0) {
                 cur->check = CHECK_NONE;
+            } else if (strcmp(val, "chest") == 0) {
+                cur->check = CHECK_CHEST;
             } else if (strncmp(val, "file ", 5) == 0) {
                 char *name = trim(val + 5);
                 if (!safe_name(name) || !copy_field(cur->file, sizeof cur->file, name)) {
@@ -146,7 +148,7 @@ bool levels_parse(level_list *out, const char *text, char *err, size_t errcap)
                 }
                 cur->check = CHECK_FILE;
             } else {
-                set_err(err, errcap, line_no, "check must be 'file NAME' or 'none'");
+                set_err(err, errcap, line_no, "check must be 'file NAME', 'chest' or 'none'");
                 return false;
             }
             have_check = true;
@@ -293,6 +295,10 @@ goal_result levels_check(const level *lv, const char *workspace)
     memset(&r, 0, sizeof r);
     if (lv->check == CHECK_NONE) {
         snprintf(r.why, sizeof r.why, "this room has no challenge yet");
+        return r;
+    }
+    if (lv->check == CHECK_CHEST) {
+        snprintf(r.why, sizeof r.why, "extract key.txt from chest.zip");
         return r;
     }
     snprintf(path, sizeof path, "%s/%s", workspace, lv->file);

@@ -3,6 +3,7 @@
  *   puzzllm                       play (needs a Kitty-graphics terminal)
  *   puzzllm --version
  *   puzzllm --render DIR          write the room as PPMs (no terminal needed)
+ *   puzzllm --reset-progress      back up the workspace and start at level 1
  *   puzzllm --check-level N       print whether level N's goal is met now
  *   puzzllm --bench [WxH]         time frames headless (default 1908x972)
  *   puzzllm --renderer            print which renderer draws (neuronte/raster)
@@ -310,7 +311,7 @@ static int check_level(const char *root, const char *state, const char *n)
         fprintf(stderr, "puzzllm: no level %s\n", n);
         return 2;
     }
-    r = levels_check(&the_game.levels.items[i - 1], the_game.workspace);
+    r = game_check_level(&the_game, i - 1);
     printf("level %d: %s: %s\n", i, r.met ? "met" : "not met", r.why);
     game_shutdown(&the_game);
     return r.met ? 0 : 1;
@@ -321,6 +322,14 @@ int main(int argc, char **argv)
     char root[2048], state[2048];
     default_paths(root, sizeof root, state, sizeof state);
 
+    if (argc == 2 && strcmp(argv[1], "--reset-progress") == 0) {
+        if (!game_reset_progress(state)) {
+            fprintf(stderr, "puzzllm: reset failed: %s\n", strerror(errno));
+            return 1;
+        }
+        puts("Progress reset to level 1. Previous workspace files are kept in the state directory.");
+        return 0;
+    }
     if (argc == 2 && strcmp(argv[1], "--version") == 0) {
         printf("puzzllm %s\n", PUZZLLM_VERSION);
         return 0;
@@ -337,11 +346,11 @@ int main(int argc, char **argv)
     if (argc == 3 && strcmp(argv[1], "--check-level") == 0)
         return check_level(root, state, argv[2]);
     if (argc == 2 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0)) {
-        printf("usage: puzzllm [--version | --render DIR | --check-level N | --bench [WxH] | --renderer]\n");
+        printf("usage: puzzllm [--version | --render DIR | --check-level N | --reset-progress | --bench [WxH] | --renderer]\n");
         return 0;
     }
     if (argc != 1) {
-        fprintf(stderr, "usage: puzzllm [--version | --render DIR | --check-level N | --bench [WxH] | --renderer]\n");
+        fprintf(stderr, "usage: puzzllm [--version | --render DIR | --check-level N | --reset-progress | --bench [WxH] | --renderer]\n");
         return 2;
     }
     return play(root, state);

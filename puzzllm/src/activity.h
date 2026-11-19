@@ -1,4 +1,4 @@
-/* activity.h - what the coding agent is doing, for the bottom-right screen.
+/* activity.h - what the coding agent is doing, for the upper-right screen.
  *
  * Three sources, all polled (no threads, no inotify):
  *   - omp's newest session file under STATE/agent/sessions/: tool calls,
@@ -48,6 +48,7 @@ typedef struct activity {
 } activity;
 
 void activity_init(activity *a);
+void activity_begin_room(activity *a, const char *state, const char *workspace);
 void activity_add(activity *a, act_kind kind, const char *fmt, ...)
     __attribute__((format(printf, 3, 4)));
 /* i = 0 is the oldest kept line. */

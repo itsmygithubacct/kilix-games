@@ -9,7 +9,7 @@ hint: Walk to the big omp screen on the left and press Enter to talk to the agen
 hint: Ask plainly: create a file named hello_world.txt containing Hello, World!
 hint: Small models sometimes say they did it when they did not. Check with ls in the shell.
 hint: If it wrote the wrong file, tell it exactly what went wrong and ask again.
-hint: You may also finish the goal yourself in the shell, top right.
+hint: You may also finish the goal yourself in the shell, bottom right.
 check: file hello_world.txt
 require: nonempty
 require: contains-ci hello
@@ -25,7 +25,7 @@ hint: Small models often answer walk, because it is close. But what gets washed?
 hint: If it says walk, ask it how the car gets washed if the car stays at home.
 hint: The file must name the carwash, say drive, and give a reason (because...). It must not say to walk.
 hint: Check with cat carwash.txt in the shell. The check reads the file, not the chat.
-hint: You may also write the statement yourself in the shell, top right.
+hint: You may also write the statement yourself in the shell, bottom right.
 check: file carwash.txt
 require: nonempty
 require: max-bytes 4096
@@ -44,12 +44,20 @@ hint: Check in the shell: wc -c 1.txt must say 1000000, and tr -d 1 < 1.txt | wc
 hint: Small models miscount. If the size is wrong, tell the agent the exact size wc -c reports.
 hint: One way: head -c 1000000 /dev/zero | tr '\0' 1 > 1.txt
 hint: Another: python3 -c "open('1.txt', 'w').write('1' * 1000000)"
-hint: You may also finish the goal yourself in the shell, top right.
+hint: You may also finish the goal yourself in the shell, bottom right.
 check: file 1.txt
 require: bytes 1000000
 require: only 1
 
 level: 4
+title: The treasure chest
+room: stone
+goal: Open the password-protected chest.zip and extract key.txt to unlock the door.
+hint: Try zell, qwen, puzl, kilx or pleb. The chest uses one of these passwords.
+hint: In the shell, run unzip chest.zip and enter a candidate when prompted.
+check: chest
+
+level: 5
 title: Next challenge coming
 room: stone
 goal: This room is still being built. Come back for the next challenge.

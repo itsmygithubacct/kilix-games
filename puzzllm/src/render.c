@@ -108,7 +108,6 @@ static uint32_t kind_color(act_kind k)
     case ACT_RESULT: return 0x9aa3b0;
     case ACT_ERROR: return 0xff8a80;
     case ACT_FILE: return 0x8ff0a4;
-    case ACT_GOAL: return 0x60f080;
     default: return 0x8a93a3;
     }
 }
@@ -120,12 +119,10 @@ static void render_activity(sr_canvas *c, const view *v, int x, int y)
     int row = 0, n;
     const int cols = ACT_COLS < ACT_LINE_LEN - 1 ? ACT_COLS : ACT_LINE_LEN - 1;
 
-    snprintf(buf, sizeof buf, "LEVEL %d: %.120s", v->lv->number, v->lv->title);
-    text_line(c, x, y, buf, 0xffe27a, cols);
-    row++;
-    snprintf(buf, sizeof buf, "GOAL: %.160s", v->lv->goal);
-    n = wrap(buf, cols, lines, 2);
-    for (int i = 0; i < n; i++) text_line(c, x, y + (row++) * CELL_H, lines[i], 0xffffff, cols);
+    n = wrap(v->lv->goal, cols - 2, lines, 4);
+    fill_cell_rect(c, x, y, cols * CELL_W, (n + 1) * CELL_H, 0x27323e);
+    for (int i = 0; i < n; i++)
+        text_line(c, x + CELL_W, y + (row++) * CELL_H, lines[i], 0xffffff, cols - 2);
     if (v->lv->check == CHECK_NONE)
         snprintf(buf, sizeof buf, "COMING SOON: the next challenge is not built yet.");
     else if (v->sc->goal_met)
@@ -133,8 +130,9 @@ static void render_activity(sr_canvas *c, const view *v, int x, int y)
                  v->goal_why ? v->goal_why : "goal met");
     else
         snprintf(buf, sizeof buf, "NOT YET: %.150s", v->goal_why ? v->goal_why : "");
-    text_line(c, x, y + (row++) * CELL_H, buf,
-              v->lv->check == CHECK_NONE ? 0xffe27a : v->sc->goal_met ? 0x60f080 : 0xff9f80, cols);
+    text_line(c, x + CELL_W, y + (row++) * CELL_H, buf,
+              v->lv->check == CHECK_NONE ? 0xffe27a : v->sc->goal_met ? 0x60f080 : 0xff9f80,
+              cols - 2);
     if (v->hints_shown > 0 && v->lv->nhints > 0) {
         int h = v->hints_shown > v->lv->nhints ? v->lv->nhints : v->hints_shown;
         snprintf(buf, sizeof buf, "HINT %d/%d: %.160s", h, v->lv->nhints, v->lv->hints[h - 1]);
@@ -142,20 +140,21 @@ static void render_activity(sr_canvas *c, const view *v, int x, int y)
         for (int i = 0; i < n; i++)
             text_line(c, x, y + (row++) * CELL_H, lines[i], 0x9fd0ff, cols);
     }
-    fill_cell_rect(c, x, y + row * CELL_H + 6, cols * CELL_W, 1, 0x3a404c);
-    row++;
-    /* newest activity at the bottom */
-    {
-        int space = ACT_ROWS - row;
-        int total = v->act ? v->act->count : 0;
-        int first = total > space ? total - space : 0;
-        if (total == 0)
-            text_line(c, x, y + row * CELL_H, "(the agent's tool calls and file changes show here)",
-                      0x6a7383, cols);
-        for (int i = first; i < total; i++) {
-            const act_line *l = activity_line(v->act, i);
-            text_line(c, x, y + (row + i - first) * CELL_H, l->text, kind_color(l->kind), cols);
-        }
+    fill_cell_rect(c, x, y + row * CELL_H - 1, cols * CELL_W, 1, 0x3a404c);
+    /* Goal updates are already visible in the goal block. */
+    int total = v->act ? v->act->count : 0;
+    int first = total;
+    int visible = 0;
+    while (first > 0 && visible < ACT_ROWS - row) {
+        if (activity_line(v->act, --first)->kind != ACT_GOAL) visible++;
+    }
+    if (visible == 0 && row < ACT_ROWS)
+        text_line(c, x, y + row * CELL_H, "Tool calls and file changes appear here.",
+                  0x6a7383, cols);
+    for (int i = first; i < total; i++) {
+        const act_line *l = activity_line(v->act, i);
+        if (l->kind != ACT_GOAL)
+            text_line(c, x, y + (row++) * CELL_H, l->text, kind_color(l->kind), cols);
     }
 }
 
@@ -223,11 +222,14 @@ void render_frame(sr_canvas *c, const view *v)
     if (v->shell) vt_cells(c, v->shell, tx, ty, s->focus == FOCUS_SHELL && v->blink);
     if (v->shell_note) note_over(c, SCREEN_SHELL, v->shell_note);
 
-    art_screen(c, layout_screen(SCREEN_ACT), "agent  -  goal  -  hints",
+    snprintf(hud, sizeof hud, "Goal  |  Room %d: %.100s", v->lv->number, v->lv->title);
+    art_screen(c, layout_screen(SCREEN_ACT), hud,
                false, near == SCREEN_ACT);
     layout_text_origin(SCREEN_ACT, &tx, &ty);
     render_activity(c, v, tx, ty);
 
+    if (v->lv->check == CHECK_CHEST)
+        art_chest(c, (AISLE_X0 + AISLE_X1) / 2 + 16, START_Y - 66, s->goal_met);
     art_kilix(c, s->x, s->y, s->dir, s->step_ticks, s->idle_ticks);
     if (s->focus == FOCUS_ROOM) {
         if (near == SCREEN_OMP) art_prompt(c, s->x, s->y - ART_KILIX_HEIGHT - 6, "Enter: talk to the agent");
