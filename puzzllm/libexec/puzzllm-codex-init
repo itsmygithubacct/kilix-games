@@ -1,0 +1,24 @@
+#!/bin/bash
+# Runs only inside the Codex container.
+set -eu
+
+codex=$1
+shift
+auth=(-c 'cli_auth_credentials_store="file"')
+policy=(-c 'default_permissions="puzzllm"'
+        -c 'permissions.puzzllm.filesystem={":minimal"="read","/kilix/workspace"="write","/kilix/.codex"="deny"}'
+        -c 'permissions.puzzllm.network.enabled=false'
+        -c 'projects."/kilix/workspace".trust_level="untrusted"'
+        -c 'web_search="disabled"'
+        --disable hooks --disable plugins)
+
+if [ "${1:-}" = --check-sandbox ]; then
+    shift
+    exec "$codex" sandbox "${policy[@]}" -- "$@"
+fi
+if ! "$codex" "${auth[@]}" login status >/dev/null 2>&1; then
+    printf 'Sign in to Codex for this PuzzLLM workspace.\n'
+    "$codex" "${auth[@]}" login --device-auth
+fi
+exec "$codex" "${auth[@]}" "${policy[@]}" --no-daemon --no-alt-screen \
+    --ask-for-approval never

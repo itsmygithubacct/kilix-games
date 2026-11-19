@@ -34,6 +34,7 @@ typedef struct act_file {
 } act_file;
 
 typedef struct activity {
+    bool codex;
     act_line lines[ACT_LINES];
     int head, count;               /* ring buffer */
     char session_path[4096];

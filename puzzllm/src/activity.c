@@ -124,6 +124,32 @@ static void content_blocks(activity *a, const json_doc *d, int msg,
     }
 }
 
+static void codex_item(activity *a, const json_doc *d, int item)
+{
+    const char *kind = json_str(d, json_get(d, item, "type"));
+    if (!kind) return;
+    if (strcmp(kind, "message") == 0) {
+        const char *role = json_str(d, json_get(d, item, "role"));
+        if (!role || strcmp(role, "assistant") != 0) return;
+        int parts = json_get(d, item, "content");
+        if (parts < 0 || d->nodes[parts].type != JSON_ARRAY) return;
+        for (int i = d->nodes[parts].first_child; i >= 0; i = d->nodes[i].next) {
+            const char *text = json_str(d, json_get(d, i, "text"));
+            if (text && *text) {
+                char line[ACT_LINE_LEN];
+                first_line(line, sizeof line, text);
+                activity_add(a, ACT_SAYS, "agent: %s", line);
+            }
+        }
+    } else if (strcmp(kind, "function_call") == 0 || strcmp(kind, "custom_tool_call") == 0) {
+        const char *name = json_str(d, json_get(d, item, "name"));
+        if (name) activity_add(a, ACT_TOOL, "tool %s", name);
+    } else if (strcmp(kind, "function_call_output") == 0 ||
+               strcmp(kind, "custom_tool_call_output") == 0) {
+        activity_add(a, ACT_RESULT, "tool returned");
+    }
+}
+
 void activity_session_line(activity *a, const char *line, size_t len)
 {
     json_doc d;
@@ -136,7 +162,10 @@ void activity_session_line(activity *a, const char *line, size_t len)
         return;
     }
     type = json_str(&d, json_get(&d, root, "type"));
-    if (type != NULL && strcmp(type, "message") == 0) {
+    if (a->codex) {
+        if (type && strcmp(type, "response_item") == 0)
+            codex_item(a, &d, json_get(&d, root, "payload"));
+    } else if (type != NULL && strcmp(type, "message") == 0) {
         msg = json_get(&d, root, "message");
         role = json_str(&d, json_get(&d, msg, "role"));
         if (role != NULL) content_blocks(a, &d, msg, role);
@@ -147,43 +176,39 @@ void activity_session_line(activity *a, const char *line, size_t len)
     json_free(&d);
 }
 
-static bool newest_session(const char *state, char *out, size_t cap)
+static void find_session(const char *root, int depth, char *out, size_t cap, long long *best)
 {
-    char root[3000];
-    DIR *top;
-    struct dirent *e;
-    long long best = -1;
-
-    snprintf(root, sizeof root, "%s/agent/sessions", state);
-    top = opendir(root);
-    if (top == NULL) return false;
-    while ((e = readdir(top)) != NULL) {
-        char sub[4096];
-        DIR *dir;
-        struct dirent *f;
-        if (e->d_name[0] == '.') continue;
-        if ((size_t)snprintf(sub, sizeof sub, "%s/%s", root, e->d_name) >= sizeof sub) continue;
-        dir = opendir(sub);
-        if (dir == NULL) continue;
-        while ((f = readdir(dir)) != NULL) {
-            char path[4096];
-            struct stat st;
-            size_t n = strlen(f->d_name);
-            if (n < 7 || strcmp(f->d_name + n - 6, ".jsonl") != 0) continue;
-            if ((size_t)snprintf(path, sizeof path, "%s/%s", sub, f->d_name) >= sizeof path)
-                continue;
-            if (lstat(path, &st) != 0 || !S_ISREG(st.st_mode)) continue;
-            {
-                long long t = (long long)st.st_mtim.tv_sec * 1000000000LL + st.st_mtim.tv_nsec;
-                if (t > best && strlen(path) < cap) {
-                    best = t;
-                    memcpy(out, path, strlen(path) + 1);
-                }
-            }
+    DIR *dir = opendir(root);
+    if (!dir) return;
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        char path[4096];
+        struct stat st;
+        const char *name = entry->d_name;
+        if (name[0] == '.') continue;
+        int length = snprintf(path, sizeof path, "%s/%s", root, name);
+        if (length < 0 || (size_t)length >= sizeof path || lstat(path, &st) != 0) continue;
+        if (depth > 0 && S_ISDIR(st.st_mode)) {
+            find_session(path, depth - 1, out, cap, best);
+            continue;
         }
-        closedir(dir);
+        size_t n = strlen(name);
+        if (!S_ISREG(st.st_mode) || n < 7 || strcmp(name + n - 6, ".jsonl") != 0) continue;
+        long long time_ns = (long long)st.st_mtim.tv_sec * 1000000000LL + st.st_mtim.tv_nsec;
+        if (time_ns > *best && (size_t)length < cap) {
+            *best = time_ns;
+            memcpy(out, path, (size_t)length + 1);
+        }
     }
-    closedir(top);
+    closedir(dir);
+}
+
+static bool newest_session(const activity *a, const char *state, char *out, size_t cap)
+{
+    char root[4096];
+    long long best = -1;
+    snprintf(root, sizeof root, "%s/%s/sessions", state, a->codex ? "codex" : "agent");
+    find_session(root, a->codex ? 3 : 1, out, cap, &best);
     return best >= 0;
 }
 
@@ -195,7 +220,7 @@ void activity_begin_room(activity *a, const char *state, const char *workspace)
     a->partial_len = 0;
     a->session_path[0] = 0;
     a->session_offset = 0;
-    if (newest_session(state, a->session_path, sizeof a->session_path) &&
+    if (newest_session(a, state, a->session_path, sizeof a->session_path) &&
         stat(a->session_path, &st) == 0)
         a->session_offset = st.st_size;
     a->nfiles = 0;
@@ -210,7 +235,7 @@ static void poll_session(activity *a, const char *state)
     int fd;
     ssize_t n;
 
-    if (!newest_session(state, path, sizeof path)) return;
+    if (!newest_session(a, state, path, sizeof path)) return;
     if (strcmp(path, a->session_path) != 0) {
         snprintf(a->session_path, sizeof a->session_path, "%s", path);
         a->session_offset = 0;
@@ -306,7 +331,7 @@ void activity_poll(activity *a, const char *state)
 {
     char ws[4096];
     snprintf(ws, sizeof ws, "%s/workspace", state);
-    poll_status(a, state);
+    if (!a->codex) poll_status(a, state);
     poll_session(a, state);
     activity_scan_workspace(a, ws);
 }

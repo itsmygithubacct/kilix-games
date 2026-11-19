@@ -1,0 +1,16 @@
+#!/bin/bash
+set -eu
+[[ $PWD = /kilix/workspace && $CODEX_HOME = /kilix/.codex && $HOME = /kilix ]]
+if [[ " $* " = *" login status "* ]]; then
+    test -f "$CODEX_HOME/mock-signed-in"
+    exit
+fi
+if [[ " $* " = *" login --device-auth "* ]]; then
+    touch "$CODEX_HOME/mock-signed-in"
+    exit
+fi
+[[ " $* " = *" --no-daemon "* && " $* " = *" --ask-for-approval never "* ]]
+[[ " $* " = *'permissions.puzzllm.network.enabled=false'* ]]
+[[ " $* " = *'"/kilix/.codex"="deny"'* ]]
+printf 'Hello, World!\n' > hello_world.txt
+printf 'fake-codex: wrote the workspace file\n'

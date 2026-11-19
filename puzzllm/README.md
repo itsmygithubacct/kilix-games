@@ -1,7 +1,7 @@
 # puzzllm
 
 Kilix, the firekitten from Zell, is locked in a room with a coding agent.
-The agent is [omp](https://github.com/can1357/oh-my-pi) running a small local
+The default agent is [omp](https://github.com/can1357/oh-my-pi) running a small local
 model, Qwen 3.5, in a sandbox. Each room has a coding goal. Get the agent to
 meet it and the door at the top of the room opens onto the next one. Part of
 [kilix-games](../).
@@ -23,7 +23,7 @@ Neuronte nets draw the text, the terminal characters and Kilix himself (see
 
 | Screen | What it is |
 |---|---|
-| left, big | omp, the coding agent, using the selected model |
+| left, big | the selected coding agent |
 | top right | the goal and its status in a dedicated block, above hints and agent activity |
 | bottom right | a bash shell in the same sandbox and the same workspace |
 
@@ -36,7 +36,7 @@ aisle through it to reach the next room.
 |---|---|
 | arrows, WASD | walk |
 | Enter, Space, E | use the screen Kilix is next to (the activity screen gives the next hint) |
-| F1 / F2 | type into omp / the shell from anywhere |
+| F1 / F2 | type into the agent / the shell from anywhere |
 | F10 or Ctrl+] | stop typing and walk again |
 | H | next hint |
 | Esc | open or close the game menu from any screen |
@@ -45,7 +45,7 @@ aisle through it to reach the next room.
 
 Hints come one at a time, every 45 seconds or on H. Progress is kept in
 `~/.local/share/puzzllm/progress`, so the game resumes in the room you
-reached. If an omp or shell session ends, press Enter on its screen to
+reached. If an agent or shell session ends, press Enter on its screen to
 start a new one.
 
 The game opens on its menu. Use Up and Down to choose **Start game** or
@@ -56,10 +56,19 @@ the menu and includes the default llama.cpp model and the models installed
 on the local Ollama service. Model changes restart the agent with a fresh
 conversation in the same workspace. Choices apply until you quit.
 
+Choose **Codex (OpenAI)** to run the Codex CLI in the agent pane with the
+same game workspace. The option needs Codex CLI with permission-profile
+support and an internet connection. On first use, follow the device
+sign-in instructions in the pane. Credentials and sessions are stored
+under the game's separate `codex/` state directory. Codex's command
+profile grants workspace access, denies access to that directory, and
+disables command networking. The Codex client uses OpenAI's hosted service
+when selected. Set `PUZZLLM_CODEX` to override the executable found on PATH.
+
 **Thinking** is off at startup and after switching models. The switch is
 unavailable for models without reported thinking support. Changing it
 restarts the agent. For models that always reason, Ollama uses their minimum
-effort when the switch is off.
+effort when the switch is off. Codex manages its own reasoning settings.
 
 Ollama must be running locally. PuzzLLM reads the local model list using
 Python 3. It uses port 11434 by default and respects a loopback
@@ -88,7 +97,7 @@ level: 1
 title: Hello, world
 room: stone
 goal: Get the agent to create hello_world.txt saying Hello, World!
-hint: Walk to the big omp screen on the left and press Enter to talk to the agent.
+hint: Walk to the agent screen on the left and press Enter to talk to the agent.
 check: file hello_world.txt
 require: nonempty
 require: contains-ci hello
@@ -141,7 +150,7 @@ chest, open chest, and key.
 
 ## The sandbox
 
-Both screens run in [bubblewrap](https://github.com/containers/bubblewrap)
+The shell and local omp agents run in [bubblewrap](https://github.com/containers/bubblewrap)
 sandboxes started by [`libexec/puzzllm-sandbox`](libexec/puzzllm-sandbox):
 
 - Every namespace is unshared, network included. The only reachable address
@@ -164,11 +173,12 @@ sandboxes started by [`libexec/puzzllm-sandbox`](libexec/puzzllm-sandbox):
   If you select Ollama, the agent keeps its private network namespace and
   reaches only the chosen model's chat endpoint through a local Unix socket.
 
-`make test-sandbox` proves this from inside both sandboxes. Writes outside
+`make test-sandbox` probes the local agent and shell sandboxes. Writes outside
 the workspace fail. The host loopback and outside addresses are unreachable.
 The host home is invisible. Every writable mount is one of those above.
 Nothing appears in a host folder next to the state. It also runs the whole
-agent chain with stand-ins for llama-server and omp.
+agent chain with stand-ins for llama-server and omp, and checks the separate
+Codex launch and sign-in path with a stand-in CLI.
 
 Both panes link the [NeuroTerm](https://github.com/itsmygithubacct/neuroterm)
 embedded core from `third_party/neuroterm`. It supplies terminal parsing and

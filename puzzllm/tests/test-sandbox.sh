@@ -107,6 +107,18 @@ else
     fail "shell could not meet the goal by hand"
 fi
 
+# A fake CLI exercises the Codex launch and game-specific device sign-in path.
+rm -f "$PUZZLLM_STATE/workspace/hello_world.txt"
+if PUZZLLM_CODEX="$here/tests/fake-codex" timeout 15 "$sandbox" codex \
+        < /dev/null > "$scratch/codex.log" 2>&1 &&
+    grep -q 'fake-codex: wrote the workspace file' "$scratch/codex.log" &&
+    [ -f "$PUZZLLM_STATE/codex/mock-signed-in" ] &&
+    PUZZLLM_ROOT=$here "$here/build/puzzllm" --check-level 1 >/dev/null; then
+    pass "Codex signs in to separate game state and completes a workspace goal"
+else
+    fail "Codex agent chain: $(tail -n 10 "$scratch/codex.log" | tr '\n' ' ')"
+fi
+
 # Ollama is exposed to the agent through a model-specific bridge only.
 python3 "$here/tests/fake-ollama.py" "$scratch/ollama-port" > "$scratch/ollama-host.log" 2>&1 &
 ollama_pid=$!

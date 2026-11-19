@@ -268,10 +268,10 @@ static const level *cur_level(const game *g)
     return &g->levels.items[g->sc.level];
 }
 
-static void spawn_omp(game *g)
+static void spawn_agent(game *g)
 {
     char sandbox[4096], st_env[2100], model_env[OLLAMA_NAME_CAP + 32];
-    char *argv[] = {sandbox, "agent", NULL};
+    char *argv[] = {sandbox, g->use_codex ? "codex" : "agent", NULL};
     char *think_env = g->thinking_enabled ? "PUZZLLM_THINK=1" : "PUZZLLM_THINK=0";
     char *env[] = {st_env, model_env, think_env, "TERM=xterm-256color", NULL};
 
@@ -373,7 +373,7 @@ static void start_play(game *g)
     if (!g->started) {
         g->started = true;
         if (g->spawn) {
-            spawn_omp(g);
+            spawn_agent(g);
             spawn_shell(g);
         }
     }
@@ -416,7 +416,7 @@ static void restart_agent(game *g)
 {
     if (g->spawn && g->started) {
         pty_stop(&g->omp);
-        spawn_omp(g);
+        spawn_agent(g);
     }
 }
 
@@ -451,15 +451,23 @@ static void menu_key(game *g, const key_event *ev)
             g->thinking_enabled = !g->thinking_enabled;
             restart_agent(g);
         }
-        if (menu->selected >= MENU_LOCAL) {
-            const model_option *model = menu->selected == MENU_LOCAL ? NULL :
-                                        &menu->models[menu->selected - MENU_FIRST_OLLAMA];
+        if (menu->selected >= MENU_CODEX) {
+            bool codex = menu->selected == MENU_CODEX;
+            const model_option *model = menu->selected >= MENU_FIRST_OLLAMA ?
+                                        &menu->models[menu->selected - MENU_FIRST_OLLAMA] : NULL;
             const char *name = model ? model->name : "";
-            thinking_support support = model ? model->thinking : bundled_thinking();
-            if (strcmp(name, g->ollama_model) != 0 || support != g->thinking_support) {
+            thinking_support support = codex ? THINK_UNAVAILABLE :
+                                       model ? model->thinking : bundled_thinking();
+            if (codex != g->use_codex || strcmp(name, g->ollama_model) != 0 ||
+                support != g->thinking_support) {
                 g->thinking_enabled = false;
                 g->thinking_support = support;
                 snprintf(g->ollama_model, sizeof g->ollama_model, "%s", name);
+                if (g->use_codex != codex) {
+                    g->use_codex = codex;
+                    g->act.codex = codex;
+                    activity_begin_room(&g->act, g->state, g->workspace);
+                }
                 restart_agent(g);
             } else if (g->spawn && g->started && pty_poll_exit(&g->omp)) {
                 restart_agent(g);
@@ -572,7 +580,7 @@ static void focus_screen(game *g, focus_id f)
     g->sc.focus = f;
     for (int i = 0; i < 4; i++) g->held_until[i] = 0;
     if (p != NULL && g->spawn && (p->pid == 0 || pty_poll_exit(p))) {
-        if (f == FOCUS_OMP) spawn_omp(g);
+        if (f == FOCUS_OMP) spawn_agent(g);
         else spawn_shell(g);
     }
     if (f == FOCUS_OMP) g->sc.dir = g->sc.x < AISLE_X0 ? 1 : 2;
@@ -763,7 +771,8 @@ void game_render(game *g, sr_canvas *c)
     v.chest = &g->chest;
     v.level_count = g->levels.count;
     v.omp = &g->omp_vt;
-    v.agent_model = g->ollama_model;
+    v.agent_model = g->use_codex ? "Codex" : g->ollama_model;
+    v.codex = g->use_codex;
     v.shell = &g->shell_vt;
     v.act = &g->act;
     v.omp_note = g->omp_note[0] ? g->omp_note : NULL;
@@ -774,7 +783,7 @@ void game_render(game *g, sr_canvas *c)
     render_frame(c, &v);
     if (g->menu.open)
         render_menu(c, g->menu.models, g->menu.count, g->menu.selected,
-                    g->ollama_model, g->menu.loading, g->menu.load_failed,
+                    v.agent_model, g->menu.loading, g->menu.load_failed,
                     g->started, g->sc.level + 1, g->menu.confirm_reset, g->menu.notice,
-                    g->thinking_support, g->thinking_enabled);
+                    g->thinking_support, g->thinking_enabled, g->use_codex);
 }

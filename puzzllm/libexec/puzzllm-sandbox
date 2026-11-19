@@ -2,12 +2,13 @@
 # puzzllm-sandbox - run the coding agent or the player's shell confined.
 #
 #   puzzllm-sandbox agent [OMP-ARGS...]     llama-server + omp, interactive
+#   puzzllm-sandbox codex                   Codex CLI with separate sign-in
 #   puzzllm-sandbox shell                   the player's bash
 #   puzzllm-sandbox agent-exec -- CMD...    CMD with exactly the agent's mounts
 #   puzzllm-sandbox shell-exec -- CMD...    CMD with exactly the shell's mounts
 #   puzzllm-sandbox paths                   print the resolved paths and exit
 #
-# Both sandboxes are bubblewrap containers with every namespace unshared
+# The omp and shell sandboxes are bubblewrap containers with every namespace unshared
 # (network included: the only reachable host is the sandbox's own loopback),
 # a read-only /usr and a short read-only list from /etc, and a tmpfs home and
 # /tmp. Nothing of the host's home directory is visible.
@@ -21,6 +22,7 @@
 #
 # Environment (all optional):
 #   PUZZLLM_STATE         persistent folder, default ~/.local/share/puzzllm
+#   PUZZLLM_CODEX          Codex CLI executable (default: codex on PATH)
 #   PUZZLLM_OMP           omp binary (default: omp on PATH, then ~/.local/bin/omp)
 #   PUZZLLM_LLAMA_SERVER  llama-server binary; its directory is mounted for libs
 #   PUZZLLM_MODEL         GGUF weights (default: the Qwen3.5 0.8B Zell uses)
@@ -143,13 +145,36 @@ agent|agent-exec)
         done
     fi
     ;;
+codex)
+    codex_bin=${PUZZLLM_CODEX:-$(command -v codex)}
+    [ -n "$codex_bin" ] && [ -x "$codex_bin" ] ||
+        die "Codex CLI not found (install codex or set PUZZLLM_CODEX)"
+    codex_command=$(readlink -f "$codex_bin")
+    case "$codex_command" in
+        /usr/*) ;;  # Includes npm's wrapper and its dependencies.
+        *)
+            args+=(--ro-bind "$codex_command" /opt/puzzllm/bin/codex)
+            codex_command=/opt/puzzllm/bin/codex
+            ;;
+    esac
+    (umask 077 && mkdir -p "$state/codex") || die "cannot create Codex state"
+    # The CLI connects to its hosted provider. Its separate command policy
+    # denies network access and masks the Codex credentials from tools.
+    args+=(--share-net
+           --bind "$state/workspace" "$box_home/workspace"
+           --bind "$state/codex" "$box_home/.codex"
+           --chdir "$box_home/workspace"
+           --setenv CODEX_HOME "$box_home/.codex"
+           --ro-bind "$here/puzzllm-codex-init" /opt/puzzllm/bin/puzzllm-codex-init)
+    [ ! -r /etc/resolv.conf ] || args+=(--ro-bind /etc/resolv.conf /etc/resolv.conf)
+    ;;
 shell|shell-exec)
     args+=(--bind "$state/workspace" "$box_home/workspace"
            --chdir "$box_home/workspace"
            --ro-bind "$here/puzzllm-shellrc" /opt/puzzllm/shellrc)
     ;;
 *)
-    die "usage: puzzllm-sandbox agent|shell|agent-exec -- CMD|shell-exec -- CMD|paths"
+    die "usage: puzzllm-sandbox agent|codex|shell|agent-exec -- CMD|shell-exec -- CMD|paths"
     ;;
 esac
 
@@ -197,6 +222,9 @@ EOF
             bwrap "${args[@]}" --remount-ro / -- /opt/puzzllm/bin/puzzllm-agent-init "$@"
     fi
     exec bwrap "${args[@]}" --remount-ro / -- /opt/puzzllm/bin/puzzllm-agent-init "$@"
+    ;;
+codex)
+    exec bwrap "${args[@]}" --remount-ro / -- /opt/puzzllm/bin/puzzllm-codex-init "$codex_command" "$@"
     ;;
 shell)
     exec bwrap "${args[@]}" --remount-ro / -- /bin/bash --rcfile /opt/puzzllm/shellrc -i

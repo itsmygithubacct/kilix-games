@@ -5,9 +5,9 @@ level: 1
 title: Hello, world
 room: stone
 goal: Get the agent to create hello_world.txt saying Hello, World!
-hint: Walk to the big omp screen on the left and press Enter to talk to the agent.
+hint: Walk to the agent screen on the left and press Enter to talk to the agent.
 hint: Ask plainly: create a file named hello_world.txt containing Hello, World!
-hint: Small models sometimes say they did it when they did not. Check with ls in the shell.
+hint: The agent can say it wrote the file even when the file is missing. Check with ls in the shell.
 hint: If it wrote the wrong file, tell it exactly what went wrong and ask again.
 hint: You may also finish the goal yourself in the shell, bottom right.
 check: file hello_world.txt

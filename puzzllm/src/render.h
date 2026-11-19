@@ -21,6 +21,7 @@ typedef struct view {
     const neuroterm *shell;          /* may be NULL */
     const activity *act;
     const char *agent_model;
+    bool codex;
     const char *omp_note;     /* shown over the omp screen when not NULL */
     const char *shell_note;
     const char *goal_why;     /* "hello_world.txt does not exist yet" */
@@ -28,11 +29,11 @@ typedef struct view {
     bool blink;               /* cursor blink phase */
 } view;
 
-enum { MENU_RESUME, MENU_QUIT, MENU_RESET, MENU_THINKING, MENU_LOCAL, MENU_FIRST_OLLAMA };
+enum { MENU_RESUME, MENU_QUIT, MENU_RESET, MENU_THINKING, MENU_CODEX, MENU_LOCAL, MENU_FIRST_OLLAMA };
 
 struct model_option;
 void render_menu(sr_canvas *c, const struct model_option *models, int count, int selected,
                  const char *active_model, bool loading, bool failed,
-                 bool started, int level, bool confirm_reset, const char *notice, int thinking_support, bool thinking_enabled);
+                 bool started, int level, bool confirm_reset, const char *notice, int thinking_support, bool thinking_enabled, bool codex);
 void render_frame(sr_canvas *c, const view *v);
 #endif

@@ -15,6 +15,14 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # (name, file, old, new, make target[, "neuronte" when it needs that build])
 DEFECTS = [
+    ("the Codex option leaves the previous agent selected",
+     "src/game.c", "bool codex = menu->selected == MENU_CODEX;", "bool codex = false;", "test-unit"),
+    ("the activity feed ignores Codex tool events",
+     "src/activity.c", 'if (type && strcmp(type, "response_item") == 0)',
+     "if (false)", "test-unit"),
+    ("Codex tools are given network access",
+     "libexec/puzzllm-codex-init", "permissions.puzzllm.network.enabled=false",
+     "permissions.puzzllm.network.enabled=true", "test-sandbox"),
     ("the thinking switch activates for an unsupported model",
      "src/game.c", "menu->selected == MENU_THINKING && g->thinking_support != THINK_UNAVAILABLE",
      "menu->selected == MENU_THINKING", "test-unit"),

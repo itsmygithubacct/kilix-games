@@ -1098,6 +1098,29 @@ static void menu_press(uint32_t key)
     game_key(&G, &ev);
 }
 
+static void test_codex_menu(void)
+{
+    char err[256], state[2300];
+    sub(state, sizeof state, "codex-menu");
+    CHECK(game_init(&G, ".", state, false, err, sizeof err), "codex menu: %s", err);
+    G.sc.focus = FOCUS_SHELL;
+    menu_press(KEY_ESCAPE);
+    for (int i = 0; i < MENU_CODEX; i++) menu_press(KEY_DOWN);
+    menu_press(KEY_ENTER);
+    CHECK(G.use_codex && G.act.codex && !G.menu.open && G.sc.focus == FOCUS_SHELL,
+          "Codex selection changes the agent and the activity source");
+    const char *event = "{\"type\":\"response_item\",\"payload\":"
+        "{\"type\":\"function_call\",\"name\":\"exec_command\"}}";
+    activity_session_line(&G.act, event, strlen(event));
+    CHECK(has_line(&G.act, "tool exec_command"), "Codex tool calls reach the activity screen");
+
+    menu_press(KEY_ESCAPE);
+    menu_press(KEY_END);
+    menu_press(KEY_ENTER);
+    CHECK(!G.use_codex && !G.act.codex, "the bundled model switches back from Codex");
+    game_shutdown(&G);
+}
+
 static void test_thinking_menu(void)
 {
     char err[256], state[2300];
@@ -1224,6 +1247,7 @@ int main(void)
     snprintf(scratch, sizeof scratch, "%s", dir);
     test_menu();
     test_thinking_menu();
+    test_codex_menu();
     test_chest_art();
     test_start_and_reset_menu();
     test_neuroterm();

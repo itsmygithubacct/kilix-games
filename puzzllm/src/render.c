@@ -201,10 +201,11 @@ static void room_background(sr_canvas *c, const char *style)
 
 void render_menu(sr_canvas *c, const model_option *models, int count, int selected,
                  const char *active_model, bool loading, bool failed,
-                 bool started, int level, bool confirm_reset, const char *notice, int support, bool thinking_enabled)
+                 bool started, int level, bool confirm_reset, const char *notice, int support, bool thinking_enabled, bool codex)
 {
     static const char *const actions[] = {
         [MENU_QUIT] = "Exit game", [MENU_RESET] = "Reset progress",
+        [MENU_CODEX] = "Codex (OpenAI)",
         [MENU_LOCAL] = "Qwen 3.5 (llama.cpp)",
     };
     int width = 560, row_h = 27;
@@ -244,7 +245,7 @@ void render_menu(sr_canvas *c, const model_option *models, int count, int select
             else if (level > 1) snprintf(label, sizeof label, "Continue from level %d", level);
             else snprintf(label, sizeof label, "Start game");
         } else if (i == MENU_THINKING) {
-            const char *status = thinking_enabled ? "On" :
+            const char *status = codex ? "managed in Codex" : thinking_enabled ? "On" :
                 support == THINK_UNAVAILABLE ? "Off (unavailable)" :
                 support == THINK_HAS_MINIMUM ? "Off (model minimum)" : "Off";
             snprintf(label, sizeof label, "Thinking: %s", status);
@@ -279,8 +280,9 @@ void render_frame(sr_canvas *c, const view *v)
     room_background(c, v->lv->room);
     art_door(c, v->lv->room, s->door, next_room <= v->level_count ? next_room : 0);
 
-    snprintf(hud, sizeof hud, "omp  -  %.36s",
-             v->agent_model && v->agent_model[0] ? v->agent_model : "Qwen 3.5 (llama.cpp)");
+    if (v->codex) snprintf(hud, sizeof hud, "Codex  -  OpenAI agent");
+    else snprintf(hud, sizeof hud, "omp  -  %.36s",
+                  v->agent_model && v->agent_model[0] ? v->agent_model : "Qwen 3.5 (llama.cpp)");
     art_screen(c, layout_screen(SCREEN_OMP), hud,
                s->focus == FOCUS_OMP, near == SCREEN_OMP);
     layout_text_origin(SCREEN_OMP, &tx, &ty);
@@ -316,6 +318,6 @@ void render_frame(sr_canvas *c, const view *v)
     else
         snprintf(hud, sizeof hud,
                  "Typing into the %s.   F10 or Ctrl+] back to the room   Esc menu",
-                 s->focus == FOCUS_OMP ? "agent (omp)" : "shell");
+                 s->focus == FOCUS_OMP ? "agent" : "shell");
     draw_text(c, 16, HUD_Y + 2, hud, 0xe6e6e6, 1.0f);
 }

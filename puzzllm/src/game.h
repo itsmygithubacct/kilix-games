@@ -70,6 +70,7 @@ typedef struct game {
     bool quit;
     game_menu menu;
     char ollama_model[OLLAMA_NAME_CAP];
+    bool use_codex;
     thinking_support thinking_support;
     bool thinking_enabled;
     bool transition_pending;
