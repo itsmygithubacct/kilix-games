@@ -458,6 +458,20 @@ int render_model_details(sr_canvas *c, model_details_tab tab, int scroll,
     return limit;
 }
 
+static void render_resources(sr_canvas *c, const view *v)
+{
+    rect r = layout_resources();
+    int cols = (r.w - 2 * SCREEN_PAD) / CELL_W;
+    draw_fill(c, r.x, r.y, r.w, r.h, 0x171e27, 1);
+    draw_stroke(c, r.x, r.y, r.w, r.h, 1, 0x3b4a5c, 1);
+    text_line(c, r.x + SCREEN_PAD, r.y + 2,
+              v->resource_summary ? v->resource_summary : "Resources   Agent idle",
+              0xa8d7f2, cols);
+    text_line(c, r.x + SCREEN_PAD, r.y + 18,
+              v->resource_devices && *v->resource_devices ? v->resource_devices : "GPU --  VRAM --  Disk --/--",
+              0xbdc8d7, cols);
+}
+
 void render_frame(sr_canvas *c, const view *v)
 {
     const scene *s = v->sc;
@@ -493,6 +507,7 @@ void render_frame(sr_canvas *c, const view *v)
     art_screen(c, layout_screen(SCREEN_ACT), "System actions", false, false);
     layout_text_origin(SCREEN_ACT, &tx, &ty);
     render_pane_text(c, v, SCREEN_ACT, tx, ty, NULL);
+    render_resources(c, v);
 
     render_selection(c, v->selection);
 

@@ -5,6 +5,7 @@
  *   | |                           |         +--------------------------+ |
  *   | |                           |         +-- system actions -------+ |
  *   | |                           |         +--------------------------+ |
+ *   | |                           |         | resources                 |
  *   | |                           |         +-- shell -----------------+ |
  *   | +---------------------------+         +--------------------------+ |
  *   |                          floor                                      |
@@ -34,6 +35,7 @@ enum {
     SCREEN_PAD = 8,
     SCREEN_MAX_COLS = 150,
     SCREEN_TEXT_ROWS_MAX = 9,
+    RESOURCE_H = 36,
     WALL_H = 100,
     DOOR_W = 80, DOOR_H = 86, DOOR_Y = 14,
     AISLE_Y0 = 118,
@@ -47,6 +49,7 @@ typedef struct layout {
     int shell_x, shell_y, shell_cols, shell_rows;
     int act_x, act_y, act_cols, act_rows;
     int goal_x, goal_y, goal_cols, goal_rows;
+    int resource_y;
     int floor_y, hud_y;
     int walk_x0, walk_x1, walk_y0, walk_y1;   /* where Kilix's feet may go */
     int aisle_x0, aisle_x1;
@@ -101,6 +104,7 @@ typedef struct rect { int x, y, w, h; } rect;
 
 rect layout_screen(screen_id id);
 /* Top-left pixel of the text area of a screen. */
+rect layout_resources(void);
 rect layout_text_bounds(screen_id id);
 void layout_text_origin(screen_id id, int *x, int *y);
 

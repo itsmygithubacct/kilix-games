@@ -1,0 +1,256 @@
+#!/usr/bin/env python3
+"""Sample the agent and its attributable model runner without blocking the game."""
+from collections import defaultdict
+import ctypes as C
+import os
+from pathlib import Path
+import re
+import runpy
+import shlex
+import sys
+import time
+
+PROC = Path("/proc")
+CLOCK_TICKS = os.sysconf("SC_CLK_TCK")
+PAGE_SIZE = os.sysconf("SC_PAGE_SIZE")
+MIB = 1024 ** 2
+
+
+def process_table():
+    table = {}
+    for entry in PROC.iterdir():
+        if not entry.name.isdecimal():
+            continue
+        try:
+            name, fields = (entry / "stat").read_text().rsplit(")", 1)
+            fields = fields.split()
+            table[int(entry.name)] = (
+                int(fields[1]), int(fields[19]), int(fields[11]) + int(fields[12]),
+                max(0, int(fields[21])) * PAGE_SIZE, name.split("(", 1)[1],
+            )
+        except (OSError, ValueError, IndexError):
+            continue
+    return table
+
+
+def descendants(root, table):
+    children = defaultdict(list)
+    for pid, row in table.items():
+        children[row[0]].append(pid)
+    pending = [root]
+    result = set()
+    while pending:
+        pid = pending.pop()
+        if pid not in result:
+            result.add(pid)
+            pending.extend(children[pid])
+    return result
+
+
+def ollama_pid(table, blob):
+    if not blob:
+        return None
+    matches = []
+    for pid, row in table.items():
+        if not row[4].startswith(("ollama", "llama-server")):
+            continue
+        try:
+            args = (PROC / str(pid) / "cmdline").read_bytes().split(b"\0")
+            if blob in [arg.rsplit(b"/", 1)[-1] for arg in args[1:]]:
+                matches.append(pid)
+        except OSError:
+            pass
+    return matches[0] if len(matches) == 1 else None
+
+
+def model_blob(meta):
+    for line in meta.get("modelfile", "").splitlines():
+        if line.startswith("FROM "):
+            args = shlex.split(line)
+            if len(args) == 2:
+                name = Path(args[1]).name
+                if re.fullmatch(r"sha256[-:][0-9a-f]{64}", name):
+                    return name.encode()
+    return None
+
+
+def proc_fields(path):
+    try:
+        return dict(line.split(":", 1) for line in path.read_text().splitlines() if ":" in line)
+    except (OSError, UnicodeError):
+        return {}
+
+
+def proc_sample(pid, row):
+    _, start, cpu, rss, _ = row
+    folder = PROC / str(pid)
+    io = proc_fields(folder / "io")
+    keys = ("read_bytes", "write_bytes")
+    disk = tuple(int(io[key]) for key in keys) if all(key in io for key in keys) else None
+    pss = proc_fields(folder / "smaps_rollup").get("Pss")
+    return (pid, start), (cpu, disk), int(pss.split()[0]) * 1024 if pss else rss
+
+
+def drm_sample(pids):
+    clients, engines = {}, {}
+    for pid in pids:
+        try:
+            descriptors = list((PROC / str(pid) / "fdinfo").iterdir())
+        except OSError:
+            continue
+        for descriptor in descriptors:
+            values = proc_fields(descriptor)
+            if "drm-client-id" not in values:
+                continue
+            client = (values.get("drm-pdev"), values["drm-client-id"])
+            memory = values.get("drm-resident-vram", values.get("drm-memory-vram"))
+            if memory:
+                amount, _, unit = memory.strip().partition(" ")
+                scale = {"KiB": 1024, "MiB": MIB, "bytes": 1}.get(unit)
+                if scale and amount.isdecimal():
+                    clients[client] = int(amount) * scale
+            for key, value in values.items():
+                if key.startswith("drm-engine-") and value.endswith(" ns"):
+                    engines[(*client, key)] = int(value.split()[0])
+    return engines, sum(clients.values()) if clients else None
+
+
+class NvidiaProcess(C.Structure):
+    _fields_ = [("pid", C.c_uint), ("memory", C.c_ulonglong),
+                ("gpu_instance", C.c_uint), ("compute_instance", C.c_uint)]
+
+
+class NvidiaUtilization(C.Structure):
+    _fields_ = [("pid", C.c_uint), ("timestamp", C.c_ulonglong), ("sm", C.c_uint),
+                ("memory", C.c_uint), ("encoder", C.c_uint), ("decoder", C.c_uint)]
+
+
+class Nvidia:
+    def __init__(self):
+        self.devices = []
+        try:
+            self.api = C.CDLL("libnvidia-ml.so.1")
+            count = C.c_uint()
+            if self.api.nvmlInit_v2() != 0 or self.api.nvmlDeviceGetCount_v2(C.byref(count)) != 0:
+                return
+            for index in range(count.value):
+                device = C.c_void_p()
+                if self.api.nvmlDeviceGetHandleByIndex_v2(index, C.byref(device)) == 0:
+                    self.devices.append(device)
+        except (OSError, AttributeError):
+            pass
+
+    def sample(self, pids):
+        gpu, memory = None, None
+        for device in self.devices:
+            processes = (NvidiaProcess * 256)()
+            count = C.c_uint(len(processes))
+            try:
+                result = self.api.nvmlDeviceGetComputeRunningProcesses_v3(device, C.byref(count), processes)
+            except AttributeError:
+                continue
+            active = {p.pid for p in processes[:count.value] if p.pid in pids} if result == 0 else set()
+            if not active:
+                continue
+            for p in processes[:count.value]:
+                if p.pid in active and p.memory != 2 ** 64 - 1:
+                    memory = (memory or 0) + p.memory
+            samples = (NvidiaUtilization * 1024)()
+            count = C.c_uint(len(samples))
+            try:
+                since = C.c_ulonglong(time.time_ns() // 1000 - 2_000_000)
+                result = self.api.nvmlDeviceGetProcessUtilization(device, samples, C.byref(count), since)
+            except AttributeError:
+                continue
+            if result in (0, 6):  # NVML_ERROR_NOT_FOUND means no recent activity.
+                recent = {}
+                if result == 0:
+                    for sample in samples[:count.value]:
+                        if sample.pid in active and (sample.pid not in recent or
+                                                     sample.timestamp > recent[sample.pid].timestamp):
+                            recent[sample.pid] = sample
+                gpu = max(gpu or 0, min(100, sum(s.sm for s in recent.values())))
+        return gpu, memory
+
+
+def size(value):
+    if value is None:
+        return "--"
+    if value >= 1024 * MIB:
+        return f"{value / (1024 * MIB):.1f}G"
+    return f"{value / MIB:.1f}M"
+
+
+def rate(current, previous, elapsed):
+    common = current.keys() & previous.keys()
+    if not common or elapsed <= 0:
+        return None, None, None
+    cpu = sum(max(0, current[p][0] - previous[p][0]) for p in common)
+    disk = [p for p in common if current[p][1] is not None and previous[p][1] is not None]
+    io = [sum(max(0, current[p][1][i] - previous[p][1][i]) for p in disk) / elapsed
+          if disk else None for i in range(2)]
+    return cpu * 100 / CLOCK_TICKS / elapsed, *io
+
+
+def percent(value):
+    return "--" if value is None else f"{value:.0f}%"
+
+
+def run(root, backend, model, cpu_only):
+    table = process_table()
+    if root not in table:
+        return
+    started = table[root][1]
+    ollama, blob = None, None
+    if backend == "ollama":
+        ollama = runpy.run_path(str(Path(__file__).with_name("puzzllm-ollama")))
+        try:
+            blob = model_blob(ollama["model_metadata"](model))
+        except (ValueError, OSError):
+            pass
+    nvidia = Nvidia()
+    previous, previous_engines, when = {}, {}, time.monotonic()
+    while root in table and table[root][1] == started:
+        pids = descendants(root, table)
+        reported_vram = None
+        scope = "Harness" if backend == "llama" else "Local agent"
+        if ollama:
+            try:
+                reported_vram = ollama["runner_status"](model).get("size_vram")
+            except (OSError, ValueError):
+                pass
+            runner = ollama_pid(table, blob) if reported_vram is not None else None
+            if runner:
+                pids.update(descendants(runner, table))
+                scope = "Agent + model"
+        current, ram = {}, 0
+        now = time.monotonic()
+        elapsed = now - when
+        for pid in pids:
+            key, counters, resident = proc_sample(pid, table[pid])
+            current[key] = counters
+            ram += resident
+        cpu, read, written = rate(current, previous, elapsed)
+        if (backend == "llama" and cpu_only) or reported_vram == 0:
+            gpu, vram, engines = 0, 0, {}
+        else:
+            gpu, vram = nvidia.sample(pids)
+            engines, drm_vram = drm_sample(pids)
+            common = engines.keys() & previous_engines.keys()
+            if gpu is None and common and elapsed > 0:
+                gpu = min(100, max(0, max(engines[key] - previous_engines[key] for key in common)) /
+                          (elapsed * 10_000_000))
+            if vram is None:
+                vram = drm_vram
+            if isinstance(reported_vram, int):
+                vram = reported_vram
+        print(f"STAT {scope}  CPU {percent(cpu)}  RAM {size(ram)}|"
+              f"GPU {percent(gpu)}  VRAM {size(vram)}  Disk {size(read)}/{size(written)}/s",
+              flush=True)
+        previous, previous_engines, when = current, engines, now
+        time.sleep(1.5)
+        table = process_table()
+
+
+if __name__ == "__main__":
+    run(int(sys.argv[1]), sys.argv[2], sys.argv[3], sys.argv[4] == "cpu")

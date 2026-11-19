@@ -162,14 +162,13 @@ void art_door(sr_canvas *c, const room_art *art, const char *style, float open,
     /* lamp above the door: red shut, green open */
     draw_disc(c, DOOR_X + DOOR_W / 2.0f, 6, 4, 4,
                    open >= 1.0f ? 0x40e070 : 0xe04040, 1.0f);
-    /* signs either side of the door */
+    int sign_x = DOOR_X + DOOR_W + 16;
     if (next_room > 0) snprintf(sign, sizeof sign, "ROOM %d", next_room);
     else snprintf(sign, sizeof sign, "SOON");
-    draw_fill(c, DOOR_X - 92, 36, 76, 22, 0x1a1a1a, 0.85f);
-    draw_text(c, DOOR_X - 86, 39, open >= 1.0f ? "OPEN" : "LOCKED",
-            open >= 1.0f ? 0x60f080 : 0xf07060, 1.0f);
-    draw_fill(c, DOOR_X + DOOR_W + 16, 36, 76, 22, 0x1a1a1a, 0.85f);
-    draw_text(c, DOOR_X + DOOR_W + 22, 39, sign, 0xf0e0b0, 1.0f);
+    draw_fill(c, sign_x, 18, 76, 43, 0x1a1a1a, 0.85f);
+    draw_text(c, sign_x + 6, 22, sign, 0xf0e0b0, 1.0f);
+    draw_text(c, sign_x + 6, 42, open >= 1.0f ? "OPEN" : "LOCKED",
+              open >= 1.0f ? 0x60f080 : 0xf07060, 1.0f);
 }
 
 void art_screen_glass(sr_canvas *c, rect r, uint32_t background)

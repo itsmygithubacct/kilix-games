@@ -788,8 +788,8 @@ static void test_layout(void)
     char err[256], state[2300];
 
     layout_set(1280, 800);
-    CHECK(OMP_COLS == 70 && OMP_ROWS == 30 && SHELL_COLS == 70 && SHELL_ROWS == 11 &&
-          ACT_ROWS == 5 && GOAL_ROWS == 7, "1280x800 fits four panels");
+    CHECK(OMP_COLS == 70 && OMP_ROWS == 43 && SHELL_COLS == 70 && SHELL_ROWS == 13 &&
+          ACT_ROWS == 5 && GOAL_ROWS == 5, "1280x800 fits four panels");
     CHECK(START_X == 640 && START_Y == 740 && AISLE_X0 == 616 && AISLE_X1 == 664 &&
           WALK_Y0 == 668 && WALK_Y1 == 768 && DOOR_X == 600, "1280x800 floor and aisle");
     layout_set(300, 200);
@@ -799,26 +799,29 @@ static void test_layout(void)
 
     for (size_t i = 0; i < sizeof sizes / sizeof sizes[0]; i++) {
         int w = sizes[i][0], h = sizes[i][1];
-        rect omp, shell, act, goal, aisle;
+        rect omp, shell, act, goal, aisle, resources;
         scene s;
         layout_set(w, h);
         omp = layout_screen(SCREEN_OMP);
         shell = layout_screen(SCREEN_SHELL);
         act = layout_screen(SCREEN_ACT);
         goal = layout_screen(SCREEN_GOAL);
+        resources = layout_resources();
         aisle = (rect){AISLE_X0, WALL_H, AISLE_X1 - AISLE_X0, FLOOR_Y - WALL_H};
         CHECK(CANVAS_W == w && CANVAS_H == h, "%dx%d is drawn at its own size", w, h);
         CHECK(omp.x >= 0 && act.x + act.w <= w && shell.x + shell.w <= w &&
-              goal.x + goal.w <= w && shell.y + shell.h <= FLOOR_Y &&
-              act.y + act.h <= FLOOR_Y && omp.y > WALL_H && goal.y > WALL_H,
+              goal.x + goal.w <= w && shell.y + shell.h <= WALK_Y0 &&
+              act.y + act.h <= FLOOR_Y && omp.y < 24 && omp.y + omp.h >= HUD_Y - 44 &&
+              omp.y + omp.h < HUD_Y && goal.y > WALL_H,
               "%dx%d: screens inside the room", w, h);
         CHECK(!overlaps(omp, aisle) && !overlaps(shell, aisle) &&
               !overlaps(act, aisle) && !overlaps(goal, aisle) &&
-              goal.y + goal.h <= act.y && act.y + act.h <= shell.y &&
+              goal.y + goal.h <= act.y && act.y + act.h <= resources.y &&
+              resources.y + resources.h <= shell.y && resources.x == shell.x &&
               goal.x == act.x && goal.x == shell.x && omp.x < goal.x,
               "%dx%d: four separate screens clear of the aisle", w, h);
         CHECK(OMP_COLS >= 20 && OMP_COLS <= SCREEN_MAX_COLS && SHELL_ROWS >= 6 &&
-              OMP_ROWS >= 10 && ACT_ROWS >= 2 && GOAL_ROWS >= 3,
+              OMP_ROWS >= 10 && ACT_ROWS >= 2 && GOAL_ROWS >= 2,
               "%dx%d: usable terminals (%dx%d, %dx%d)", w, h, OMP_COLS, OMP_ROWS,
               SHELL_COLS, SHELL_ROWS);
         CHECK(WALK_Y1 < HUD_Y && WALK_Y0 > FLOOR_Y && DOOR_X + DOOR_W / 2 == w / 2,
@@ -1033,6 +1036,10 @@ static void test_render_and_flow(void)
     CHECK(differing(&shut, &open, door) > DOOR_W * DOOR_H / 2, "the door looks different open");
     CHECK(at(&open, DOOR_X + DOOR_W / 2, DOOR_Y + 30) != at(&shut, DOOR_X + DOOR_W / 2, DOOR_Y + 30),
           "next room visible through the doorway");
+
+    CHECK(differing(&shut, &open, (rect){DOOR_X + DOOR_W + 16, 42, 76, 19}) > 0 &&
+          differing(&shut, &open, (rect){DOOR_X - 40, 33, 30, 30}) == 0,
+          "lock status changes underneath the room number on the right");
 
     /* text on the omp screen reaches the canvas */
     feed(&G.omp_vt, "W");
@@ -1437,6 +1444,17 @@ static void test_goal_and_action_panes(void)
         CHECK(G.hints_shown == hints + 1 && differing(&before, &after, goal) > 0 &&
               differing(&before, &after, act) == 0, "the next hint changes the goal pane only");
 
+        rect resources = layout_resources();
+        snprintf(G.metrics.summary, sizeof G.metrics.summary, "Harness  CPU 125%%  RAM 2.0G");
+        snprintf(G.metrics.devices, sizeof G.metrics.devices, "GPU 35%%  VRAM 1.0G  Disk 2M/3M/s");
+        game_render(&G, &before);
+        rect utilization = {resources.x, resources.y, resources.w, RESOURCE_H / 2};
+        rect devices = {resources.x, resources.y + RESOURCE_H / 2, resources.w, RESOURCE_H / 2};
+        CHECK(differing(&before, &after, utilization) > 0 &&
+              differing(&before, &after, devices) > 0 && differing(&before, &after, act) == 0,
+              "both resource rows update without changing system actions");
+        game_render(&G, &after);
+
         activity_add(&G.act, ACT_TOOL, "tool write hello_world.txt");
         game_render(&G, &before);
         CHECK(differing(&before, &after, act) > 0 && differing(&before, &after, goal) == 0,
@@ -1488,7 +1506,7 @@ static void test_pane_scroll(void)
               "new terminal output preserves the previously scrolled view");
 
         game_scroll(&G, act.x + 10, act.y + 10, -3);
-        game_scroll(&G, goal.x + 10, goal.y + 10, 3);
+        game_scroll(&G, goal.x + 10, goal.y + 10, 256);
         game_render(&G, &scrolled);
         CHECK(G.action_scroll == 3 && differing(&live, &scrolled, act) > 0,
               "wheel scrolls through system actions");

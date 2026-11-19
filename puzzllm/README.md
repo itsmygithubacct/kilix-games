@@ -26,7 +26,15 @@ Neuronte nets draw the text, the terminal characters and Kilix himself (see
 | left | the selected coding agent |
 | top right | the goal, status, and hints |
 | middle right | system actions, including tool calls and workspace changes |
+| above the shell | CPU, RAM, GPU, VRAM, and disk read/write activity |
 | bottom right | a bash shell in the same sandbox and the same workspace |
+
+The resource bar samples the coding harness and any model process it can
+attribute to that session. CPU is shown as a percentage of one logical
+core. RAM uses resident memory and disk shows storage reads/writes per
+second. Ollama reports VRAM for the selected model. If its shared runner
+cannot be identified, CPU, RAM, and disk cover the local agent only.
+Codex shows its local CLI resources. A dash means the metric is unavailable.
 
 The room is drawn at the pane's own size, so a bigger pane gets bigger
 terminals. Walk Kilix up to a screen and press Enter to type into it. The door's lamp

@@ -52,6 +52,12 @@ typedef struct game_menu {
 
 enum { CLIPBOARD_CAP = 16384 };
 
+typedef struct agent_metrics {
+    pty_proc worker;
+    char partial[256], summary[128], devices[128];
+    size_t length;
+} agent_metrics;
+
 typedef struct game {
     char root[2048];        /* the puzzllm/ directory */
     char state[2048];       /* persistent folder, e.g. ~/.local/share/puzzllm */
@@ -75,6 +81,7 @@ typedef struct game {
     size_t paste_len;
     bool paste_overflow;
     pty_proc omp, shell;
+    agent_metrics metrics;
     activity act;
     goal_result goal;
     count_puzzle count_check;

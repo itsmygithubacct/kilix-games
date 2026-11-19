@@ -292,6 +292,61 @@ static const level *cur_level(const game *g)
     return &g->levels.items[g->sc.level];
 }
 
+static void stop_metrics(agent_metrics *metrics)
+{
+    pty_stop(&metrics->worker);
+    pty_init(&metrics->worker);
+    metrics->length = 0;
+    metrics->summary[0] = metrics->devices[0] = 0;
+}
+
+static void start_metrics(game *g)
+{
+    char helper[4096], pid[32];
+    const char *gpu = getenv("PUZZLLM_GPU");
+    const char *backend = g->use_codex ? "codex" : g->ollama_model[0] ? "ollama" : "llama";
+    bool cpu = g->compute == COMPUTE_CPU || (g->compute == COMPUTE_AUTO && (!gpu || !*gpu));
+    char *argv[] = {helper, pid, (char *)backend, g->ollama_model, cpu ? "cpu" : "auto", NULL};
+
+    snprintf(helper, sizeof helper, "%s/libexec/puzzllm-metrics", g->root);
+    snprintf(pid, sizeof pid, "%ld", (long)g->omp.pid);
+    if (!pty_spawn(&g->metrics.worker, argv, NULL, 100, 8))
+        snprintf(g->metrics.summary, sizeof g->metrics.summary, "Resource data unavailable");
+}
+
+static void pump_metrics(agent_metrics *metrics, pty_proc *agent)
+{
+    if (metrics->worker.fd < 0) return;
+    if (pty_poll_exit(agent)) {
+        stop_metrics(metrics);
+        return;
+    }
+    char buf[512];
+    for (int attempt = 0; attempt < 4; attempt++) {
+        long n = pty_read(&metrics->worker, buf, sizeof buf);
+        if (n <= 0) break;
+        for (long i = 0; i < n; i++) {
+            if (buf[i] == '\r') continue;
+            if (buf[i] != '\n') {
+                if (metrics->length < sizeof metrics->partial - 1)
+                    metrics->partial[metrics->length++] = buf[i];
+                continue;
+            }
+            metrics->partial[metrics->length] = 0;
+            metrics->length = 0;
+            char *separator = strchr(metrics->partial, '|');
+            if (!separator || strncmp(metrics->partial, "STAT ", 5) != 0) continue;
+            *separator = 0;
+            snprintf(metrics->summary, sizeof metrics->summary, "%.127s", metrics->partial + 5);
+            snprintf(metrics->devices, sizeof metrics->devices, "%.127s", separator + 1);
+        }
+    }
+    if (pty_poll_exit(&metrics->worker)) {
+        stop_metrics(metrics);
+        snprintf(metrics->summary, sizeof metrics->summary, "Resource data unavailable");
+    }
+}
+
 static void spawn_agent(game *g)
 {
     char sandbox[4096], st_env[2100], model_env[OLLAMA_NAME_CAP + 32];
@@ -304,17 +359,21 @@ static void spawn_agent(game *g)
     snprintf(sandbox, sizeof sandbox, "%s/libexec/puzzllm-sandbox", g->root);
     snprintf(st_env, sizeof st_env, "PUZZLLM_STATE=%s", g->state);
     snprintf(model_env, sizeof model_env, "PUZZLLM_OLLAMA_MODEL=%s", g->ollama_model);
+    stop_metrics(&g->metrics);
     neuroterm_feed(&g->omp_vt, "\033c", 2);
     history_clear(&g->omp_history);
     g->omp_note[0] = '\0';
     if (!pty_spawn(&g->omp, argv, env, OMP_COLS, OMP_ROWS))
         snprintf(g->omp_note, sizeof g->omp_note, "could not start the agent sandbox");
-    else
+    else {
+        start_metrics(g);
         activity_add(&g->act, ACT_INFO, "agent sandbox started");
+    }
 }
 
 static void stop_room_agent(game *g)
 {
+    stop_metrics(&g->metrics);
     pty_stop(&g->omp);
     pty_init(&g->omp);
     neuroterm_feed(&g->omp_vt, "\033c", 2);
@@ -423,6 +482,7 @@ static void reset_from_menu(game *g)
         snprintf(g->menu.notice, sizeof g->menu.notice, "Could not lock the save for reset.");
         return;
     }
+    stop_metrics(&g->metrics);
     pty_stop(&g->omp);
     pty_stop(&g->shell);
     pty_init(&g->omp);
@@ -619,6 +679,7 @@ bool game_init(game *g, const char *root, const char *state, bool spawn,
     pty_init(&g->omp);
     pty_init(&g->shell);
     pty_init(&g->menu.discovery);
+    pty_init(&g->metrics.worker);
     activity_init(&g->act);
 
     snprintf(path, sizeof path, "%s/levels/levels.txt", root);
@@ -660,6 +721,7 @@ bool game_init(game *g, const char *root, const char *state, bool spawn,
 
 void game_shutdown(game *g)
 {
+    stop_metrics(&g->metrics);
     count_puzzle_stop(&g->count_check);
     pty_stop(&g->omp);
     pty_stop(&g->shell);
@@ -902,7 +964,7 @@ void game_click(game *g, int x, int y)
     if (inside(layout_screen(SCREEN_OMP), x, y)) focus_screen(g, FOCUS_OMP);
     else if (inside(layout_screen(SCREEN_SHELL), x, y)) focus_screen(g, FOCUS_SHELL);
     else if (inside(layout_screen(SCREEN_GOAL), x, y)) next_hint(g);
-    else if (inside(layout_screen(SCREEN_ACT), x, y)) return;
+    else if (inside(layout_screen(SCREEN_ACT), x, y) || inside(layout_resources(), x, y)) return;
     else focus_screen(g, FOCUS_ROOM);
 }
 
@@ -1030,6 +1092,7 @@ void game_update(game *g, double dt)
     if (g->spawn) {
         pump(&g->omp, &g->omp_vt, g->omp_note, sizeof g->omp_note, "the agent");
         pump(&g->shell, &g->shell_vt, g->shell_note, sizeof g->shell_note, "the shell");
+        pump_metrics(&g->metrics, &g->omp);
     }
     if (g->menu.open) return;
     if (g->transition_pending) {
@@ -1116,6 +1179,9 @@ static view game_view(const game *g)
     v.omp_history = &g->omp_history;
     v.shell_history = &g->shell_history;
     v.act = &g->act;
+    v.resource_summary = g->metrics.summary[0] ? g->metrics.summary :
+        g->omp.pid > 0 && !g->omp.exited ? "Sampling resources..." : "Resources   Agent idle";
+    v.resource_devices = g->metrics.devices;
     v.goal_scroll = g->goal_scroll;
     v.action_scroll = g->action_scroll;
     v.selection = g->selection;

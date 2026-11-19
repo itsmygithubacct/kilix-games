@@ -32,6 +32,7 @@ typedef struct view {
     int goal_scroll, action_scroll;
     pane_selection selection;
     const char *agent_model;
+    const char *resource_summary, *resource_devices;
     bool codex;
     const char *omp_note;     /* shown over the omp screen when not NULL */
     const char *shell_note;
