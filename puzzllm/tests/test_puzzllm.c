@@ -1200,6 +1200,35 @@ static void test_thinking_menu(void)
     game_shutdown(&G);
 }
 
+static void test_compute_menu(void)
+{
+    char err[256], state[2300];
+    sub(state, sizeof state, "compute-state");
+    CHECK(game_init(&G, ".", state, false, err, sizeof err), "compute menu: %s", err);
+    CHECK(G.compute == COMPUTE_AUTO, "compute defaults to Auto");
+    menu_press(KEY_ESCAPE);
+    for (int i = 0; i < MENU_COMPUTE; i++) menu_press(KEY_DOWN);
+    menu_press(KEY_ENTER);
+    CHECK(G.compute == COMPUTE_CPU, "compute menu selects CPU");
+    menu_press(KEY_ENTER);
+    CHECK(G.compute == COMPUTE_GPU, "compute menu selects GPU");
+    game_shutdown(&G);
+
+    CHECK(game_init(&G, ".", state, false, err, sizeof err), "compute reload: %s", err);
+    CHECK(G.compute == COMPUTE_GPU, "compute setting persists");
+    menu_press(KEY_ESCAPE);
+    for (int i = 0; i < MENU_CODEX; i++) menu_press(KEY_DOWN);
+    menu_press(KEY_ENTER);
+    menu_press(KEY_ESCAPE);
+    for (int i = 0; i < MENU_COMPUTE; i++) menu_press(KEY_DOWN);
+    menu_press(KEY_ENTER);
+    CHECK(G.use_codex && G.compute == COMPUTE_GPU, "Codex keeps the local compute setting");
+    G.use_codex = false;
+    menu_press(KEY_ENTER);
+    CHECK(G.compute == COMPUTE_AUTO, "compute menu cycles back to Auto");
+    game_shutdown(&G);
+}
+
 static void test_start_and_reset_menu(void)
 {
     char err[256], state[2300], file[2400], pattern[2500];
@@ -1539,6 +1568,7 @@ int main(void)
     test_codex_menu();
     test_room_art();
     test_chest_art();
+    test_compute_menu();
     test_start_and_reset_menu();
     test_neuroterm();
     test_keys();

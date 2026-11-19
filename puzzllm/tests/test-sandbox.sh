@@ -72,6 +72,24 @@ if grep -q 'fake-omp: wrote hello_world.txt' "$scratch/agent.log"; then
 else
     fail "agent chain: $(tail -n 5 "$scratch/agent.log" | tr '\n' ' ')"
 fi
+if grep -q 'device=none layers=0' "$PUZZLLM_STATE/agent/puzzllm/llama-server.log"; then
+    pass "llama.cpp defaults to CPU"
+else
+    fail "llama.cpp default did not disable GPU offload"
+fi
+for device in cpu gpu; do
+    if [ "$device" = cpu ]; then override=Vulkan0; expected='device=none layers=0'
+    else override=; expected='device=default layers=99'; fi
+    if PUZZLLM_COMPUTE=$device PUZZLLM_GPU=$override PUZZLLM_OMP=$here/tests/fake-omp \
+            PUZZLLM_LLAMA_SERVER=$here/tests/fake-llama/llama-server \
+            PUZZLLM_MODEL=$here/tests/fake-llama/model.gguf \
+            timeout 15 "$sandbox" agent < /dev/null > "$scratch/llama-$device.log" 2>&1 &&
+       grep -q "$expected" "$PUZZLLM_STATE/agent/puzzllm/llama-server.log"; then
+        pass "llama.cpp applies $device selection"
+    else
+        fail "llama.cpp $device selection: $(tail -n 5 "$scratch/llama-$device.log")"
+    fi
+done
 [ "$(cat "$PUZZLLM_STATE/workspace/hello_world.txt" 2>/dev/null)" = "Hello, World!" ] &&
     pass "hello_world.txt made through the sandbox's model" ||
     fail "hello_world.txt not made"
@@ -187,6 +205,29 @@ elif grep -q 'Ollama loaded 4,096 context tokens' "$scratch/ollama-runner.log"; 
     pass "Ollama refuses a runner that loads less than the requested context"
 else
     fail "Ollama runner check reported: $(tail -n 3 "$scratch/ollama-runner.log")"
+fi
+
+rm -f "$scratch/ollama-port.context"
+for device in cpu gpu; do
+    if [ "$device" = cpu ]; then layers=0; vram=0
+    else layers=-1; vram=1000000; fi
+    printf '%s\n' "$layers" > "$scratch/ollama-port.compute"
+    printf '%s\n' "$vram" > "$scratch/ollama-port.vram"
+    if PUZZLLM_COMPUTE=$device PUZZLLM_OMP=$here/tests/fake-ollama-omp PUZZLLM_OLLAMA_MODEL=test/agent:7b \
+            timeout 15 "$sandbox" agent < /dev/null > "$scratch/ollama-$device.log" 2>&1; then
+        pass "Ollama applies $device selection"
+    else
+        fail "Ollama $device selection: $(tail -n 5 "$scratch/ollama-$device.log")"
+    fi
+done
+printf '0\n' > "$scratch/ollama-port.vram"
+if PUZZLLM_COMPUTE=gpu PUZZLLM_OMP=$here/tests/fake-ollama-omp PUZZLLM_OLLAMA_MODEL=test/agent:7b \
+        timeout 15 "$sandbox" agent < /dev/null > "$scratch/ollama-no-gpu.log" 2>&1; then
+    fail "Ollama silently ran on CPU in GPU mode"
+elif grep -q 'Ollama loaded the model on CPU' "$scratch/ollama-no-gpu.log"; then
+    pass "Ollama reports CPU fallback in GPU mode"
+else
+    fail "Ollama GPU check reported: $(tail -n 3 "$scratch/ollama-no-gpu.log")"
 fi
 
 echo "test-sandbox: $fails failed"

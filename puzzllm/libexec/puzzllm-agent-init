@@ -30,6 +30,7 @@ health() {
     return 1
 }
 
+compute=${PUZZLLM_COMPUTE:-auto}
 if [ -n "${PUZZLLM_OLLAMA_MODEL:-}" ]; then
     /opt/puzzllm/bin/puzzllm-ollama guest "$port" &
     relay=$!
@@ -37,7 +38,7 @@ if [ -n "${PUZZLLM_OLLAMA_MODEL:-}" ]; then
     for _ in $(seq 1 40); do
         if { exec 3<>"/dev/tcp/127.0.0.1/$port"; } 2>/dev/null; then
             exec 3>&-
-            say "using Ollama model $model_id (requested ${PUZZLLM_CTX:-32768} context tokens)"
+            say "using Ollama model $model_id (compute: $compute, requested ${PUZZLLM_CTX:-32768} context tokens)"
             exec /opt/puzzllm/bin/omp --model "puzzllm-local/$model_id" \
                 --no-title --no-lsp --no-extensions --no-skills --no-rules "$@"
         fi
@@ -51,9 +52,19 @@ fi
 think_args=(--reasoning-budget 0)
 [ "${PUZZLLM_THINK:-0}" = 1 ] && think_args=()
 device_args=(--device none --gpu-layers 0)
-[ -n "${PUZZLLM_GPU:-}" ] && device_args=(--device "$PUZZLLM_GPU" --gpu-layers 99)
+placement=CPU
+if [ "$compute" = gpu ] || [ -n "${PUZZLLM_GPU:-}" ]; then
+    if ! /opt/puzzllm/llama/llama-server --list-devices >"$log" 2>&1 ||
+       ! grep -Eq '^  [^[:space:]:]+: ' "$log"; then
+        say "llama.cpp found no GPU inside the sandbox. Select CPU or check the GPU backend."
+        exit 2
+    fi
+    device_args=(--gpu-layers 99)
+    [ -n "${PUZZLLM_GPU:-}" ] && device_args+=(--device "$PUZZLLM_GPU")
+    placement=GPU
+fi
 
-say "starting Qwen 3.5 ($model_id) on the sandbox loopback"
+say "starting Qwen 3.5 ($model_id) on $placement"
 /opt/puzzllm/llama/llama-server \
     --model /opt/puzzllm/model.gguf --alias "$model_id" \
     --host 127.0.0.1 --port "$port" --ctx-size "${PUZZLLM_CTX:-32768}" \

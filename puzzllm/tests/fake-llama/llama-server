@@ -48,5 +48,9 @@ class Handler(BaseHTTPRequestHandler):
         })
 
 
+if "--list-devices" in sys.argv:
+    print("Available devices:\n  Vulkan0: Test GPU (8192 MiB, 8192 MiB free)")
+    sys.exit(0)
+print(f"device={flag('--device', 'default')} layers={flag('--gpu-layers', '')}", flush=True)
 HTTPServer((flag("--host", "127.0.0.1"), int(flag("--port", "8765"))),
            Handler).serve_forever()

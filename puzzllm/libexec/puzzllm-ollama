@@ -110,7 +110,7 @@ def check_context(metadata):
     return context
 
 
-def runner_context(model):
+def runner_status(model):
     connection = ollama_connection(2)
     try:
         connection.request("GET", "/api/ps")
@@ -118,12 +118,12 @@ def runner_context(model):
             if response.status == 200:
                 for entry in json.load(response).get("models", []):
                     if model in (entry.get("name"), entry.get("model")):
-                        return entry.get("context_length")
+                        return entry
     except (OSError, ValueError, TypeError, http.client.HTTPException):
         pass
     finally:
         connection.close()
-    return None
+    return {}
 
 
 def text_content(content):
@@ -134,7 +134,7 @@ def text_content(content):
             )))
 
 
-def native_request(request, context, think):
+def native_request(request, context, think, compute):
     """Translate omp's text and tool history into Ollama's native chat format."""
     messages = []
     call_names = {}
@@ -167,6 +167,10 @@ def native_request(request, context, think):
                ("temperature", "top_p", "stop", "seed", "frequency_penalty", "presence_penalty")
                if request.get(key) is not None}
     options["num_ctx"] = context
+    if compute == "cpu":
+        options["num_gpu"] = 0
+    elif compute == "gpu":
+        options["num_gpu"] = -1
     max_tokens = request.get("max_completion_tokens") or request.get("max_tokens")
     if max_tokens is not None:
         options["num_predict"] = max_tokens
@@ -242,7 +246,8 @@ class ChatHandler(http.server.BaseHTTPRequestHandler):
                 not isinstance(tool, dict) or tool.get("type") != "function" for tool in tools
             ):
                 raise ValueError()
-            payload = native_request(request, self.server.context, self.server.think)
+            payload = native_request(request, self.server.context, self.server.think,
+                                     self.server.compute)
         except (ValueError, TypeError, KeyError, AttributeError, OSError):
             self.send_error(400)
             return
@@ -276,10 +281,18 @@ class ChatHandler(http.server.BaseHTTPRequestHandler):
             if not first:
                 self.send_error(502, "Ollama returned no completion")
                 return
-            actual = runner_context(self.server.model)
+            runner = runner_status(self.server.model)
+            actual = runner.get("context_length")
             if isinstance(actual, int) and 0 < actual < self.server.context:
                 self.send_error(409, f"Ollama loaded {actual:,} context tokens. "
                                      f"PuzzLLM requested {self.server.context:,}.")
+                return
+            vram = runner.get("size_vram")
+            if self.server.compute == "gpu" and vram == 0:
+                self.send_error(409, "Ollama loaded the model on CPU. Select CPU or check Ollama GPU access.")
+                return
+            if self.server.compute == "cpu" and isinstance(vram, int) and vram > 0:
+                self.send_error(409, "Ollama used GPU memory for a CPU request.")
                 return
             if payload["stream"]:
                 self.output_stream(request, first, response)
@@ -364,6 +377,7 @@ def run_host(state, model, argv):
             _, enabled, disabled = thinking_controls(metadata)
             server.think = enabled if os.environ.get("PUZZLLM_THINK") == "1" else disabled
             server.context = context
+            server.compute = os.environ.get("PUZZLLM_COMPUTE") or "auto"
             threading.Thread(target=server.serve_forever, daemon=True).start()
             argv = [os.path.join(directory, "socket") if arg == "@OLLAMA_SOCKET@" else arg
                     for arg in argv]

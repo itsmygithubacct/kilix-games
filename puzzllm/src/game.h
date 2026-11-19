@@ -88,6 +88,7 @@ typedef struct game {
     bool use_codex;
     thinking_support thinking_support;
     bool thinking_enabled;
+    compute_mode compute;
     bool transition_pending;
     char omp_note[96], shell_note[96];
 } game;

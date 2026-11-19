@@ -209,9 +209,13 @@ NeuroTerm's `embed.mk` and `include/neuroterm_terminal.h`.
 | Qwen 3.5 weights | `Qwen3.5-0.8B-Q8_0.gguf`, the model Zell routes to as `qwen3.5-0.8b`, in the Kilix LLM models folder | `PUZZLLM_MODEL` |
 
 Nothing is downloaded. If a part is missing, the omp screen says which one.
-`libexec/puzzllm-sandbox paths` prints what was found. `PUZZLLM_GPU=Vulkan1`
-(any llama.cpp device name) runs the model on a GPU and mounts the GPU's
-device nodes into the agent sandbox. The default is CPU. `PUZZLLM_THINK=1`
+`libexec/puzzllm-sandbox paths` prints what was found. In the game menu,
+select **Compute** and press Enter to cycle **Auto**, **CPU**, and **GPU**.
+The choice is saved and applies to Ollama and llama.cpp. Auto lets Ollama
+pick the device and defaults llama.cpp to CPU. In Auto or GPU mode,
+`PUZZLLM_GPU=Vulkan1` can select a specific llama.cpp device. GPU mode
+reports when llama.cpp finds no device or Ollama reports CPU-only placement.
+`PUZZLLM_THINK=1`
 lets the model think, which is off by default because 0.8B tends to loop.
 
 ## Tests

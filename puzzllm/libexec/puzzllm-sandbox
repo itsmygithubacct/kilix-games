@@ -29,6 +29,7 @@
 #   PUZZLLM_MODEL_ID      model id shown to omp, default qwen3.5-0.8b
 #   PUZZLLM_CTX           context tokens, default 32768
 #   PUZZLLM_THINK=1       let the model think (off by default: 0.8B loops)
+#   PUZZLLM_COMPUTE       auto, cpu, or gpu
 #   PUZZLLM_GPU=DEVICE    run the model on a llama.cpp device such as Vulkan1
 #                         (GPU device nodes are then mounted); default CPU
 set -u
@@ -118,6 +119,11 @@ for f in passwd group nsswitch.conf ld.so.cache ld.so.conf ld.so.conf.d \
     [ -e "/etc/$f" ] && args+=(--ro-bind "/etc/$f" "/etc/$f")
 done
 
+compute=${PUZZLLM_COMPUTE:-auto}
+case "$compute" in auto|cpu|gpu) ;; *) die "PUZZLLM_COMPUTE must be auto, cpu, or gpu" ;; esac
+gpu=${PUZZLLM_GPU:-}
+if [ "$compute" = cpu ]; then gpu=; fi
+
 case "$mode" in
 agent|agent-exec)
     args+=(--bind "$state/workspace" "$box_home/workspace"
@@ -134,9 +140,10 @@ agent|agent-exec)
            --setenv PUZZLLM_MODEL_ID "$model_id"
            --setenv PUZZLLM_CTX "$ctx"
            --setenv PUZZLLM_THINK "${PUZZLLM_THINK:-0}"
-           --setenv PUZZLLM_GPU "${PUZZLLM_GPU:-}")
-    if [ -z "$ollama" ] && [ -n "${PUZZLLM_GPU:-}" ]; then
-        for n in /dev/dri /dev/nvidiactl /dev/nvidia-uvm /dev/nvidia-modeset \
+           --setenv PUZZLLM_COMPUTE "$compute"
+           --setenv PUZZLLM_GPU "$gpu")
+    if [ -z "$ollama" ] && { [ "$compute" = gpu ] || [ -n "$gpu" ]; }; then
+        for n in /dev/dri /dev/kfd /dev/nvidiactl /dev/nvidia-uvm /dev/nvidia-modeset \
                  /dev/nvidia[0-9]*; do
             [ -e "$n" ] && args+=(--dev-bind "$n" "$n")
         done

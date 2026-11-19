@@ -30,7 +30,7 @@ static int load_level(const char *state, const char *name, int level_count)
     return n - 1;
 }
 
-static bool save_level(const char *state, const char *name, int level)
+static bool save_state_line(const char *state, const char *name, const char *line)
 {
     char path[4096], tmp[4200];
     FILE *f;
@@ -38,9 +38,31 @@ static bool save_level(const char *state, const char *name, int level)
     snprintf(tmp, sizeof tmp, "%s.tmp", path);
     f = fopen(tmp, "w");
     if (f == NULL) return false;
-    fprintf(f, "level %d\n", level + 1);
-    if (fclose(f) != 0) return false;
+    bool written = fprintf(f, "%s\n", line) >= 0;
+    if (fclose(f) != 0 || !written) return false;
     return rename(tmp, path) == 0;
+}
+
+static bool save_level(const char *state, const char *name, int level)
+{
+    char line[32];
+    snprintf(line, sizeof line, "level %d", level + 1);
+    return save_state_line(state, name, line);
+}
+
+static const char *const compute_name[] = {"auto", "cpu", "gpu"};
+
+static compute_mode load_compute(const char *state)
+{
+    char path[4096], value[8];
+    snprintf(path, sizeof path, "%s/compute", state);
+    FILE *f = fopen(path, "r");
+    if (!f) return COMPUTE_AUTO;
+    bool read = fscanf(f, "%7s", value) == 1;
+    fclose(f);
+    if (read && strcmp(value, compute_name[COMPUTE_CPU]) == 0) return COMPUTE_CPU;
+    if (read && strcmp(value, compute_name[COMPUTE_GPU]) == 0) return COMPUTE_GPU;
+    return COMPUTE_AUTO;
 }
 
 int game_load_progress(const char *state, int level_count)
@@ -273,7 +295,9 @@ static void spawn_agent(game *g)
     char sandbox[4096], st_env[2100], model_env[OLLAMA_NAME_CAP + 32];
     char *argv[] = {sandbox, g->use_codex ? "codex" : "agent", NULL};
     char *think_env = g->thinking_enabled ? "PUZZLLM_THINK=1" : "PUZZLLM_THINK=0";
-    char *env[] = {st_env, model_env, think_env, "TERM=xterm-256color", NULL};
+    char compute_env[32];
+    snprintf(compute_env, sizeof compute_env, "PUZZLLM_COMPUTE=%s", compute_name[g->compute]);
+    char *env[] = {st_env, model_env, think_env, compute_env, "TERM=xterm-256color", NULL};
 
     snprintf(sandbox, sizeof sandbox, "%s/libexec/puzzllm-sandbox", g->root);
     snprintf(st_env, sizeof st_env, "PUZZLLM_STATE=%s", g->state);
@@ -463,6 +487,15 @@ static void menu_key(game *g, const key_event *ev)
             g->thinking_enabled = !g->thinking_enabled;
             restart_agent(g);
         }
+        if (menu->selected == MENU_COMPUTE && !g->use_codex) {
+            compute_mode compute = g->compute == COMPUTE_GPU ? COMPUTE_AUTO : g->compute + 1;
+            if (g->state_lock >= 0 && save_state_line(g->state, "compute", compute_name[compute])) {
+                g->compute = compute;
+                restart_agent(g);
+            } else {
+                snprintf(menu->notice, sizeof menu->notice, "Could not save the compute setting.");
+            }
+        }
         if (menu->selected >= MENU_CODEX) {
             bool codex = menu->selected == MENU_CODEX;
             const model_option *model = menu->selected >= MENU_FIRST_OLLAMA ?
@@ -546,6 +579,7 @@ bool game_init(game *g, const char *root, const char *state, bool spawn,
         game_shutdown(g);
         return false;
     }
+    g->compute = load_compute(state);
     scene_init(&g->sc, 0, g->levels.count);
 
     int previous = load_level(state, "transition", g->levels.count);
@@ -1030,5 +1064,5 @@ void game_render(game *g, sr_canvas *c)
         render_menu(c, g->menu.models, g->menu.count, g->menu.selected,
                     v.agent_model, g->menu.loading, g->menu.load_failed,
                     g->started, g->sc.level + 1, g->menu.confirm_reset, g->menu.notice,
-                    g->thinking_support, g->thinking_enabled, g->use_codex);
+                    g->thinking_support, g->thinking_enabled, g->use_codex, g->compute);
 }

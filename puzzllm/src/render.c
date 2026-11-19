@@ -318,7 +318,8 @@ static void room_background(sr_canvas *c, const room_art *art, const char *style
 
 void render_menu(sr_canvas *c, const model_option *models, int count, int selected,
                  const char *active_model, bool loading, bool failed,
-                 bool started, int level, bool confirm_reset, const char *notice, int support, bool thinking_enabled, bool codex)
+                 bool started, int level, bool confirm_reset, const char *notice, int support, bool thinking_enabled, bool codex,
+                 compute_mode compute)
 {
     static const char *const actions[] = {
         [MENU_QUIT] = "Exit game", [MENU_RESET] = "Reset progress",
@@ -366,11 +367,16 @@ void render_menu(sr_canvas *c, const model_option *models, int count, int select
                 support == THINK_UNAVAILABLE ? "Off (unavailable)" :
                 support == THINK_HAS_MINIMUM ? "Off (model minimum)" : "Off";
             snprintf(label, sizeof label, "Thinking: %s", status);
+        } else if (i == MENU_COMPUTE) {
+            const char *mode = compute == COMPUTE_CPU ? "CPU" : compute == COMPUTE_GPU ? "GPU" : "Auto";
+            snprintf(label, sizeof label, "Compute: %s", codex ? "managed in Codex" : mode);
         } else if (i < MENU_FIRST_OLLAMA)
             snprintf(label, sizeof label, "%s", actions[i]);
         else
             snprintf(label, sizeof label, "%s (Ollama)", models[i - MENU_FIRST_OLLAMA].name);
-        uint32_t color = i == MENU_THINKING && support == THINK_UNAVAILABLE ? 0xa6b5c6 : 0xf2efeb;
+        bool disabled = (i == MENU_THINKING && support == THINK_UNAVAILABLE) ||
+                        (i == MENU_COMPUTE && codex);
+        uint32_t color = disabled ? 0xa6b5c6 : 0xf2efeb;
         text_line(c, x + 20, row_y + 5, label, color, (width - 40) / CELL_W);
     }
     if (*notice || loading || failed || count == 0 || options > rows) {

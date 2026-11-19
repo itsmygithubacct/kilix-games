@@ -10,10 +10,12 @@ class OllamaHandler(http.server.BaseHTTPRequestHandler):
         if self.path == "/api/ps":
             marker = Path(sys.argv[1]).with_suffix(".context")
             context = int(marker.read_text()) if marker.exists() else 32768
+            vram_marker = marker.with_suffix(".vram")
+            vram = int(vram_marker.read_text()) if vram_marker.exists() else 0
             self.send_response(200)
             self.end_headers()
             self.wfile.write(json.dumps({"models": [
-                {"name": name, "context_length": context}
+                {"name": name, "context_length": context, "size_vram": vram}
                 for name in ("test/agent:7b", "test/always:latest", "test/other:latest")
             ]}).encode())
             return
@@ -47,6 +49,9 @@ class OllamaHandler(http.server.BaseHTTPRequestHandler):
             return
         assert self.path == "/api/chat"
         assert request["options"]["num_ctx"] == 32768
+        mode_marker = Path(sys.argv[1]).with_suffix(".compute")
+        expected_gpu = int(mode_marker.read_text()) if mode_marker.exists() else None
+        assert request["options"].get("num_gpu") == expected_gpu
         raw = request.get("think", "absent")
         effort = "none" if raw is False else "medium" if raw is True else raw
         message = {"role": "assistant", "content": f"Hello from the selected model ({effort})"}
