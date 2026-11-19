@@ -38,4 +38,8 @@ size_t keys_encode(const key_event *ev, bool app_cursor, char *out, size_t cap);
 /* Bracketed or plain paste of UTF-8 text. */
 size_t keys_paste(const char *text, bool bracketed, char *out, size_t cap);
 
+struct neuroterm;
+size_t neuroterm_key(struct neuroterm *terminal, const key_event *event,
+                     char *buf, size_t cap);
+
 #endif

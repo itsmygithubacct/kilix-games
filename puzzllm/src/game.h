@@ -12,7 +12,7 @@
 #include "pty.h"
 #include "scene.h"
 #include "soft_raster.h"
-#include "neuroterm.h"
+#include "neuroterm_terminal.h"
 
 #include <stdbool.h>
 

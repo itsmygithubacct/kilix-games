@@ -22,44 +22,41 @@ static void fill_cell_rect(sr_canvas *c, int x, int y, int w, int h, uint32_t rg
     }
 }
 
-/* The screen behind the grid is already TERM_BG; a cell paints its own
- * background only when it differs. */
-static void draw_cell(sr_canvas *c, const neuroterm *t, int x, int y,
-                      const VTermScreenCell *cell, bool cursor)
+static void terminal_fill(void *user, int x, int y, int w, int h, uint32_t rgb)
 {
-    uint32_t fg = neuroterm_color(t, cell->fg);
-    uint32_t bg = neuroterm_color(t, cell->bg);
-    int width = cell->width == 2 ? 2 * CELL_W : CELL_W;
-    unsigned style = (cell->attrs.bold ? DRAW_GLYPH_BOLD : 0) |
-                     (cell->attrs.italic ? DRAW_GLYPH_ITALIC : 0);
-
-    if (cell->attrs.reverse) { uint32_t swap = fg; fg = bg; bg = swap; }
-    if (cursor) { uint32_t swap = fg; fg = bg; bg = swap == bg ? 0xd0d0d0 : swap; }
-    if (bg != TERM_BG) fill_cell_rect(c, x, y, width, CELL_H, bg);
-    if (!cell->attrs.conceal) {
-        for (int i = 0; i < VTERM_MAX_CHARS_PER_CELL && cell->chars[i]; i++)
-            draw_glyph(c, x, y, width, CELL_H, cell->chars[i], fg, style);
-    }
-    if (cell->attrs.underline) fill_cell_rect(c, x, y + CELL_H - 2, width, 1, fg);
-    if (cell->attrs.underline == VTERM_UNDERLINE_DOUBLE)
-        fill_cell_rect(c, x, y + CELL_H - 4, width, 1, fg);
-    if (cell->attrs.strike) fill_cell_rect(c, x, y + CELL_H / 2, width, 1, fg);
+    fill_cell_rect(user, x, y, w, h, rgb);
 }
 
-/* The cells over a text area that is already TERM_BG. */
+static void terminal_glyph(void *user, uint32_t scalar, unsigned flags, int x, int y,
+                           int w, int h, uint32_t rgb)
+{
+    unsigned style = (flags & NEUROTERM_BOLD ? DRAW_GLYPH_BOLD : 0u) |
+                     (flags & NEUROTERM_ITALIC ? DRAW_GLYPH_ITALIC : 0u);
+    draw_glyph(user, x, y, w, h, scalar, rgb, style);
+}
+
+/* The screen bezel has already painted the default background. */
 static void vt_cells(sr_canvas *c, const neuroterm *t, int x, int y, bool show_cursor)
 {
     VTermPos cursor = neuroterm_cursor(t);
+    const neuroterm_painter painter = {c, terminal_fill, terminal_glyph};
+    neuroterm_cell_style style = {
+        .foreground = NEUROTERM_FG, .background = NEUROTERM_BG,
+        .focused = true, .cursor_shape = t->cursor_shape,
+    };
     for (int row = 0; row < t->rows; row++) {
-        for (int col = 0; col < t->cols; col++) {
+        for (int col = 0; col < t->cols;) {
             VTermScreenCell cell;
-            if (!neuroterm_cell(t, col, row, &cell) || cell.chars[0] == UINT32_MAX)
+            if (!neuroterm_cell(t, col, row, &cell)) {
+                col++;
                 continue;
-            bool cur = show_cursor && t->cursor_visible && col == cursor.col && row == cursor.row;
-            if (!cur && cell.chars[0] <= 0x20 && VTERM_COLOR_IS_DEFAULT_BG(&cell.bg) &&
-                !(cell.attrs.reverse || cell.attrs.underline || cell.attrs.strike))
-                continue;
-            draw_cell(c, t, x + col * CELL_W, y + row * CELL_H, &cell, cur);
+            }
+            int span = cell.width == 2 && col + 1 < t->cols ? 2 : 1;
+            style.cursor = show_cursor && t->cursor_visible && row == cursor.row &&
+                           cursor.col >= col && cursor.col < col + span;
+            neuroterm_paint_cell(t->screen, &cell, x + col * CELL_W, y + row * CELL_H,
+                                 CELL_W, CELL_H, span, &style, &painter);
+            col += span;
         }
     }
 }

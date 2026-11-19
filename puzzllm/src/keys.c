@@ -1,5 +1,6 @@
 /* keys.c - see keys.h. */
 #include "keys.h"
+#include "neuroterm_terminal.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -159,4 +160,27 @@ size_t keys_paste(const char *text, bool bracketed, char *out, size_t cap)
         n += 6;
     }
     return n;
+}
+
+size_t neuroterm_key(neuroterm *t, const key_event *event, char *buf, size_t cap)
+{
+    static const VTermKey navigation[] = {
+        [KEY_UP - KEY_LEFT] = VTERM_KEY_UP,
+        [KEY_DOWN - KEY_LEFT] = VTERM_KEY_DOWN,
+        [KEY_LEFT - KEY_LEFT] = VTERM_KEY_LEFT,
+        [KEY_RIGHT - KEY_LEFT] = VTERM_KEY_RIGHT,
+        [KEY_PAGE_UP - KEY_LEFT] = VTERM_KEY_PAGEUP,
+        [KEY_PAGE_DOWN - KEY_LEFT] = VTERM_KEY_PAGEDOWN,
+        [KEY_HOME - KEY_LEFT] = VTERM_KEY_HOME,
+        [KEY_END - KEY_LEFT] = VTERM_KEY_END,
+    };
+    if (event->action == 3) return 0;
+    if (event->key < KEY_LEFT || event->key > KEY_END)
+        return keys_encode(event, false, buf, cap);
+    VTermModifier mods = VTERM_MOD_NONE;
+    if (event->mods & MOD_CTRL) mods |= VTERM_MOD_CTRL;
+    if (event->mods & MOD_ALT) mods |= VTERM_MOD_ALT;
+    if (event->mods & MOD_SHIFT) mods |= VTERM_MOD_SHIFT;
+    vterm_keyboard_key(t->term, navigation[event->key - KEY_LEFT], mods);
+    return neuroterm_read(t, buf, cap);
 }

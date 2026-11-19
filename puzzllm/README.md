@@ -170,11 +170,11 @@ The host home is invisible. Every writable mount is one of those above.
 Nothing appears in a host folder next to the state. It also runs the whole
 agent chain with stand-ins for llama-server and omp.
 
-Both embedded terminals use the NeuroTerm terminal core: the same patched
-libvterm parser as the standalone NeuroTerm project, with styled Neuronte
-glyphs on the game's canvas. The game supplies PTYs and keyboard events
-through `src/neuroterm.h`. The parser source and its license are in
-`third_party/libvterm/`.
+Both panes link the [NeuroTerm](https://github.com/itsmygithubacct/neuroterm)
+embedded core from `third_party/neuroterm`. It supplies terminal parsing and
+cell painting, including colors, wide characters, and cursors. PuzzLLM
+supplies the PTYs, keyboard events, and the glyph and canvas backend. See
+NeuroTerm's `embed.mk` and `include/neuroterm_terminal.h`.
 
 ### What it needs
 

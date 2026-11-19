@@ -16,7 +16,7 @@
 #include "levels.h"
 #include "render.h"
 #include "scene.h"
-#include "neuroterm.h"
+#include "neuroterm_terminal.h"
 
 #include <errno.h>
 #include <fcntl.h>
