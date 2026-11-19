@@ -53,7 +53,8 @@ level: 4
 title: The treasure chest
 room: stone
 goal: Open the password-protected chest.zip and extract key.txt to unlock the door.
-hint: Try zell, qwen, puzl, kilx or pleb. The chest uses one of these passwords.
+hint: The password is lowercase.
+hint: The password is four letters long.
 hint: In the shell, run unzip chest.zip and enter a candidate when prompted.
 check: chest
 
