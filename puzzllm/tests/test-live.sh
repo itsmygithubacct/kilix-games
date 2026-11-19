@@ -6,13 +6,13 @@
 # downloaded. omp gets the level-1 goal as a one-shot prompt in a fresh
 # workspace, up to PUZZLLM_LIVE_TRIES times (default 3) because a 0.8B model
 # does not always do what it says; the level check decides. Each try may
-# take PUZZLLM_LIVE_TIMEOUT seconds (default 600): on a busy CPU the model
+# take PUZZLLM_LIVE_TIMEOUT seconds (default 1200): on a busy CPU the model
 # reads omp's first prompt (about 7,000 tokens) slowly.
 set -u
 here=$(cd "$(dirname "$0")/.." && pwd)
 scratch=${1:?usage: test-live.sh SCRATCH}
 tries=${PUZZLLM_LIVE_TRIES:-3}
-limit=${PUZZLLM_LIVE_TIMEOUT:-600}
+limit=${PUZZLLM_LIVE_TIMEOUT:-1200}
 sandbox=$here/libexec/puzzllm-sandbox
 prompt='Use the write tool to create a file named hello_world.txt in the current directory. Its content must be exactly: Hello, World!'
 

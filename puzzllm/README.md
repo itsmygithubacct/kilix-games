@@ -9,7 +9,8 @@ meet it and the door at the top of the room opens onto the next one. Part of
 ```sh
 bin/puzzllm            # builds on first run, then plays (Kilix or Kitty tab)
 make test              # unit, command-line, sandbox and planted-defect tests
-make test-live         # level 1 with the real model (not part of make test)
+make test-live         # level 1 with the real model, not part of make test
+                       # (PUZZLLM_LIVE_TIMEOUT: seconds per try, default 1200)
 make bench             # how long a busy frame takes to draw, and which renderer
 ```
 
