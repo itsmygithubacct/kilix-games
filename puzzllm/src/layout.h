@@ -1,11 +1,11 @@
 /* layout.h - where things are in the room, for the pane's size.
  *
  *   +------------------------- back wall ---[door]---------------------+
- *   | +-- omp (agent) ------------+  aisle  +-- goal / hints / activity + |
- *   | |                           |         |                          | |
+ *   | +-- coding agent -----------+  aisle  +-- goal and hints --------+ |
  *   | |                           |         +--------------------------+ |
  *   | |                           |         +-- shell -----------------+ |
- *   | |                           |         |                          | |
+ *   | +---------------------------+         |                          | |
+ *   | +-- system actions ---------+         |                          | |
  *   | +---------------------------+         +--------------------------+ |
  *   |                          floor                                      |
  *   +---------------------------------------------------------------------+
@@ -45,6 +45,7 @@ typedef struct layout {
     int omp_x, omp_y, omp_cols, omp_rows;
     int shell_x, shell_y, shell_cols, shell_rows;
     int act_x, act_y, act_cols, act_rows;
+    int goal_x, goal_y, goal_cols, goal_rows;
     int floor_y, hud_y;
     int walk_x0, walk_x1, walk_y0, walk_y1;   /* where Kilix's feet may go */
     int aisle_x0, aisle_x1;
@@ -73,6 +74,8 @@ int layout_set(int w, int h);
 #define ACT_Y (L.act_y)
 #define ACT_COLS (L.act_cols)
 #define ACT_ROWS (L.act_rows)
+#define GOAL_COLS (L.goal_cols)
+#define GOAL_ROWS (L.goal_rows)
 #define FLOOR_Y (L.floor_y)
 #define HUD_Y (L.hud_y)
 #define WALK_X0 (L.walk_x0)
@@ -89,8 +92,8 @@ int layout_set(int w, int h);
 #define SCREEN_H(rows) ((rows) * CELL_H + SCREEN_TITLE_H + 2 * SCREEN_PAD)
 
 typedef enum screen_id {
-    SCREEN_NONE = -1, SCREEN_OMP = 0, SCREEN_SHELL = 1, SCREEN_ACT = 2,
-    SCREEN_COUNT = 3
+    SCREEN_NONE = -1, SCREEN_OMP = 0, SCREEN_SHELL = 1, SCREEN_ACT = 2, SCREEN_GOAL = 3,
+    SCREEN_COUNT = 4
 } screen_id;
 
 typedef struct rect { int x, y, w, h; } rect;

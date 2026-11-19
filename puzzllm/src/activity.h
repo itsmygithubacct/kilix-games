@@ -1,4 +1,4 @@
-/* activity.h - what the coding agent is doing, for the upper-right screen.
+/* activity.h - what the coding agent is doing, for the system actions pane.
  *
  * Three sources, all polled (no threads, no inotify):
  *   - omp's newest session file under STATE/agent/sessions/: tool calls,

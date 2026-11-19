@@ -21,7 +21,7 @@ enum {
     KEY_PAGE_UP = 0xe00a, KEY_PAGE_DOWN = 0xe00b, KEY_HOME = 0xe00c,
     KEY_END = 0xe00d, KEY_F1 = 0xe014, KEY_F12 = 0xe01f
 };
-enum { MOD_SHIFT = 1u << 0, MOD_ALT = 1u << 1, MOD_CTRL = 1u << 2 };
+enum { MOD_SHIFT = 1u << 0, MOD_ALT = 1u << 1, MOD_CTRL = 1u << 2, MOD_SUPER = 1u << 3 };
 enum { KEY_TEXT_MAX = 16 };
 
 typedef struct key_event {

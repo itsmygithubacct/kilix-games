@@ -23,8 +23,9 @@ Neuronte nets draw the text, the terminal characters and Kilix himself (see
 
 | Screen | What it is |
 |---|---|
-| left, big | the selected coding agent |
-| top right | the goal and its status in a dedicated block, above hints and agent activity |
+| top left | the selected coding agent |
+| bottom left | system actions, including tool calls and workspace changes |
+| top right | the goal, status, and hints |
 | bottom right | a bash shell in the same sandbox and the same workspace |
 
 The room is drawn at the pane's own size, so a bigger pane gets bigger
@@ -35,13 +36,15 @@ aisle through it to reach the next room.
 | Key | Action |
 |---|---|
 | arrows, WASD | walk |
-| Enter, Space, E | use the screen Kilix is next to (the activity screen gives the next hint) |
+| Enter, Space, E | use the screen Kilix is next to (the goal pane gives the next hint) |
+| Alt+Left / Alt+Right | focus the coding agent / shell |
+| Alt+Up / Alt+Down | return to the room / refocus the last terminal |
 | F1 / F2 | type into the agent / the shell from anywhere |
 | F10 or Ctrl+] | stop typing and walk again |
 | H | next hint |
 | Esc | open or close the game menu from any screen |
 | Ctrl+Q | quit (while walking) |
-| mouse | click a screen to type into it, the floor to walk again |
+| mouse | click a terminal to type into it, the goal for the next hint, or the floor to walk again |
 
 Hints come one at a time, every 45 seconds or on H. Progress is kept in
 `~/.local/share/puzzllm/progress`, so the game resumes in the room you
@@ -89,7 +92,7 @@ passes and an empty file does not. The player may also create the file by
 hand in the shell; that counts the same. A 0.8B model often says it wrote
 the file when it did not, so check with `ls` and `cat` in the shell.
 
-The upper-right activity feed clears when you walk into a new room.
+The system actions feed clears when you walk into a new room.
 Completing a room moves its workspace files into `workspace/level_N/`.
 With the game closed, run `bin/puzzllm --reset-progress` to start at level 1.
 The previous workspace is kept under a `reset-*` directory in the game state.

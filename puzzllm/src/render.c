@@ -61,7 +61,7 @@ static void vt_cells(sr_canvas *c, const neuroterm *t, int x, int y, bool show_c
     }
 }
 
-/* ---- the agent / goal / hints screen ---- */
+/* ---- the goal and system actions panes ---- */
 
 /* Word-wrap s into lines of at most cols characters; returns line count. */
 static int wrap(const char *s, int cols, char out[][ACT_LINE_LEN], int max_lines)
@@ -112,17 +112,16 @@ static uint32_t kind_color(act_kind k)
     }
 }
 
-static void render_activity(sr_canvas *c, const view *v, int x, int y)
+static void render_goal(sr_canvas *c, const view *v, int x, int y)
 {
     char lines[8][ACT_LINE_LEN];
     char buf[ACT_LINE_LEN + 32];
     int row = 0, n;
-    const int cols = ACT_COLS < ACT_LINE_LEN - 1 ? ACT_COLS : ACT_LINE_LEN - 1;
+    const int cols = GOAL_COLS < ACT_LINE_LEN - 1 ? GOAL_COLS : ACT_LINE_LEN - 1;
 
-    n = wrap(v->lv->goal, cols - 2, lines, 4);
-    fill_cell_rect(c, x, y, cols * CELL_W, (n + 1) * CELL_H, 0x27323e);
+    n = wrap(v->lv->goal, cols, lines, GOAL_ROWS - 4);
     for (int i = 0; i < n; i++)
-        text_line(c, x + CELL_W, y + (row++) * CELL_H, lines[i], 0xffffff, cols - 2);
+        text_line(c, x, y + (row++) * CELL_H, lines[i], 0xffffff, cols);
     if (v->lv->check == CHECK_NONE)
         snprintf(buf, sizeof buf, "COMING SOON: the next challenge is not built yet.");
     else if (v->sc->goal_met)
@@ -130,18 +129,23 @@ static void render_activity(sr_canvas *c, const view *v, int x, int y)
                  v->goal_why ? v->goal_why : "goal met");
     else
         snprintf(buf, sizeof buf, "NOT YET: %.150s", v->goal_why ? v->goal_why : "");
-    text_line(c, x + CELL_W, y + (row++) * CELL_H, buf,
-              v->lv->check == CHECK_NONE ? 0xffe27a : v->sc->goal_met ? 0x60f080 : 0xff9f80,
-              cols - 2);
+    n = wrap(buf, cols, lines, 2);
+    uint32_t status = v->lv->check == CHECK_NONE ? 0xffe27a : v->sc->goal_met ? 0x60f080 : 0xff9f80;
+    for (int i = 0; i < n; i++)
+        text_line(c, x, y + (row++) * CELL_H, lines[i], status, cols);
     if (v->hints_shown > 0 && v->lv->nhints > 0) {
         int h = v->hints_shown > v->lv->nhints ? v->lv->nhints : v->hints_shown;
         snprintf(buf, sizeof buf, "HINT %d/%d: %.160s", h, v->lv->nhints, v->lv->hints[h - 1]);
-        n = wrap(buf, cols, lines, 2);
+        n = wrap(buf, cols, lines, GOAL_ROWS - row);
         for (int i = 0; i < n; i++)
             text_line(c, x, y + (row++) * CELL_H, lines[i], 0x9fd0ff, cols);
     }
-    fill_cell_rect(c, x, y + row * CELL_H - 1, cols * CELL_W, 1, 0x3a404c);
-    /* Goal updates are already visible in the goal block. */
+}
+
+static void render_activity(sr_canvas *c, const view *v, int x, int y)
+{
+    int row = 0;
+    const int cols = ACT_COLS;
     int total = v->act ? v->act->count : 0;
     int first = total;
     int visible = 0;
@@ -187,12 +191,14 @@ static void room_background(sr_canvas *c, const char *style)
             art_screen_glass(c, layout_screen(SCREEN_OMP), TERM_BG);
             art_screen_glass(c, layout_screen(SCREEN_SHELL), TERM_BG);
             art_screen_glass(c, layout_screen(SCREEN_ACT), ACT_BG);
+            art_screen_glass(c, layout_screen(SCREEN_GOAL), ACT_BG);
             return;
         }
         art_room(&bg, style);
         art_screen_glass(&bg, layout_screen(SCREEN_OMP), TERM_BG);
         art_screen_glass(&bg, layout_screen(SCREEN_SHELL), TERM_BG);
         art_screen_glass(&bg, layout_screen(SCREEN_ACT), ACT_BG);
+        art_screen_glass(&bg, layout_screen(SCREEN_GOAL), ACT_BG);
         snprintf(bg_style, sizeof bg_style, "%s", style ? style : "");
         snprintf(bg_renderer, sizeof bg_renderer, "%s", renderer);
     }
@@ -296,8 +302,11 @@ void render_frame(sr_canvas *c, const view *v)
     if (v->shell_note) note_over(c, SCREEN_SHELL, v->shell_note);
 
     snprintf(hud, sizeof hud, "Goal  |  Room %d: %.100s", v->lv->number, v->lv->title);
-    art_screen(c, layout_screen(SCREEN_ACT), hud,
-               false, near == SCREEN_ACT);
+    art_screen(c, layout_screen(SCREEN_GOAL), hud, false, near == SCREEN_GOAL);
+    layout_text_origin(SCREEN_GOAL, &tx, &ty);
+    render_goal(c, v, tx, ty);
+
+    art_screen(c, layout_screen(SCREEN_ACT), "System actions", false, false);
     layout_text_origin(SCREEN_ACT, &tx, &ty);
     render_activity(c, v, tx, ty);
 
@@ -307,17 +316,17 @@ void render_frame(sr_canvas *c, const view *v)
     if (s->focus == FOCUS_ROOM) {
         if (near == SCREEN_OMP) art_prompt(c, s->x, s->y - ART_KILIX_HEIGHT - 6, "Enter: talk to the agent");
         else if (near == SCREEN_SHELL) art_prompt(c, s->x, s->y - ART_KILIX_HEIGHT - 6, "Enter: use the shell");
-        else if (near == SCREEN_ACT) art_prompt(c, s->x, s->y - ART_KILIX_HEIGHT - 6, "Enter: next hint");
+        else if (near == SCREEN_GOAL) art_prompt(c, s->x, s->y - ART_KILIX_HEIGHT - 6, "Enter: next hint");
         else if (scene_door_passable(s) && s->x >= AISLE_X0 && s->x <= AISLE_X1)
             art_prompt(c, s->x, s->y - ART_KILIX_HEIGHT - 6, "The door is open: go up!");
     }
 
     if (s->focus == FOCUS_ROOM)
         snprintf(hud, sizeof hud,
-                 "Arrows/WASD walk   Enter use screen   F1 agent  F2 shell   H hint   Esc menu");
+                 "Arrows/WASD walk   Alt+Left agent   Alt+Right shell   H hint   Esc menu");
     else
         snprintf(hud, sizeof hud,
-                 "Typing into the %s.   F10 or Ctrl+] back to the room   Esc menu",
+                 "%s focused   Alt+Left agent   Alt+Right shell   Alt+Up room   Esc menu",
                  s->focus == FOCUS_OMP ? "agent" : "shell");
     draw_text(c, 16, HUD_Y + 2, hud, 0xe6e6e6, 1.0f);
 }

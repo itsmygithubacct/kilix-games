@@ -11,7 +11,7 @@ static int clamp(int v, int lo, int hi)
 int layout_set(int w, int h)
 {
     layout n;
-    int half, gap = 48, top = 112, bottom, col_w, right_h, act_h;
+    int half, gap = 48, top = 112, panel_gap = 12, bottom, col_w, height;
 
     w = clamp(w, LAYOUT_MIN_W, LAYOUT_MAX_W);
     h = clamp(h, LAYOUT_MIN_H, LAYOUT_MAX_H);
@@ -31,26 +31,26 @@ int layout_set(int w, int h)
     n.start_x = half;
     n.start_y = h - 60;
 
-    /* screens: omp on the left, goals and activity over the shell on the
-     * right, between the wall and the floor, in whole cells */
     bottom = n.floor_y - 10;
+    height = bottom - top;
     col_w = half - gap - 16;
     n.omp_x = 16;
     n.omp_y = top;
     n.omp_cols = clamp((col_w - 2 * SCREEN_PAD) / CELL_W, 20, SCREEN_MAX_COLS);
-    n.omp_rows = clamp((bottom - top - SCREEN_TITLE_H - 2 * SCREEN_PAD) / CELL_H, 6, 80);
-
-    right_h = (bottom - top - 22) / 2;
-    act_h = right_h < SCREEN_H(8) ? SCREEN_H(8) : right_h;
-    n.act_x = half + gap;
-    n.act_y = top;
     n.act_cols = n.omp_cols;
-    n.act_rows = clamp((act_h - SCREEN_TITLE_H - 2 * SCREEN_PAD) / CELL_H, 8, 40);
-    n.shell_x = n.act_x;
-    n.shell_y = top + act_h + 22;
+    n.act_rows = clamp(height / 80, 3, 10);
+    n.omp_rows = (height - SCREEN_H(n.act_rows) - panel_gap - SCREEN_H(0)) / CELL_H;
+    n.act_x = n.omp_x;
+    n.act_y = n.omp_y + SCREEN_H(n.omp_rows) + panel_gap;
+
+    n.goal_x = half + gap;
+    n.goal_y = top;
+    n.goal_cols = n.omp_cols;
+    n.goal_rows = clamp(height / 52, 8, 9);
+    n.shell_x = n.goal_x;
+    n.shell_y = n.goal_y + SCREEN_H(n.goal_rows) + panel_gap;
     n.shell_cols = n.omp_cols;
-    n.shell_rows = clamp((bottom - n.shell_y - SCREEN_TITLE_H - 2 * SCREEN_PAD) / CELL_H,
-                         4, 40);
+    n.shell_rows = (bottom - n.shell_y - SCREEN_H(0)) / CELL_H;
 
     {
         int moved = n.w != L.w || n.h != L.h;
@@ -71,6 +71,9 @@ rect layout_screen(screen_id id)
         break;
     case SCREEN_ACT:
         r.x = ACT_X; r.y = ACT_Y; r.w = SCREEN_W(ACT_COLS); r.h = SCREEN_H(ACT_ROWS);
+        break;
+    case SCREEN_GOAL:
+        r.x = L.goal_x; r.y = L.goal_y; r.w = SCREEN_W(GOAL_COLS); r.h = SCREEN_H(GOAL_ROWS);
         break;
     default:
         break;

@@ -585,9 +585,9 @@ static void test_scene(void)
 
     /* near screens */
     s.x = 200; s.y = WALK_Y0; s.dir = 1;
-    CHECK(scene_near_screen(&s) == SCREEN_OMP, "below the omp screen");
+    CHECK(scene_near_screen(&s) == SCREEN_NONE, "system actions are read-only");
     s.x = 640; s.y = 200; s.dir = 3;
-    CHECK(scene_near_screen(&s) == SCREEN_ACT, "aisle facing right: goals and activity");
+    CHECK(scene_near_screen(&s) == SCREEN_GOAL, "aisle facing right: goal and hints");
     s.dir = 2;
     CHECK(scene_near_screen(&s) == SCREEN_OMP, "aisle facing left: omp");
     s.x = 1000; s.y = WALK_Y0; s.dir = 1;
@@ -760,8 +760,8 @@ static void test_layout(void)
     char err[256], state[2300];
 
     layout_set(1280, 800);
-    CHECK(OMP_COLS == 70 && OMP_ROWS == 30 && SHELL_COLS == 70 && SHELL_ROWS == 13 &&
-          ACT_ROWS == 13, "1280x800 fits both right panels");
+    CHECK(OMP_COLS == 70 && OMP_ROWS == 20 && SHELL_COLS == 70 && SHELL_ROWS == 17 &&
+          ACT_ROWS == 6 && GOAL_ROWS == 9, "1280x800 fits four panels");
     CHECK(START_X == 640 && START_Y == 740 && AISLE_X0 == 616 && AISLE_X1 == 664 &&
           WALK_Y0 == 668 && WALK_Y1 == 768 && DOOR_X == 600, "1280x800 floor and aisle");
     layout_set(300, 200);
@@ -771,21 +771,26 @@ static void test_layout(void)
 
     for (size_t i = 0; i < sizeof sizes / sizeof sizes[0]; i++) {
         int w = sizes[i][0], h = sizes[i][1];
-        rect omp, shell, act, aisle;
+        rect omp, shell, act, goal, aisle;
         scene s;
         layout_set(w, h);
         omp = layout_screen(SCREEN_OMP);
         shell = layout_screen(SCREEN_SHELL);
         act = layout_screen(SCREEN_ACT);
+        goal = layout_screen(SCREEN_GOAL);
         aisle = (rect){AISLE_X0, WALL_H, AISLE_X1 - AISLE_X0, FLOOR_Y - WALL_H};
         CHECK(CANVAS_W == w && CANVAS_H == h, "%dx%d is drawn at its own size", w, h);
         CHECK(omp.x >= 0 && act.x + act.w <= w && shell.x + shell.w <= w &&
-              shell.y + shell.h <= FLOOR_Y && omp.y + omp.h <= FLOOR_Y && omp.y > WALL_H,
+              goal.x + goal.w <= w && shell.y + shell.h <= FLOOR_Y &&
+              act.y + act.h <= FLOOR_Y && omp.y > WALL_H && goal.y > WALL_H,
               "%dx%d: screens inside the room", w, h);
-        CHECK(!overlaps(omp, aisle) && !overlaps(shell, aisle) && !overlaps(act, aisle) &&
-              act.y + act.h <= shell.y && !overlaps(omp, shell),
-              "%dx%d: screens clear of each other and the aisle", w, h);
-        CHECK(OMP_COLS >= 20 && OMP_COLS <= SCREEN_MAX_COLS && SHELL_ROWS >= 4 && ACT_ROWS >= 8,
+        CHECK(!overlaps(omp, aisle) && !overlaps(shell, aisle) &&
+              !overlaps(act, aisle) && !overlaps(goal, aisle) &&
+              omp.y + omp.h <= act.y && goal.y + goal.h <= shell.y &&
+              omp.x == act.x && goal.x == shell.x,
+              "%dx%d: four separate screens clear of the aisle", w, h);
+        CHECK(OMP_COLS >= 20 && OMP_COLS <= SCREEN_MAX_COLS && SHELL_ROWS >= 6 &&
+              OMP_ROWS >= 10 && ACT_ROWS >= 3 && GOAL_ROWS >= 8,
               "%dx%d: usable terminals (%dx%d, %dx%d)", w, h, OMP_COLS, OMP_ROWS,
               SHELL_COLS, SHELL_ROWS);
         CHECK(WALK_Y1 < HUD_Y && WALK_Y0 > FLOOR_Y && DOOR_X + DOOR_W / 2 == w / 2,
@@ -794,7 +799,7 @@ static void test_layout(void)
         CHECK(scene_walkable(&s, START_X, START_Y), "%dx%d: entrance walkable", w, h);
     }
     layout_set(1908, 972);
-    CHECK(OMP_COLS > 100 && OMP_ROWS > 35, "a big pane gets big terminals (%dx%d)",
+    CHECK(OMP_COLS > 100 && OMP_ROWS >= 29, "a big pane gets big terminals (%dx%d)",
           OMP_COLS, OMP_ROWS);
 
     /* resizing the game resizes the terminals and keeps Kilix on the floor */
@@ -1237,6 +1242,66 @@ static void test_chest_art(void)
     art_free_chest(&art);
 }
 
+static void test_pane_focus(void)
+{
+    char err[256], state[2300];
+    sub(state, sizeof state, "pane-focus");
+    CHECK(game_init(&G, ".", state, false, err, sizeof err), "pane focus: %s", err);
+    key_event key = {.key = KEY_RIGHT, .mods = MOD_ALT, .action = 1};
+    game_key(&G, &key);
+    CHECK(G.sc.focus == FOCUS_SHELL, "Alt+Right focuses shell");
+    key.key = KEY_LEFT;
+    game_key(&G, &key);
+    CHECK(G.sc.focus == FOCUS_OMP, "Alt+Left focuses the coding session");
+    key.key = KEY_RIGHT;
+    key.mods = MOD_ALT | MOD_CTRL;
+    game_key(&G, &key);
+    CHECK(G.sc.focus == FOCUS_OMP, "modified Alt-arrow stays with the terminal");
+    key = (key_event){.key = KEY_UP, .mods = MOD_ALT, .action = 1};
+    game_key(&G, &key);
+    CHECK(G.sc.focus == FOCUS_ROOM, "Alt+Up returns to the room");
+    key.mods = 0;
+    key.action = 2;
+    game_key(&G, &key);
+    CHECK(G.held_until[2] == 0, "a focus chord repeat cannot move Kilix after Alt is released");
+    key.action = 3;
+    game_key(&G, &key);
+    key = (key_event){.key = KEY_DOWN, .mods = MOD_ALT, .action = 1};
+    game_key(&G, &key);
+    CHECK(G.sc.focus == FOCUS_OMP, "Alt+Down restores the last terminal");
+    game_shutdown(&G);
+}
+
+static void test_goal_and_action_panes(void)
+{
+    char err[256], state[2300];
+    sr_canvas before = {0}, after = {0};
+    layout_set(LAYOUT_DEFAULT_W, LAYOUT_DEFAULT_H);
+    sub(state, sizeof state, "goal-action");
+    CHECK(game_init(&G, ".", state, false, err, sizeof err), "pane render: %s", err);
+    rect goal = layout_screen(SCREEN_GOAL), act = layout_screen(SCREEN_ACT);
+    if (sr_canvas_init(&before, CANVAS_W, CANVAS_H) && sr_canvas_init(&after, CANVAS_W, CANVAS_H)) {
+        game_render(&G, &before);
+        int hints = G.hints_shown;
+        game_click(&G, act.x + 10, act.y + 10);
+        CHECK(G.hints_shown == hints, "clicking system actions leaves hints alone");
+        game_click(&G, goal.x + 10, goal.y + 10);
+        game_render(&G, &after);
+        CHECK(G.hints_shown == hints + 1 && differing(&before, &after, goal) > 0 &&
+              differing(&before, &after, act) == 0, "the next hint changes the goal pane only");
+
+        activity_add(&G.act, ACT_TOOL, "tool write hello_world.txt");
+        game_render(&G, &before);
+        CHECK(differing(&before, &after, act) > 0 && differing(&before, &after, goal) == 0,
+              "tool events change the system actions pane only");
+    } else {
+        CHECK(false, "pane render canvases initialized");
+    }
+    sr_canvas_free(&before);
+    sr_canvas_free(&after);
+    game_shutdown(&G);
+}
+
 int main(void)
 {
     const char *dir = getenv("PUZZLLM_TEST_DIR");
@@ -1246,6 +1311,8 @@ int main(void)
     }
     snprintf(scratch, sizeof scratch, "%s", dir);
     test_menu();
+    test_pane_focus();
+    test_goal_and_action_panes();
     test_thinking_menu();
     test_codex_menu();
     test_chest_art();

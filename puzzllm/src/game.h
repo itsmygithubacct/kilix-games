@@ -64,6 +64,8 @@ typedef struct game {
     double level_time;
     double poll_timer;
     double now;
+    focus_id last_pane;
+    unsigned pane_arrows;
     double held_until[4];   /* left, right, up, down */
     double tick_debt;       /* seconds not yet run as scene ticks */
     bool release_events;    /* the terminal reports key releases */

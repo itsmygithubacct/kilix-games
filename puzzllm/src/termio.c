@@ -219,7 +219,7 @@ static void dispatch_key(const termio_handlers *h, const kittykb_event *k)
     key_event ev;
     memset(&ev, 0, sizeof ev);
     ev.key = k->key;
-    ev.mods = k->modifiers & (MOD_SHIFT | MOD_ALT | MOD_CTRL);
+    ev.mods = k->modifiers & (MOD_SHIFT | MOD_ALT | MOD_CTRL | MOD_SUPER);
     ev.action = (int)k->action;
     for (int i = 0; i < k->text_length && i < KEY_TEXT_MAX; i++)
         ev.text[ev.text_len++] = k->text[i];

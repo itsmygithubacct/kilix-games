@@ -483,6 +483,7 @@ static void menu_key(game *g, const key_event *ev)
 void game_enter_level(game *g, int level)
 {
     scene_enter_room(&g->sc, level);
+    g->last_pane = FOCUS_OMP;
     g->hints_shown = cur_level(g)->nhints > 0 ? 1 : 0;
     g->level_time = 0;
     g->was_met = false;
@@ -578,6 +579,7 @@ static void focus_screen(game *g, focus_id f)
 {
     pty_proc *p = f == FOCUS_OMP ? &g->omp : f == FOCUS_SHELL ? &g->shell : NULL;
     g->sc.focus = f;
+    if (f != FOCUS_ROOM) g->last_pane = f;
     for (int i = 0; i < 4; i++) g->held_until[i] = 0;
     if (p != NULL && g->spawn && (p->pid == 0 || pty_poll_exit(p))) {
         if (f == FOCUS_OMP) spawn_agent(g);
@@ -602,6 +604,28 @@ void game_key(game *g, const key_event *ev)
 {
     bool press = ev->action != 3;
     bool ctrl = (ev->mods & MOD_CTRL) != 0;
+
+    if (ev->key >= KEY_LEFT && ev->key <= KEY_DOWN) {
+        unsigned arrow = 1u << (ev->key - KEY_LEFT);
+        if (ev->action == 1) {
+            g->pane_arrows &= ~arrow;
+        } else if (g->pane_arrows & arrow) {
+            if (!press) g->pane_arrows &= ~arrow;
+            return;
+        }
+        if (ev->mods == MOD_ALT) {
+            if (ev->action == 1 && !g->menu.open) {
+                g->pane_arrows |= arrow;
+                switch (ev->key) {
+                case KEY_LEFT: focus_screen(g, FOCUS_OMP); break;
+                case KEY_RIGHT: focus_screen(g, FOCUS_SHELL); break;
+                case KEY_UP: focus_screen(g, FOCUS_ROOM); break;
+                case KEY_DOWN: focus_screen(g, g->last_pane); break;
+                }
+            }
+            return;
+        }
+    }
 
     if (ev->key == KEY_ESCAPE && ev->mods == 0) {
         if (press && ev->action != 2) {
@@ -657,7 +681,7 @@ void game_key(game *g, const key_event *ev)
             screen_id near = scene_near_screen(&g->sc);
             if (near == SCREEN_OMP) focus_screen(g, FOCUS_OMP);
             else if (near == SCREEN_SHELL) focus_screen(g, FOCUS_SHELL);
-            else if (near == SCREEN_ACT) next_hint(g);
+            else if (near == SCREEN_GOAL) next_hint(g);
         }
     }
 }
@@ -672,7 +696,8 @@ void game_click(game *g, int x, int y)
     if (g->menu.open) return;
     if (inside(layout_screen(SCREEN_OMP), x, y)) focus_screen(g, FOCUS_OMP);
     else if (inside(layout_screen(SCREEN_SHELL), x, y)) focus_screen(g, FOCUS_SHELL);
-    else if (inside(layout_screen(SCREEN_ACT), x, y)) next_hint(g);
+    else if (inside(layout_screen(SCREEN_GOAL), x, y)) next_hint(g);
+    else if (inside(layout_screen(SCREEN_ACT), x, y)) return;
     else focus_screen(g, FOCUS_ROOM);
 }
 
