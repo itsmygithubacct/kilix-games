@@ -113,17 +113,41 @@ ollama_pid=$!
 for _ in $(seq 50); do [ -s "$scratch/ollama-port" ] && break; sleep 0.1; done
 export OLLAMA_HOST="127.0.0.1:$(cat "$scratch/ollama-port")"
 found=$("$here/libexec/puzzllm-ollama" list)
-if [ "$found" = "$(printf '%s\n' 'test/agent:7b' 'test/other:latest')" ]; then
+if [ "$found" = "$(printf '%s\n' 'test/agent:7b' 'test/always:latest' 'test/other:latest')" ]; then
     pass "Ollama discovery lists installed local models only"
 else
     fail "Ollama discovery returned: $found"
 fi
-if PUZZLLM_OMP=$here/tests/fake-ollama-omp PUZZLLM_OLLAMA_MODEL=test/agent:7b \
+if PUZZLLM_OMP=$here/tests/fake-ollama-omp PUZZLLM_OLLAMA_MODEL=test/agent:7b PUZZLLM_THINK=0 \
         timeout 20 "$sandbox" agent < /dev/null > "$scratch/ollama-agent.log" 2>&1 &&
         grep -q 'completion received' "$scratch/ollama-agent.log"; then
     pass "Ollama selection streams the chosen model and rejects other requests"
 else
     fail "Ollama agent chain: $(tail -n 10 "$scratch/ollama-agent.log" | tr '\n' ' ')"
+fi
+
+details=$("$here/libexec/puzzllm-ollama" list-details)
+if [ "$details" = "$(printf '%s\n' '1test/agent:7b' '2test/always:latest' '0test/other:latest')" ]; then
+    pass "Ollama discovery identifies thinking support"
+else
+    fail "Ollama capabilities returned: $details"
+fi
+for model in test/agent:7b test/other:latest; do
+    if PUZZLLM_OMP=$here/tests/fake-ollama-omp PUZZLLM_OLLAMA_MODEL=$model PUZZLLM_THINK=1 \
+            timeout 20 "$sandbox" agent < /dev/null > "$scratch/ollama-thinking.log" 2>&1 &&
+            grep -q 'completion received' "$scratch/ollama-thinking.log"; then
+        pass "Ollama bridge enforces thinking support for $model"
+    else
+        fail "Ollama thinking for $model: $(tail -n 10 "$scratch/ollama-thinking.log" | tr '\n' ' ')"
+    fi
+done
+
+if PUZZLLM_OMP=$here/tests/fake-ollama-omp PUZZLLM_OLLAMA_MODEL=test/always:latest PUZZLLM_THINK=0 \
+        timeout 20 "$sandbox" agent < /dev/null > "$scratch/ollama-minimum.log" 2>&1 &&
+        grep -q 'completion received with effort low' "$scratch/ollama-minimum.log"; then
+    pass "Ollama uses minimum effort for an always-thinking model when off"
+else
+    fail "Ollama minimum: $(tail -n 10 "$scratch/ollama-minimum.log" | tr '\n' ' ')"
 fi
 
 echo "test-sandbox: $fails failed"

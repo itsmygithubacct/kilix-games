@@ -53,11 +53,46 @@ def installed_models():
         connection.close()
 
 
+def thinking_controls(model):
+    """Return the control type and the OpenAI efforts for on and off."""
+    connection = ollama_connection(2)
+    try:
+        connection.request("POST", "/api/show", json.dumps({"model": model}),
+                           {"Content-Type": "application/json"})
+        with connection.getresponse() as response:
+            if response.status != 200:
+                return "0", None, None
+            metadata = json.load(response)
+    except (OSError, ValueError, TypeError, http.client.HTTPException):
+        return "0", None, None
+    finally:
+        connection.close()
+
+    thinking = metadata.get("thinking") or {}
+    values = thinking.get("values", [])
+    named = [value for value in values if isinstance(value, str)]
+    effort = thinking.get("default")
+    if effort not in named:
+        effort = "medium" if "medium" in named or not named else named[0]
+    if False in values and (True in values or named):
+        return "1", effort, "none"
+    if named:
+        minimum = "low" if "low" in named else named[0]
+        return "2", effort, minimum
+    if True in values:
+        return "2", effort, "none"
+    if not values and "thinking" in metadata.get("capabilities", []):
+        if metadata.get("model_info", {}).get("general.architecture") == "gptoss":
+            return "2", "medium", "low"
+        return "1", "medium", "none"
+    return "0", None, None
+
+
 CHAT_FIELDS = {
     "model", "messages", "stream", "stream_options", "tools", "tool_choice",
     "parallel_tool_calls", "max_tokens", "max_completion_tokens", "temperature",
     "top_p", "stop", "seed", "frequency_penalty", "presence_penalty",
-    "response_format", "logprobs", "top_logprobs", "reasoning_effort",
+    "response_format", "logprobs", "top_logprobs",
 }
 
 
@@ -99,6 +134,8 @@ class ChatHandler(http.server.BaseHTTPRequestHandler):
             ):
                 raise ValueError()
             request = {key: value for key, value in request.items() if key in CHAT_FIELDS}
+            if self.server.reasoning_effort is not None:
+                request["reasoning_effort"] = self.server.reasoning_effort
         except (ValueError, UnicodeError, OSError):
             self.send_error(400)
             return
@@ -155,6 +192,8 @@ def run_host(state, model, argv):
             os.chdir(cwd)
         with server:
             server.model = model
+            _, enabled, disabled = thinking_controls(model)
+            server.reasoning_effort = enabled if os.environ.get("PUZZLLM_THINK") == "1" else disabled
             threading.Thread(target=server.serve_forever, daemon=True).start()
             argv = [os.path.join(directory, "socket") if arg == "@OLLAMA_SOCKET@" else arg
                     for arg in argv]
@@ -213,6 +252,10 @@ def main():
     if mode == "list":
         for name in installed_models():
             print(name)
+    elif mode == "list-details":
+        for name in installed_models():
+            controls, _, _ = thinking_controls(name)
+            print(controls + name, flush=True)
     elif mode == "host":
         return run_host(args[0], args[1], args[2:])
     elif mode == "guest":

@@ -15,6 +15,14 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # (name, file, old, new, make target[, "neuronte" when it needs that build])
 DEFECTS = [
+    ("the thinking switch activates for an unsupported model",
+     "src/game.c", "menu->selected == MENU_THINKING && g->thinking_support != THINK_UNAVAILABLE",
+     "menu->selected == MENU_THINKING", "test-unit"),
+    ("model switch carries over the thinking state",
+     "src/game.c", "                g->thinking_enabled = false;\n", "", "test-unit"),
+    ("the bridge ignores the selected thinking mode",
+     "libexec/puzzllm-ollama", '                request["reasoning_effort"] = self.server.reasoning_effort',
+     '                pass', "test-sandbox"),
     ("the chest uses the closed sprite after opening",
      "src/art.c", "const chest_sprite *sprite = open ? &art->open : &art->closed;",
      "const chest_sprite *sprite = &art->closed;", "test-unit"),

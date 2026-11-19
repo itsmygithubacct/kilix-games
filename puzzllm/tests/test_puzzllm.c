@@ -1071,8 +1071,8 @@ static void test_menu(void)
     CHECK(G.now == now, "menu pauses room movement and hints");
 
     G.menu.models = calloc(2, sizeof *G.menu.models);
-    G.menu.models[0] = strdup("first:latest");
-    G.menu.models[1] = strdup("last:latest");
+    G.menu.models[0] = (model_option){"first:latest", THINK_SWITCHABLE};
+    G.menu.models[1] = (model_option){"last:latest", THINK_UNAVAILABLE};
     G.menu.count = 2;
     ev.key = KEY_END;
     game_key(&G, &ev);
@@ -1096,6 +1096,43 @@ static void menu_press(uint32_t key)
 {
     key_event ev = {.key = key, .action = 1};
     game_key(&G, &ev);
+}
+
+static void test_thinking_menu(void)
+{
+    char err[256], state[2300];
+    sub(state, sizeof state, "thinking-state");
+    CHECK(game_init(&G, ".", state, false, err, sizeof err), "thinking menu: %s", err);
+    CHECK(!G.thinking_enabled, "thinking defaults off at launch");
+
+    menu_press(KEY_ESCAPE);
+    G.menu.models = calloc(2, sizeof *G.menu.models);
+    G.menu.models[0] = (model_option){"thinking:latest", THINK_SWITCHABLE};
+    G.menu.models[1] = (model_option){"plain:latest", THINK_UNAVAILABLE};
+    G.menu.count = 2;
+    menu_press(KEY_END);
+    menu_press(KEY_UP);
+    menu_press(KEY_ENTER);
+    CHECK(G.thinking_support == THINK_SWITCHABLE && !G.thinking_enabled,
+          "a thinking-capable model starts off");
+
+    menu_press(KEY_ESCAPE);
+    for (int i = 0; i < MENU_THINKING; i++) menu_press(KEY_DOWN);
+    menu_press(KEY_ENTER);
+    CHECK(G.thinking_enabled, "thinking can be enabled on a thinking model");
+    menu_press(KEY_ENTER);
+    CHECK(!G.thinking_enabled, "thinking can be disabled again");
+    menu_press(KEY_ENTER);
+
+    menu_press(KEY_END);
+    menu_press(KEY_ENTER);
+    CHECK(G.thinking_support == THINK_UNAVAILABLE && !G.thinking_enabled,
+          "switching to a different model resets thinking");
+    menu_press(KEY_ESCAPE);
+    for (int i = 0; i < MENU_THINKING; i++) menu_press(KEY_DOWN);
+    menu_press(KEY_ENTER);
+    CHECK(!G.thinking_enabled, "the switch stays off on a non-thinking model");
+    game_shutdown(&G);
 }
 
 static void test_start_and_reset_menu(void)
@@ -1186,6 +1223,7 @@ int main(void)
     }
     snprintf(scratch, sizeof scratch, "%s", dir);
     test_menu();
+    test_thinking_menu();
     test_chest_art();
     test_start_and_reset_menu();
     test_neuroterm();

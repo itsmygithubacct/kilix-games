@@ -56,6 +56,11 @@ the menu and includes the default llama.cpp model and the models installed
 on the local Ollama service. Model changes restart the agent with a fresh
 conversation in the same workspace. Choices apply until you quit.
 
+**Thinking** is off at startup and after switching models. The switch is
+unavailable for models without reported thinking support. Changing it
+restarts the agent. For models that always reason, Ollama uses their minimum
+effort when the switch is off.
+
 Ollama must be running locally. PuzzLLM reads the local model list using
 Python 3. It uses port 11434 by default and respects a loopback
 `OLLAMA_HOST`. Ollama models vary in their support for chat and tool calls.

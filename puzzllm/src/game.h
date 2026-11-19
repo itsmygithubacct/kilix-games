@@ -20,6 +20,17 @@ enum { HINT_SECONDS = 45 };
 
 enum { OLLAMA_NAME_CAP = 256 };
 
+typedef enum thinking_support {
+    THINK_UNAVAILABLE,
+    THINK_SWITCHABLE,
+    THINK_HAS_MINIMUM
+} thinking_support;
+
+typedef struct model_option {
+    char name[OLLAMA_NAME_CAP];
+    thinking_support thinking;
+} model_option;
+
 typedef struct game_menu {
     bool open;
     bool loading;
@@ -27,10 +38,10 @@ typedef struct game_menu {
     bool confirm_reset;
     char notice[160];
     int selected;
-    char **models;
+    model_option *models;
     int count;
     pty_proc discovery;
-    char line[OLLAMA_NAME_CAP];
+    char line[OLLAMA_NAME_CAP + 1];
     size_t line_length;
 } game_menu;
 
@@ -59,6 +70,8 @@ typedef struct game {
     bool quit;
     game_menu menu;
     char ollama_model[OLLAMA_NAME_CAP];
+    thinking_support thinking_support;
+    bool thinking_enabled;
     bool transition_pending;
     char omp_note[96], shell_note[96];
 } game;

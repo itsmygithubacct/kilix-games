@@ -35,6 +35,8 @@ here=$(dirname "$(readlink -f "$0")")
 state=${PUZZLLM_STATE:-${XDG_DATA_HOME:-$HOME/.local/share}/puzzllm}
 model_id=${PUZZLLM_MODEL_ID:-qwen3.5-0.8b}
 ctx=${PUZZLLM_CTX:-32768}
+reasoning=false
+[ "${PUZZLLM_THINK:-0}" = 1 ] && reasoning=true
 port=8765
 box_home=/kilix
 
@@ -179,7 +181,7 @@ providers:
     models:
       - id: "$model_id"
         name: "$model_name"
-        reasoning: false
+        reasoning: $reasoning
         input: [text]
         contextWindow: $ctx
         maxTokens: 4096

@@ -1,5 +1,6 @@
 /* render.c - see render.h. */
 #include "render.h"
+#include "game.h"
 #include "art.h"
 #include "draw.h"
 
@@ -201,9 +202,9 @@ static void room_background(sr_canvas *c, const char *style)
     memcpy(c->px, bg.px, (size_t)c->w * (size_t)c->h * sizeof *c->px);
 }
 
-void render_menu(sr_canvas *c, char *const *models, int count, int selected,
+void render_menu(sr_canvas *c, const model_option *models, int count, int selected,
                  const char *active_model, bool loading, bool failed,
-                 bool started, int level, bool confirm_reset, const char *notice)
+                 bool started, int level, bool confirm_reset, const char *notice, int support, bool thinking_enabled)
 {
     static const char *const actions[] = {
         [MENU_QUIT] = "Exit game", [MENU_RESET] = "Reset progress",
@@ -245,11 +246,17 @@ void render_menu(sr_canvas *c, char *const *models, int count, int selected,
             if (started) snprintf(label, sizeof label, "Resume game");
             else if (level > 1) snprintf(label, sizeof label, "Continue from level %d", level);
             else snprintf(label, sizeof label, "Start game");
+        } else if (i == MENU_THINKING) {
+            const char *status = thinking_enabled ? "On" :
+                support == THINK_UNAVAILABLE ? "Off (unavailable)" :
+                support == THINK_HAS_MINIMUM ? "Off (model minimum)" : "Off";
+            snprintf(label, sizeof label, "Thinking: %s", status);
         } else if (i < MENU_FIRST_OLLAMA)
             snprintf(label, sizeof label, "%s", actions[i]);
         else
-            snprintf(label, sizeof label, "%s (Ollama)", models[i - MENU_FIRST_OLLAMA]);
-        text_line(c, x + 20, row_y + 5, label, 0xf2efeb, (width - 40) / CELL_W);
+            snprintf(label, sizeof label, "%s (Ollama)", models[i - MENU_FIRST_OLLAMA].name);
+        uint32_t color = i == MENU_THINKING && support == THINK_UNAVAILABLE ? 0xa6b5c6 : 0xf2efeb;
+        text_line(c, x + 20, row_y + 5, label, color, (width - 40) / CELL_W);
     }
     if (*notice || loading || failed || count == 0 || options > rows) {
         if (*notice) snprintf(label, sizeof label, "%s", notice);

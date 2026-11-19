@@ -272,7 +272,8 @@ static void spawn_omp(game *g)
 {
     char sandbox[4096], st_env[2100], model_env[OLLAMA_NAME_CAP + 32];
     char *argv[] = {sandbox, "agent", NULL};
-    char *env[] = {st_env, model_env, "TERM=xterm-256color", NULL};
+    char *think_env = g->thinking_enabled ? "PUZZLLM_THINK=1" : "PUZZLLM_THINK=0";
+    char *env[] = {st_env, model_env, think_env, "TERM=xterm-256color", NULL};
 
     snprintf(sandbox, sizeof sandbox, "%s/libexec/puzzllm-sandbox", g->root);
     snprintf(st_env, sizeof st_env, "PUZZLLM_STATE=%s", g->state);
@@ -301,7 +302,6 @@ static void spawn_shell(game *g)
 
 static void clear_models(game_menu *menu)
 {
-    for (int i = 0; i < menu->count; i++) free(menu->models[i]);
     free(menu->models);
     menu->models = NULL;
     menu->count = 0;
@@ -311,7 +311,7 @@ static void open_menu(game *g)
 {
     game_menu *menu = &g->menu;
     char helper[4096];
-    char *argv[] = {helper, "list", NULL};
+    char *argv[] = {helper, "list-details", NULL};
     menu->open = true;
     menu->selected = 0;
     memset(g->held_until, 0, sizeof g->held_until);
@@ -327,15 +327,17 @@ static void add_model(game_menu *menu)
 {
     size_t n = menu->line_length;
     if (n == 0 || n >= sizeof menu->line) return;
+    const char *name = menu->line + 1;
     const char *allowed = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_";
-    if (strspn(menu->line, allowed) == 0 ||
-        strspn(menu->line, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.:/-") != n)
+    if (menu->line[0] < '0' || menu->line[0] > '2' || strspn(name, allowed) == 0 ||
+        strspn(name, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.:/-") != n - 1)
         return;
-    char **list = realloc(menu->models, (size_t)(menu->count + 1) * sizeof *list);
+    model_option *list = realloc(menu->models, (size_t)(menu->count + 1) * sizeof *list);
     if (!list) return;
     menu->models = list;
-    char *name = strdup(menu->line);
-    if (name) menu->models[menu->count++] = name;
+    model_option *model = &list[menu->count++];
+    snprintf(model->name, sizeof model->name, "%s", name);
+    model->thinking = (thinking_support)(menu->line[0] - '0');
 }
 
 static void poll_models(game_menu *menu)
@@ -404,6 +406,20 @@ static void reset_from_menu(game *g)
     snprintf(g->menu.notice, sizeof g->menu.notice, "Progress reset. Previous files backed up.");
 }
 
+static thinking_support bundled_thinking(void)
+{
+    const char *weights = getenv("PUZZLLM_MODEL");
+    return weights && *weights ? THINK_UNAVAILABLE : THINK_SWITCHABLE;
+}
+
+static void restart_agent(game *g)
+{
+    if (g->spawn && g->started) {
+        pty_stop(&g->omp);
+        spawn_omp(g);
+    }
+}
+
 static void menu_key(game *g, const key_event *ev)
 {
     game_menu *menu = &g->menu;
@@ -431,15 +447,22 @@ static void menu_key(game *g, const key_event *ev)
         if (menu->selected == MENU_RESUME) start_play(g);
         if (menu->selected == MENU_QUIT) g->quit = true;
         if (menu->selected == MENU_RESET) menu->confirm_reset = true;
+        if (menu->selected == MENU_THINKING && g->thinking_support != THINK_UNAVAILABLE) {
+            g->thinking_enabled = !g->thinking_enabled;
+            restart_agent(g);
+        }
         if (menu->selected >= MENU_LOCAL) {
-            const char *name = menu->selected == MENU_LOCAL ? "" :
-                               menu->models[menu->selected - MENU_FIRST_OLLAMA];
-            if (strcmp(name, g->ollama_model) != 0 || (g->spawn && pty_poll_exit(&g->omp))) {
+            const model_option *model = menu->selected == MENU_LOCAL ? NULL :
+                                        &menu->models[menu->selected - MENU_FIRST_OLLAMA];
+            const char *name = model ? model->name : "";
+            thinking_support support = model ? model->thinking : bundled_thinking();
+            if (strcmp(name, g->ollama_model) != 0 || support != g->thinking_support) {
+                g->thinking_enabled = false;
+                g->thinking_support = support;
                 snprintf(g->ollama_model, sizeof g->ollama_model, "%s", name);
-                if (g->spawn && g->started) {
-                    pty_stop(&g->omp);
-                    spawn_omp(g);
-                }
+                restart_agent(g);
+            } else if (g->spawn && g->started && pty_poll_exit(&g->omp)) {
+                restart_agent(g);
             }
             if (g->started) menu->open = false;
         }
@@ -474,6 +497,7 @@ bool game_init(game *g, const char *root, const char *state, bool spawn,
     snprintf(g->state, sizeof g->state, "%s", state);
     snprintf(g->workspace, sizeof g->workspace, "%s/workspace", state);
     g->spawn = spawn;
+    g->thinking_support = bundled_thinking();
     g->state_lock = -1;
     pty_init(&g->omp);
     pty_init(&g->shell);
@@ -751,5 +775,6 @@ void game_render(game *g, sr_canvas *c)
     if (g->menu.open)
         render_menu(c, g->menu.models, g->menu.count, g->menu.selected,
                     g->ollama_model, g->menu.loading, g->menu.load_failed,
-                    g->started, g->sc.level + 1, g->menu.confirm_reset, g->menu.notice);
+                    g->started, g->sc.level + 1, g->menu.confirm_reset, g->menu.notice,
+                    g->thinking_support, g->thinking_enabled);
 }

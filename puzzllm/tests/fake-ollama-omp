@@ -1,7 +1,7 @@
 #!/bin/bash
 set -eu
 
-[[ $1 = --model && $2 = puzzllm-local/test/agent:7b ]]
+[[ $1 = --model && $2 = "puzzllm-local/$PUZZLLM_MODEL_ID" ]]
 # A request to the private guest loopback follows the same route omp uses.
 python3 - <<'PY'
 import http.client
@@ -15,19 +15,26 @@ def call(path, model, content=None):
     request = http.client.HTTPConnection("127.0.0.1", int(os.environ["PUZZLLM_PORT"]), timeout=5)
     try:
         request.request("POST", path, json.dumps({"model": model, "messages": [
-            {"role": "user", "content": content}], "stream": True}))
+            {"role": "user", "content": content}], "stream": True, "reasoning_effort": "high"}))
         with request.getresponse() as response:
             return response.status, response.read()
     finally:
         request.close()
 
 
-assert call("/api/pull", "test/agent:7b")[0] == 404
-assert call("/v1/chat/completions", "test/other:latest")[0] == 400
-assert call("/v1/chat/completions", "test/agent:7b", [
+model = os.environ["PUZZLLM_MODEL_ID"]
+other = "test/other:latest" if model == "test/agent:7b" else "test/agent:7b"
+assert call("/api/pull", model)[0] == 404
+assert call("/v1/chat/completions", other)[0] == 400
+assert call("/v1/chat/completions", model, [
     {"type": "image_url", "image_url": {"url": "https://example.invalid/image"}}
 ])[0] == 400
-status, body = call("/v1/chat/completions", "test/agent:7b")
-assert status == 200 and b"Hello from the selected model" in body and b"[DONE]" in body
-print("fake-ollama-omp: completion received")
+status, body = call("/v1/chat/completions", model)
+effort = "medium" if os.environ.get("PUZZLLM_THINK") == "1" else "none"
+if model == "test/other:latest":
+    effort = "absent"
+elif model == "test/always:latest" and effort == "none":
+    effort = "low"
+assert status == 200 and f"Hello from the selected model ({effort})".encode() in body and b"[DONE]" in body
+print("fake-ollama-omp: completion received with effort " + effort)
 PY

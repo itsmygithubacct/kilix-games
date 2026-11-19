@@ -28,10 +28,11 @@ typedef struct view {
     bool blink;               /* cursor blink phase */
 } view;
 
-enum { MENU_RESUME, MENU_QUIT, MENU_RESET, MENU_LOCAL, MENU_FIRST_OLLAMA };
+enum { MENU_RESUME, MENU_QUIT, MENU_RESET, MENU_THINKING, MENU_LOCAL, MENU_FIRST_OLLAMA };
 
-void render_menu(sr_canvas *c, char *const *models, int count, int selected,
+struct model_option;
+void render_menu(sr_canvas *c, const struct model_option *models, int count, int selected,
                  const char *active_model, bool loading, bool failed,
-                 bool started, int level, bool confirm_reset, const char *notice);
+                 bool started, int level, bool confirm_reset, const char *notice, int thinking_support, bool thinking_enabled);
 void render_frame(sr_canvas *c, const view *v);
 #endif
