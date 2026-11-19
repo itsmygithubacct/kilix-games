@@ -58,7 +58,7 @@ int layout_set(int w, int h)
     int omp_bottom = n.omp_y + SCREEN_H(n.omp_rows);
     int shell_bottom = n.shell_y + SCREEN_H(n.shell_rows);
     int pane_bottom = omp_bottom > shell_bottom ? omp_bottom : shell_bottom;
-    n.start_y = clamp(h - 60, pane_bottom + SCREEN_BEZEL + WALK_PANE_CLEARANCE, n.walk_y1);
+    n.start_y = clamp(h - 60, pane_bottom + SCREEN_BEZEL, n.walk_y1);
 
     {
         int moved = n.w != L.w || n.h != L.h;

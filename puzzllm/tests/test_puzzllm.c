@@ -610,11 +610,13 @@ static void test_scene(void)
         rect pane = layout_screen((screen_id)i);
         float x = pane.x + pane.w / 2.0f;
         CHECK(!scene_walkable(&s, x, WALK_Y0), "pane %d blocks feet even in the floor band", i);
-        CHECK(scene_walkable(&s, x, START_Y), "the floor under pane %d stays walkable", i);
+        int bottom = pane.y + pane.h + SCREEN_BEZEL;
+        CHECK(scene_walkable(&s, x, bottom) && !scene_walkable(&s, x, bottom - 0.25f),
+              "pane %d blocks movement exactly at the bezel", i);
         s.x = x;
-        s.y = START_Y;
+        s.y = (float)bottom;
         walk(&s, 0, -1, 1);
-        CHECK(s.y >= pane.y + pane.h + SCREEN_BEZEL + WALK_PANE_CLEARANCE,
+        CHECK(s.y == bottom,
               "walking up stops at pane %d's bezel", i);
     }
     scene_enter_room(&s, 0);
@@ -808,7 +810,7 @@ static void test_layout(void)
     layout_set(1280, 800);
     CHECK(OMP_COLS == 70 && OMP_ROWS == 43 && SHELL_COLS == 70 && SHELL_ROWS == 19 &&
           ACT_ROWS == 5 && GOAL_ROWS == 5, "1280x800 fits four panels");
-    CHECK(START_X == 640 && START_Y == 749 && AISLE_X0 == 620 && AISLE_X1 == 660 &&
+    CHECK(START_X == 640 && START_Y == 746 && AISLE_X0 == 620 && AISLE_X1 == 660 &&
           WALK_Y0 == 680 && WALK_Y1 == 768 && DOOR_X == 600, "1280x800 floor and aisle");
     layout_set(300, 200);
     CHECK(CANVAS_W == LAYOUT_MIN_W && CANVAS_H == LAYOUT_MIN_H, "small panes: the minimum");
@@ -1382,29 +1384,32 @@ static void test_start_and_reset_menu(void)
     game_shutdown(&G);
 }
 
-static void test_pane_sprite_clip(void)
+static void test_pane_sprite_layer(void)
 {
+    char err[256], state[2300];
+    sub(state, sizeof state, "pane-sprite");
     layout_set(LAYOUT_DEFAULT_W, LAYOUT_DEFAULT_H);
+    CHECK(game_init(&G, ".", state, false, err, sizeof err), "pane sprite game: %s", err);
     sr_canvas before = {0}, after = {0};
     bool ready = sr_canvas_init(&before, CANVAS_W, CANVAS_H) &&
                  sr_canvas_init(&after, CANVAS_W, CANVAS_H);
-    CHECK(ready, "pane clipping canvases allocated");
+    CHECK(ready, "pane sprite canvases allocated");
     if (ready) {
-        rect panes[ROOM_PANE_COUNT];
-        layout_room_panes(panes);
-        sr_clear(&before, 0xff394956);
+        game_render(&G, &before);
         for (int i = SCREEN_OMP; i <= SCREEN_SHELL; i++) {
-            sr_clear(&after, 0xff394956);
-            rect pane = panes[i];
-            int bottom = pane.y + pane.h;
-            art_kilix(&after, pane.x + pane.w / 2, bottom + 15, 0, 0, 0);
-            CHECK(differing(&before, &after, pane) == 0, "sprite is clipped by pane %d", i);
-            CHECK(differing(&before, &after, (rect){pane.x, bottom, pane.w, 24}) > 0,
-                  "sprite is still visible below pane %d", i);
+            rect pane = layout_screen((screen_id)i);
+            G.sc.x = pane.x + pane.w / 2;
+            G.sc.y = pane.y + pane.h + SCREEN_BEZEL;
+            CHECK(scene_walkable(&G.sc, G.sc.x, G.sc.y), "Kilix can stand immediately below pane %d", i);
+            game_render(&G, &after);
+            rect overlap = {(int)G.sc.x - 35, pane.y + pane.h - 80, 70, 76};
+            CHECK(differing(&before, &after, overlap) > 500,
+                  "Kilix renders in front of pane %d from the floor", i);
         }
     }
     sr_canvas_free(&before);
     sr_canvas_free(&after);
+    game_shutdown(&G);
 }
 
 static void test_room_art(void)
@@ -1687,7 +1692,7 @@ int main(void)
     test_thinking_menu();
     test_codex_menu();
     test_room_art();
-    test_pane_sprite_clip();
+    test_pane_sprite_layer();
     test_compute_menu();
     test_tooltips();
     test_model_details_menu();

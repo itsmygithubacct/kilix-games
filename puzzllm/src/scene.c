@@ -36,8 +36,7 @@ bool scene_walkable(const scene *s, float x, float y)
     layout_room_panes(panes);
     for (int i = 0; i < ROOM_PANE_COUNT; i++) {
         rect r = panes[i];
-        if (x >= r.x - WALK_PANE_CLEARANCE && x < r.x + r.w + WALK_PANE_CLEARANCE &&
-            y >= r.y - WALK_PANE_CLEARANCE && y < r.y + r.h + WALK_PANE_CLEARANCE)
+        if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h)
             return false;
     }
     if (x >= WALK_X0 && x <= WALK_X1 && y >= WALK_Y0 && y <= WALK_Y1) return true;

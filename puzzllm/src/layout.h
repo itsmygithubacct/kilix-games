@@ -34,7 +34,6 @@ enum {
     SCREEN_TITLE_H = 22,
     SCREEN_PAD = 8,
     SCREEN_BEZEL = 4,
-    WALK_PANE_CLEARANCE = 3,
     SCREEN_MAX_COLS = 150,
     SCREEN_TEXT_ROWS_MAX = 9,
     RESOURCE_H = 36,
@@ -106,7 +105,7 @@ typedef struct rect { int x, y, w, h; } rect;
 
 rect layout_screen(screen_id id);
 enum { ROOM_PANE_COUNT = SCREEN_COUNT + 1 };
-/* Pane frames that block walking and cover the character sprite. */
+/* Pane frames that block walking. */
 void layout_room_panes(rect panes[ROOM_PANE_COUNT]);
 /* Top-left pixel of the text area of a screen. */
 rect layout_resources(void);
