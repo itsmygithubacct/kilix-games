@@ -788,10 +788,10 @@ static void test_layout(void)
     char err[256], state[2300];
 
     layout_set(1280, 800);
-    CHECK(OMP_COLS == 70 && OMP_ROWS == 43 && SHELL_COLS == 70 && SHELL_ROWS == 13 &&
+    CHECK(OMP_COLS == 70 && OMP_ROWS == 43 && SHELL_COLS == 70 && SHELL_ROWS == 19 &&
           ACT_ROWS == 5 && GOAL_ROWS == 5, "1280x800 fits four panels");
-    CHECK(START_X == 640 && START_Y == 740 && AISLE_X0 == 616 && AISLE_X1 == 664 &&
-          WALK_Y0 == 668 && WALK_Y1 == 768 && DOOR_X == 600, "1280x800 floor and aisle");
+    CHECK(START_X == 640 && START_Y == 740 && AISLE_X0 == 620 && AISLE_X1 == 660 &&
+          WALK_Y0 == 680 && WALK_Y1 == 768 && DOOR_X == 600, "1280x800 floor and aisle");
     layout_set(300, 200);
     CHECK(CANVAS_W == LAYOUT_MIN_W && CANVAS_H == LAYOUT_MIN_H, "small panes: the minimum");
     layout_set(5000, 4000);
@@ -810,7 +810,8 @@ static void test_layout(void)
         aisle = (rect){AISLE_X0, WALL_H, AISLE_X1 - AISLE_X0, FLOOR_Y - WALL_H};
         CHECK(CANVAS_W == w && CANVAS_H == h, "%dx%d is drawn at its own size", w, h);
         CHECK(omp.x >= 0 && act.x + act.w <= w && shell.x + shell.w <= w &&
-              goal.x + goal.w <= w && shell.y + shell.h <= WALK_Y0 &&
+              goal.x + goal.w <= w && shell.y + shell.h >= HUD_Y - 44 &&
+              shell.y + shell.h < HUD_Y &&
               act.y + act.h <= FLOOR_Y && omp.y < 24 && omp.y + omp.h >= HUD_Y - 44 &&
               omp.y + omp.h < HUD_Y && goal.y > WALL_H,
               "%dx%d: screens inside the room", w, h);
@@ -1364,38 +1365,6 @@ static void test_room_art(void)
     art_free_room(&art);
 }
 
-static void test_chest_art(void)
-{
-    chest_art art = {0};
-    sr_canvas closed = {0}, open = {0}, empty = {0};
-    art_load_chest(&art, ".");
-    CHECK(art.closed.pixels && art.open.pixels && art.key.pixels,
-          "all three generated chest sprites load");
-    if (art.closed.pixels && art.open.pixels && art.key.pixels &&
-        sr_canvas_init(&closed, 96, 96) && sr_canvas_init(&open, 96, 96) &&
-        sr_canvas_init(&empty, 96, 96)) {
-        sr_clear(&closed, 0xff38404a);
-        sr_clear(&open, 0xff38404a);
-        sr_clear(&empty, 0xff38404a);
-        art_chest(&closed, &art, 12, 80, false);
-        art_chest(&open, &art, 12, 80, true);
-        draw_picture(&empty, art.open.pixels, art.open.w, art.open.h,
-                     12, 80 - art.open.h, art.open.w, art.open.h, 1.0f);
-        CHECK(differing(&closed, &open, (rect){12, 12, 64, 68}) > 500,
-              "open chest changes the silhouette and interior");
-        CHECK(differing(&empty, &open, (rect){31, 46, art.key.w, art.key.h}) > 45,
-              "the key is visible inside the open chest");
-        CHECK(at(&open, 12, 80 - art.open.h) == at(&closed, 12, 80 - art.open.h),
-              "the sprite corner leaves the floor visible");
-    } else {
-        CHECK(false, "chest render canvases initialized");
-    }
-    sr_canvas_free(&closed);
-    sr_canvas_free(&open);
-    sr_canvas_free(&empty);
-    art_free_chest(&art);
-}
-
 static void test_pane_focus(void)
 {
     char err[256], state[2300];
@@ -1633,7 +1602,6 @@ int main(void)
     test_thinking_menu();
     test_codex_menu();
     test_room_art();
-    test_chest_art();
     test_compute_menu();
     test_model_details_menu();
     test_start_and_reset_menu();

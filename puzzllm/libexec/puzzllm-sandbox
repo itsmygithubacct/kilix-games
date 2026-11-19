@@ -116,7 +116,7 @@ for d in bin lib lib32 lib64 libx32 sbin; do
 done
 for f in passwd group nsswitch.conf ld.so.cache ld.so.conf ld.so.conf.d \
          localtime alternatives ssl ca-certificates terminfo inputrc \
-         hosts host.conf; do
+         hosts host.conf manpath.config man_db.conf; do
     [ -e "/etc/$f" ] && args+=(--ro-bind "/etc/$f" "/etc/$f")
 done
 

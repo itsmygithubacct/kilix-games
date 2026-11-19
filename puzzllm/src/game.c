@@ -712,7 +712,6 @@ bool game_init(game *g, const char *root, const char *state, bool spawn,
         return false;
     }
     game_enter_level(g, game_load_progress(state, g->levels.count));
-    art_load_chest(&g->chest, root);
     art_load_room(&g->room, root);
     g->started = !spawn;
     if (spawn) open_menu(g);
@@ -727,7 +726,6 @@ void game_shutdown(game *g)
     pty_stop(&g->shell);
     pty_stop(&g->menu.discovery);
     clear_models(&g->menu);
-    art_free_chest(&g->chest);
     art_free_room(&g->room);
     history_clear(&g->omp_history);
     history_clear(&g->shell_history);
@@ -1168,7 +1166,6 @@ static view game_view(const game *g)
     memset(&v, 0, sizeof v);
     v.sc = &g->sc;
     v.lv = cur_level(g);
-    v.chest = &g->chest;
     v.room = &g->room;
     if (g->sc.level + 1 < g->levels.count)
         v.next_level = &g->levels.items[g->sc.level + 1];

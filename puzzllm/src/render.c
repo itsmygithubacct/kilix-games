@@ -511,8 +511,6 @@ void render_frame(sr_canvas *c, const view *v)
 
     render_selection(c, v->selection);
 
-    if (v->lv->check == CHECK_CHEST)
-        art_chest(c, v->chest, (AISLE_X0 + AISLE_X1) / 2 + 48, START_Y - 34, s->goal_met);
     art_kilix(c, s->x, s->y, s->dir, s->step_ticks, s->idle_ticks);
     if (s->focus == FOCUS_ROOM) {
         if (near == SCREEN_OMP) art_prompt(c, s->x, s->y - ART_KILIX_HEIGHT - 6, "Enter: talk to the agent");

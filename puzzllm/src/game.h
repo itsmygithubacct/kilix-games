@@ -63,7 +63,6 @@ typedef struct game {
     char state[2048];       /* persistent folder, e.g. ~/.local/share/puzzllm */
     char workspace[2100];
     level_list levels;
-    chest_art chest;
     room_art room;
     scene sc;
     int state_lock;

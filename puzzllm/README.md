@@ -165,7 +165,8 @@ The levels so far:
    `1.txt has 1,000,001 bytes, one too many: often a line ending at the end`.
 4. The treasure chest. Extract `key.txt` from the password-protected
    `chest.zip` to open the door. The game uses `zip` to create the chest,
-   and you can open it with `unzip` in the shell. Resuming keeps the same chest.
+   and you can open it with `unzip` in the shell. Run `man unzip` in the
+   sandbox to see the command reference. Resuming keeps the same chest.
 5. Count the files. Fix `~/workspace/count_files.sh` so it counts regular
    files directly inside the supplied `sample files` folder. The script
    also takes a folder path as its first argument. The grader checks the
@@ -173,9 +174,8 @@ The levels so far:
 6. A stub room for the next challenge.
 
 The generated pixel art in `assets/` includes blue stone and red brick walls,
-slate floor tiles, the sliding wooden door, and Room 4’s
-closed chest, open chest, and key. The open doorway shows a small view
-into the next room using the same wall and floor textures.
+slate floor tiles, and a sliding wooden door. The open doorway shows
+a small view into the next room using the same wall and floor textures.
 
 ## The sandbox
 

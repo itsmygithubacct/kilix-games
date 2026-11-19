@@ -22,7 +22,6 @@ typedef struct pane_selection {
 typedef struct view {
     const scene *sc;
     const level *lv;
-    const chest_art *chest;
     const room_art *room;
     const level *next_level;
     const neuroterm *omp;            /* may be NULL */

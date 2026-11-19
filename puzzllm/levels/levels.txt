@@ -50,6 +50,7 @@ goal: Open the password-protected chest.zip and extract key.txt to unlock the do
 hint: The password is lowercase.
 hint: The password is four letters long.
 hint: In the shell, run unzip chest.zip and enter a candidate when prompted.
+hint: Run man unzip in the shell to see the command options.
 check: chest
 
 level: 5

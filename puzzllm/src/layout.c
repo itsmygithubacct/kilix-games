@@ -22,12 +22,12 @@ int layout_set(int w, int h)
     n.door_x = half - DOOR_W / 2;
     n.hud_y = h - 20;
     n.walk_y1 = h - 32;
-    n.walk_y0 = h - 132;
+    n.walk_y0 = h - 120;
     n.floor_y = h - 160;
     n.walk_x0 = 30;
     n.walk_x1 = w - 30;
-    n.aisle_x0 = half - 24;
-    n.aisle_x1 = half + 24;
+    n.aisle_x0 = half - 20;
+    n.aisle_x1 = half + 20;
     n.start_x = half;
     n.start_y = h - 60;
 
@@ -36,7 +36,8 @@ int layout_set(int w, int h)
     n.omp_x = 16;
     n.omp_y = 16;
     n.omp_cols = clamp((col_w - 2 * SCREEN_PAD) / CELL_W, 20, SCREEN_MAX_COLS);
-    n.omp_rows = (n.hud_y - 28 - n.omp_y - SCREEN_H(0)) / CELL_H;
+    int terminal_bottom = n.hud_y - 28;
+    n.omp_rows = (terminal_bottom - n.omp_y - SCREEN_H(0)) / CELL_H;
 
     int right_rows = (height - 3 * SCREEN_H(0) - panel_gap -
                       2 * status_gap - RESOURCE_H) / CELL_H;
@@ -53,7 +54,7 @@ int layout_set(int w, int h)
     n.resource_y = n.act_y + SCREEN_H(n.act_rows) + status_gap;
     n.shell_y = n.resource_y + RESOURCE_H + status_gap;
     n.shell_cols = n.goal_cols;
-    n.shell_rows = right_rows - n.goal_rows - n.act_rows;
+    n.shell_rows = (terminal_bottom - n.shell_y - SCREEN_H(0)) / CELL_H;
 
     {
         int moved = n.w != L.w || n.h != L.h;

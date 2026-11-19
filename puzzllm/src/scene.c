@@ -117,8 +117,9 @@ screen_id scene_near_screen(const scene *s)
     float best_d = 1e9f;
     for (int i = 0; i < SCREEN_COUNT; i++) {
         if (i == SCREEN_ACT) continue;
-        if (i == SCREEN_OMP && s->y >= FLOOR_Y && s->x >= AISLE_X0) continue;
         rect r = layout_screen((screen_id)i);
+        if (s->y >= FLOOR_Y && (i == SCREEN_OMP || i == SCREEN_SHELL) &&
+            (s->x < r.x || s->x > r.x + r.w)) continue;
         float d = rect_distance(r, s->x, s->y);
         float cx = r.x + r.w / 2.0f;
         float cy = r.y + r.h / 2.0f;

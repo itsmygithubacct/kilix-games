@@ -51,6 +51,18 @@ for mode in agent shell; do
     fi
 done
 
+if command -v man >/dev/null && man -w unzip >/dev/null 2>&1; then
+    for mode in agent shell; do
+        if "$sandbox" "$mode-exec" -- env MANPAGER=cat man unzip \
+                > "$scratch/unzip-$mode.man" 2> "$scratch/unzip-$mode.err" &&
+           grep -q 'unzip - list, test and extract' "$scratch/unzip-$mode.man"; then
+            pass "$mode sandbox renders the unzip manual"
+        else
+            fail "$mode sandbox cannot render the unzip manual"
+        fi
+    done
+fi
+
 # host side: nothing escaped
 if [ -z "$(ls -A "$scratch/outside")" ]; then pass "outside folder untouched"
 else fail "outside folder has: $(ls -A "$scratch/outside")"; fi

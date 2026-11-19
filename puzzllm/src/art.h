@@ -1,6 +1,6 @@
 /* art.h - every picture in the game, and nothing else.
  *
- * Room and chest sprites use PNG assets. Screen bezels and status lights
+ * Room sprites use PNG assets. Screen bezels and status lights
  * use drawing primitives, and Kilix uses Zell's desktop cast.
  */
 #ifndef PUZZLLM_ART_H
@@ -16,10 +16,6 @@ typedef struct art_sprite {
     int w, h;
 } art_sprite;
 
-typedef struct chest_art {
-    art_sprite closed, open, key;
-} chest_art;
-
 typedef struct room_art {
     art_sprite stone, brick, floor, door;
     unsigned revision;
@@ -27,10 +23,6 @@ typedef struct room_art {
 
 void art_load_room(room_art *art, const char *root);
 void art_free_room(room_art *art);
-void art_load_chest(chest_art *art, const char *root);
-void art_free_chest(chest_art *art);
-/* x is the left edge and y is the base of both chest frames. */
-void art_chest(sr_canvas *c, const chest_art *art, int x, int y, bool open);
 /* Floor, walls and the aisle runner. style is the level's "room:" value. */
 void art_room(sr_canvas *c, const room_art *art, const char *style);
 /* The door at the top of the aisle. open: 0 shut .. 1 fully open.
