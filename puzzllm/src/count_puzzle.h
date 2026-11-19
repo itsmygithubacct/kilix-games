@@ -1,4 +1,4 @@
-/* Install Room 5's starter files and run its Bash grader out of process. */
+/* Install the file-count puzzle's starter files and run its Bash grader out of process. */
 #ifndef PUZZLLM_COUNT_PUZZLE_H
 #define PUZZLLM_COUNT_PUZZLE_H
 

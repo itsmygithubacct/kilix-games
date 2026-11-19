@@ -76,13 +76,13 @@ if grep -q '^neuronte' "$here/build/render.ident" 2>/dev/null; then
 fi
 
 # Resume the chest room, then solve it through a real encrypted archive.
-printf 'level 4\n' > "$PUZZLLM_STATE/progress"
+printf 'level 5\n' > "$PUZZLLM_STATE/progress"
 workspace=$PUZZLLM_STATE/workspace
-"$bin" --check-level 4 > "$scratch/out"; rc=$?
+"$bin" --check-level 5 > "$scratch/out"; rc=$?
 [ "$rc" -eq 1 ] && [ -f "$workspace/chest.zip" ] &&
     pass "chest room creates a ZIP and awaits the key" || fail "chest setup rc=$rc"
 printf '%032d\n' 0 > "$workspace/key.txt"
-"$bin" --check-level 4 > "$scratch/out"; rc=$?
+"$bin" --check-level 5 > "$scratch/out"; rc=$?
 [ "$rc" -eq 1 ] && pass "wrong key leaves the door shut" || fail "wrong key rc=$rc"
 unzip -t -P wrong "$workspace/chest.zip" >/dev/null 2>&1; rc=$?
 [ "$rc" -ne 0 ] && pass "chest rejects a wrong password" || fail "chest is unencrypted"
@@ -93,7 +93,7 @@ for candidate in zell qwen puzl kilx pleb; do
         hits=$((hits + 1))
     fi
 done
-"$bin" --check-level 4 > "$scratch/out"; rc=$?
+"$bin" --check-level 5 > "$scratch/out"; rc=$?
 [ "$hits" -eq 1 ] && [ "$rc" -eq 0 ] &&
     pass "exactly one candidate extracts a working key" || fail "chest matches=$hits goal=$rc"
 "$bin" --reset-progress > "$scratch/out" &&
@@ -117,29 +117,37 @@ printf 'shell transcript\n' > "$workspace/shell.log"
     pass "interrupted transition resumes without overwriting archived files" ||
     fail "transition recovery rc=$rc"
 
-# Room 5 ships the actual broken Bash script and a folder with tricky names.
-printf 'level 5\n' > "$PUZZLLM_STATE/progress"
-"$bin" --check-level 5 > "$scratch/out"; rc=$?
+# Room 4 ships the actual broken Bash script and a folder with tricky names.
+printf 'level 4\n' > "$PUZZLLM_STATE/progress"
+"$bin" --check-level 4 > "$scratch/out"; rc=$?
 [ "$rc" -eq 1 ] && grep -q 'did not print the correct count for sample files' "$scratch/out" &&
     [ -f "$workspace/sample files/beta notes.txt" ] &&
     [ -f "$workspace/sample files/.hidden" ] && [ -f "$workspace/sample files/archive/old.txt" ] &&
-    pass "room 5 ships the folder and rejects the broken script" || fail "room 5 setup rc=$rc"
+    pass "room 4 ships the folder and rejects the broken script" || fail "room 4 setup rc=$rc"
 printf 'echo 3\n' > "$workspace/count_files.sh"
-"$bin" --check-level 5 > "$scratch/out"; rc=$?
+"$bin" --check-level 4 > "$scratch/out"; rc=$?
 [ "$rc" -eq 1 ] && grep -q 'must also work with other folder paths' "$scratch/out" &&
-    pass "a hard-coded count fails the extra folder checks" || fail "room 5 constant rc=$rc"
+    pass "a hard-coded count fails the extra folder checks" || fail "room 4 constant rc=$rc"
 cat > "$workspace/count_files.sh" <<'EOF'
 folder=${1:-sample files}
 find "$folder" -maxdepth 1 -mindepth 1 -type f -printf . | wc -c
 EOF
-"$bin" --check-level 5 > "$scratch/out"; rc=$?
-[ "$rc" -eq 0 ] && grep -q 'level 5: met' "$scratch/out" &&
+"$bin" --check-level 4 > "$scratch/out"; rc=$?
+[ "$rc" -eq 0 ] && grep -q 'level 4: met' "$scratch/out" &&
     grep -q '^find ' "$workspace/count_files.sh" &&
-    pass "a general fix opens room 5 and survives reopening the save" || fail "room 5 fix rc=$rc"
+    pass "a general fix opens room 4 and survives reopening the save" || fail "room 4 fix rc=$rc"
 printf 'An extra file for the same script.\n' > "$workspace/sample files/new file.txt"
-"$bin" --check-level 5 > "$scratch/out"; rc=$?
+"$bin" --check-level 4 > "$scratch/out"; rc=$?
 [ "$rc" -eq 0 ] && [ -f "$workspace/sample files/new file.txt" ] &&
-    pass "the grader uses the actual shipped directory in the workspace" || fail "room 5 changed folder rc=$rc"
+    pass "the grader uses the actual shipped directory in the workspace" || fail "room 4 changed folder rc=$rc"
+
+# The completed script room leads to the final playable room.
+printf 'level 4\n' > "$PUZZLLM_STATE/transition"
+"$bin" --check-level 5 > "$scratch/out"; rc=$?
+[ "$rc" -eq 1 ] && grep -qx 'level 5' "$PUZZLLM_STATE/progress" &&
+    [ -f "$workspace/level_4/count_files.sh" ] && [ -f "$workspace/chest.zip" ] &&
+    pass "room 4 leads to the password-protected archive in room 5" ||
+    fail "room 4 to room 5 transition rc=$rc"
 
 # a broken level file is reported with its line
 mkdir -p "$scratch/root/levels"

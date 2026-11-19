@@ -44,16 +44,6 @@ require: bytes 1000000
 require: only 1
 
 level: 4
-title: The treasure chest
-room: stone
-goal: Open the password-protected chest.zip and extract key.txt to unlock the door.
-hint: The password is lowercase.
-hint: The password is four letters long.
-hint: In the shell, run unzip chest.zip and enter a candidate when prompted.
-hint: Run man unzip in the shell to see the command options.
-check: chest
-
-level: 5
 title: Count the files
 room: brick
 goal: Fix ~/count_files.sh. From ~, running it with Bash should print the number of regular files directly inside "sample files". It should also accept a folder path as its first argument.
@@ -62,6 +52,16 @@ hint: A hidden regular file counts. Folders, their contents, and symlinks do not
 hint: Look at what happens when the file test receives a path containing spaces.
 hint: Try bash count_files.sh "/tmp/empty folder" after making that directory in the shell. An empty directory should print 0.
 check: count-files
+
+level: 5
+title: The treasure chest
+room: stone
+goal: Open the password-protected chest.zip and extract key.txt to unlock the door.
+hint: The password is lowercase.
+hint: The password is four letters long.
+hint: In the shell, run unzip chest.zip and enter a candidate when prompted.
+hint: Run man unzip in the shell to see the command options.
+check: chest
 
 level: 6
 title: Next challenge coming

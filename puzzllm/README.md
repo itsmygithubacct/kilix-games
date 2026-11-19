@@ -173,14 +173,14 @@ The levels so far:
    command or a short program, and to leave off the line ending that
    `echo` and `print` add. When the check fails it says why, for example
    `1.txt has 1,000,001 bytes, one too many: often a line ending at the end`.
-4. The treasure chest. Extract `key.txt` from the password-protected
-   `chest.zip` to open the door. The game uses `zip` to create the chest,
-   and you can open it with `unzip` in the shell. Run `man unzip` in the
-   sandbox to see the command reference. Resuming keeps the same chest.
-5. Count the files. Fix `~/count_files.sh` so it counts regular
+4. Count the files. Fix `~/count_files.sh` so it counts regular
    files directly inside the supplied `sample files` folder. The script
    also takes a folder path as its first argument. The grader checks the
    supplied folder and additional cases in a read-only sandbox.
+5. The treasure chest. Extract `key.txt` from the password-protected
+   `chest.zip` to open the door. The game uses `zip` to create the chest,
+   and you can open it with `unzip` in the shell. Run `man unzip` in the
+   sandbox to see the command reference. Resuming keeps the same chest.
 6. A stub room for the next challenge.
 
 The generated pixel art in `assets/` includes blue stone and red brick walls,
