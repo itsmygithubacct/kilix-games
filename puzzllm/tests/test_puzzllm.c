@@ -299,6 +299,101 @@ static void test_levels(void)
     CHECK(!levels_check(&L.items[L.count - 1], ws).met, "the stub room is never met");
 }
 
+/* Level 2: 1.txt holds exactly a million ones and nothing else. */
+static void test_level_two(void)
+{
+    enum { MILLION = 1000000 };
+    level_list L;
+    const level *lv;
+    char err[256], ws[2300], path[2400];
+    char *buf = malloc(2 * MILLION + 2);
+    goal_result r;
+
+    CHECK(buf != NULL, "buffer");
+    if (buf == NULL) return;
+    memset(buf, '1', 2 * MILLION + 2);
+    CHECK(levels_load(&L, "levels/levels.txt", err, sizeof err), "levels.txt: %s", err);
+    lv = &L.items[1];
+    CHECK(L.count >= 3 && lv->check == CHECK_FILE && strcmp(lv->file, "1.txt") == 0,
+          "level 2 checks 1.txt");
+    CHECK(lv->nhints >= 4, "level 2 has hints");
+    sub(ws, sizeof ws, "level2-ws");
+    mkdir(ws, 0700);
+    snprintf(path, sizeof path, "%s/1.txt", ws);
+
+    r = levels_check(lv, ws);
+    CHECK(!r.met && strstr(r.why, "does not exist"), "missing: %s", r.why);
+    write_file(path, buf, MILLION);
+    r = levels_check(lv, ws);
+    CHECK(r.met, "a million ones: %s", r.why);
+
+    buf[MILLION] = '\n';
+    write_file(path, buf, MILLION + 1);
+    r = levels_check(lv, ws);
+    CHECK(!r.met && strstr(r.why, "1,000,001") && strstr(r.why, "line ending"),
+          "a trailing newline fails, and says so: %s", r.why);
+    buf[MILLION] = '1';
+    write_file(path, buf, MILLION - 1);
+    r = levels_check(lv, ws);
+    CHECK(!r.met && strstr(r.why, "999,999 bytes; it needs exactly 1,000,000"),
+          "one short: %s", r.why);
+    write_file(path, buf, MILLION + 2);
+    r = levels_check(lv, ws);
+    CHECK(!r.met && strstr(r.why, "1,000,002 bytes; it needs exactly 1,000,000"),
+          "two over: %s", r.why);
+    write_file(path, buf, 2 * MILLION);
+    r = levels_check(lv, ws);
+    CHECK(!r.met && strstr(r.why, "2,000,000 bytes"), "far too many: %s", r.why);
+
+    buf[499999] = ' ';
+    write_file(path, buf, MILLION);
+    r = levels_check(lv, ws);
+    CHECK(!r.met && strstr(r.why, "a space at byte 500,000"), "a space in the middle: %s", r.why);
+    buf[499999] = '1';
+    buf[MILLION - 1] = '\n';
+    write_file(path, buf, MILLION);
+    r = levels_check(lv, ws);
+    CHECK(!r.met && strstr(r.why, "a line ending at byte 1,000,000"),
+          "999,999 ones and a newline: %s", r.why);
+    buf[MILLION - 1] = '1';
+    buf[0] = '0';
+    write_file(path, buf, MILLION);
+    r = levels_check(lv, ws);
+    CHECK(!r.met && strstr(r.why, "'0' at byte 1"), "a zero first: %s", r.why);
+    buf[0] = '1';
+
+    /* a symlink to a good file does not count */
+    {
+        char real[2400];
+        snprintf(real, sizeof real, "%s/real.txt", ws);
+        write_file(real, buf, MILLION);
+        unlink(path);
+        CHECK(symlink(real, path) == 0, "symlink");
+        CHECK(!levels_check(lv, ws).met, "a symlinked 1.txt does not count");
+        unlink(path);
+    }
+
+    /* the new requires on their own */
+    CHECK(levels_parse(&L, "level: 1\ntitle: t\ngoal: g\ncheck: file a.txt\nrequire: only 1\n",
+                       err, sizeof err), "only parses: %s", err);
+    snprintf(path, sizeof path, "%s/a.txt", ws);
+    write_file(path, "111\n", 4);
+    r = levels_check(&L.items[0], ws);
+    CHECK(!r.met && strstr(r.why, "a line ending at byte 4"), "only sees the last byte: %s", r.why);
+    write_file(path, "1111", 4);
+    CHECK(levels_check(&L.items[0], ws).met, "only: all ones");
+    write_file(path, buf, 100000);
+    r = levels_check(&L.items[0], ws);
+    CHECK(!r.met && strstr(r.why, "too big"), "no size named: the 64 KiB limit holds: %s", r.why);
+    CHECK(!levels_parse(&L, "level: 1\ntitle: t\ngoal: g\ncheck: file a\nrequire: bytes 16777217\n",
+                        err, sizeof err), "a size over 16 MiB is rejected");
+    CHECK(!levels_parse(&L, "level: 1\ntitle: t\ngoal: g\ncheck: file a\nrequire: bytes 1e6\n",
+                        err, sizeof err), "a size must be digits");
+    CHECK(!levels_parse(&L, "level: 1\ntitle: t\ngoal: g\ncheck: file a\nrequire: only \n",
+                        err, sizeof err), "only needs characters");
+    free(buf);
+}
+
 /* ---------------- JSON ---------------- */
 
 static void test_json(void)
@@ -884,6 +979,7 @@ int main(void)
     test_vt();
     test_keys();
     test_levels();
+    test_level_two();
     test_json();
     test_activity();
     test_scene();

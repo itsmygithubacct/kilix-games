@@ -15,9 +15,15 @@
  *
  * check: file NAME   NAME is a plain file name in the workspace: no '/', no
  *                    "..", not hidden. It must be a regular file (a symlink
- *                    does not count) no bigger than 64 KiB.
+ *                    does not count) no bigger than 64 KiB, or than the
+ *                    largest size a bytes or max-bytes require names.
  * check: none        never met: a "coming soon" stub room.
- * require: nonempty | contains TEXT | contains-ci TEXT | max-bytes N
+ * require: nonempty            at least one byte
+ * require: contains TEXT       TEXT appears (contains-ci: in any case)
+ * require: max-bytes N         at most N bytes
+ * require: bytes N             exactly N bytes (N up to LEVEL_FILE_MAX)
+ * require: only CHARS          every byte is one of CHARS, so "only 1"
+ *                              rules out spaces and line endings too
  */
 #ifndef PUZZLLM_LEVELS_H
 #define PUZZLLM_LEVELS_H
@@ -29,12 +35,13 @@ enum {
     LEVEL_MAX = 64,
     LEVEL_HINT_MAX = 8,
     LEVEL_REQ_MAX = 8,
-    LEVEL_TEXT = 256
+    LEVEL_TEXT = 256,
+    LEVEL_FILE_MAX = 16 * 1024 * 1024   /* largest file a level can ask for */
 };
 
 typedef enum level_check_kind { CHECK_NONE = 0, CHECK_FILE } level_check_kind;
 typedef enum level_req_kind {
-    REQ_NONEMPTY = 1, REQ_CONTAINS, REQ_CONTAINS_CI, REQ_MAX_BYTES
+    REQ_NONEMPTY = 1, REQ_CONTAINS, REQ_CONTAINS_CI, REQ_MAX_BYTES, REQ_BYTES, REQ_ONLY
 } level_req_kind;
 
 typedef struct level_req {

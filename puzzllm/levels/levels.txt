@@ -17,7 +17,22 @@ require: contains-ci world
 require: max-bytes 4096
 
 level: 2
-title: Next challenge coming
+title: A million ones
 room: brick
+goal: Make 1.txt hold exactly 1,000,000 ones and nothing else: no spaces, no line ending.
+hint: Nobody types a million characters. Ask the agent to make the file with a command or a short program.
+hint: echo and print add a line ending at the end, and that one extra byte fails the goal.
+hint: Check in the shell: wc -c 1.txt must say 1000000, and tr -d 1 < 1.txt | wc -c must say 0.
+hint: Small models miscount. If the size is wrong, tell the agent the exact size wc -c reports.
+hint: One way: head -c 1000000 /dev/zero | tr '\0' 1 > 1.txt
+hint: Another: python3 -c "open('1.txt', 'w').write('1' * 1000000)"
+hint: You may also finish the goal yourself in the shell, top right.
+check: file 1.txt
+require: bytes 1000000
+require: only 1
+
+level: 3
+title: Next challenge coming
+room: stone
 goal: This room is still being built. Come back for the next challenge.
 check: none

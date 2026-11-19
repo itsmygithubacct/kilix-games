@@ -141,11 +141,20 @@ bool levels_parse(level_list *out, const char *text, char *err, size_t errcap)
             } else if (strncmp(val, "contains ", 9) == 0) {
                 r->kind = REQ_CONTAINS;
                 if (!copy_field(r->text, sizeof r->text, trim(val + 9))) goto bad_value;
-            } else if (strncmp(val, "max-bytes ", 10) == 0) {
-                char *end;
-                r->kind = REQ_MAX_BYTES;
-                r->number = strtol(val + 10, &end, 10);
-                if (*end != '\0' || r->number < 1) goto bad_value;
+            } else if (strncmp(val, "max-bytes ", 10) == 0 || strncmp(val, "bytes ", 6) == 0) {
+                bool exact = val[0] == 'b';
+                char *num = trim(val + (exact ? 6 : 10)), *end;
+                r->kind = exact ? REQ_BYTES : REQ_MAX_BYTES;
+                errno = 0;
+                r->number = strtol(num, &end, 10);
+                if (*num == '\0' || *end != '\0' || errno != 0 || r->number < (exact ? 0 : 1) ||
+                    r->number > LEVEL_FILE_MAX) {
+                    set_err(err, errcap, line_no, "byte count must be a whole number up to 16777216");
+                    return false;
+                }
+            } else if (strncmp(val, "only ", 5) == 0) {
+                r->kind = REQ_ONLY;
+                if (!copy_field(r->text, sizeof r->text, trim(val + 5))) goto bad_value;
             } else {
                 set_err(err, errcap, line_no, "unknown require");
                 return false;
@@ -203,14 +212,52 @@ static bool contains(const char *hay, size_t n, const char *needle, bool ci)
     return false;
 }
 
+/* 1000000 -> "1,000,000" */
+static const char *grouped(long n, char *buf, size_t cap)
+{
+    char digits[32];
+    int len = snprintf(digits, sizeof digits, "%ld", n < 0 ? -n : n), o = 0;
+    if (n < 0 && (size_t)o + 1 < cap) buf[o++] = '-';
+    for (int i = 0; i < len && (size_t)o + 2 < cap; i++) {
+        if (i > 0 && (len - i) % 3 == 0) buf[o++] = ',';
+        buf[o++] = digits[i];
+    }
+    buf[o] = '\0';
+    return buf;
+}
+
+/* A byte as a player would name it. */
+static const char *byte_name(unsigned char b, char *buf, size_t cap)
+{
+    if (b == '\n') return "a line ending";
+    if (b == '\r') return "a carriage return";
+    if (b == ' ') return "a space";
+    if (b == '\t') return "a tab";
+    if (b > 0x20 && b < 0x7f) snprintf(buf, cap, "'%c'", b);
+    else snprintf(buf, cap, "byte 0x%02x", b);
+    return buf;
+}
+
+/* The most a level's file may hold before the check stops reading it. */
+static long file_cap(const level *lv)
+{
+    long cap = CHECK_FILE_CAP;
+    for (int i = 0; i < lv->nreqs; i++) {
+        const level_req *q = &lv->reqs[i];
+        if ((q->kind == REQ_BYTES || q->kind == REQ_MAX_BYTES) && q->number > cap)
+            cap = q->number;
+    }
+    return cap;
+}
+
 goal_result levels_check(const level *lv, const char *workspace)
 {
     goal_result r;
-    char path[4096];
+    char path[4096], a[32], b[32];
     char *data = NULL;
     struct stat st;
+    long cap, n = 0;
     int fd;
-    ssize_t n = 0;
 
     memset(&r, 0, sizeof r);
     if (lv->check == CHECK_NONE) {
@@ -226,7 +273,30 @@ goal_result levels_check(const level *lv, const char *workspace)
         snprintf(r.why, sizeof r.why, "%.160s is not a regular file", lv->file);
         return r;
     }
-    if (st.st_size > CHECK_FILE_CAP) {
+    /* sizes first: they need no reading, and say the most */
+    for (int i = 0; i < lv->nreqs; i++) {
+        const level_req *q = &lv->reqs[i];
+        if (q->kind == REQ_BYTES && st.st_size == q->number + 1) {
+            snprintf(r.why, sizeof r.why, "%.120s has %s bytes, one too many: often a line "
+                     "ending at the end", lv->file, grouped((long)st.st_size, a, sizeof a));
+            return r;
+        }
+        if (q->kind == REQ_BYTES && st.st_size != q->number) {
+            snprintf(r.why, sizeof r.why, "%.120s has %s bytes; it needs exactly %s", lv->file,
+                     grouped((long)st.st_size, a, sizeof a), grouped(q->number, b, sizeof b));
+            return r;
+        }
+        if (q->kind == REQ_MAX_BYTES && st.st_size > q->number) {
+            snprintf(r.why, sizeof r.why, "%.160s is longer than %ld bytes", lv->file, q->number);
+            return r;
+        }
+        if (q->kind == REQ_NONEMPTY && st.st_size == 0) {
+            snprintf(r.why, sizeof r.why, "%.160s is empty", lv->file);
+            return r;
+        }
+    }
+    cap = file_cap(lv);
+    if (st.st_size > cap) {
         snprintf(r.why, sizeof r.why, "%.160s is too big", lv->file);
         return r;
     }
@@ -235,8 +305,16 @@ goal_result levels_check(const level *lv, const char *workspace)
         snprintf(r.why, sizeof r.why, "%.160s cannot be read", lv->file);
         return r;
     }
-    data = malloc(CHECK_FILE_CAP + 1);
-    if (data != NULL) n = read(fd, data, CHECK_FILE_CAP);
+    data = malloc((size_t)cap + 1);
+    if (data != NULL) {
+        /* a file still being written may be longer by now: read at most cap */
+        while (n < cap) {
+            ssize_t got = read(fd, data + n, (size_t)(cap - n));
+            if (got < 0 && errno == EINTR) continue;
+            if (got <= 0) { if (got < 0) n = -1; break; }
+            n += got;
+        }
+    }
     close(fd);
     if (data == NULL || n < 0) {
         free(data);
@@ -245,8 +323,10 @@ goal_result levels_check(const level *lv, const char *workspace)
     }
     for (int i = 0; i < lv->nreqs; i++) {
         const level_req *q = &lv->reqs[i];
-        if (q->kind == REQ_NONEMPTY && n == 0) {
-            snprintf(r.why, sizeof r.why, "%.160s is empty", lv->file);
+        /* sizes again, on what was read: the file may have changed */
+        if ((q->kind == REQ_BYTES && n != q->number) || (q->kind == REQ_MAX_BYTES && n > q->number) ||
+            (q->kind == REQ_NONEMPTY && n == 0)) {
+            snprintf(r.why, sizeof r.why, "%.160s changed while it was checked", lv->file);
             free(data);
             return r;
         }
@@ -256,10 +336,17 @@ goal_result levels_check(const level *lv, const char *workspace)
             free(data);
             return r;
         }
-        if (q->kind == REQ_MAX_BYTES && n > q->number) {
-            snprintf(r.why, sizeof r.why, "%.160s is longer than %ld bytes", lv->file, q->number);
-            free(data);
-            return r;
+        if (q->kind == REQ_ONLY) {
+            for (long j = 0; j < n; j++) {
+                if (memchr(q->text, data[j], strlen(q->text)) == NULL) {
+                    char c[16];
+                    snprintf(r.why, sizeof r.why, "%.80s has %s at byte %s; only %.40s may be in it",
+                             lv->file, byte_name((unsigned char)data[j], c, sizeof c),
+                             grouped(j + 1, a, sizeof a), q->text);
+                    free(data);
+                    return r;
+                }
+            }
         }
     }
     free(data);
