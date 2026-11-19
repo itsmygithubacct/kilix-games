@@ -4,4 +4,3 @@
 [submodule "puzzllm/third_party/neuroterm"]
 	path = puzzllm/third_party/neuroterm
 	url = https://github.com/itsmygithubacct/neuroterm.git
-	branch = work/embedded-panes
