@@ -32,6 +32,12 @@ health() {
 
 compute=${PUZZLLM_COMPUTE:-auto}
 if [ -n "${PUZZLLM_OLLAMA_MODEL:-}" ]; then
+    # Keep the system prompt focused on the game and on actual tool calls.
+    tool_prompt="You are the coding agent in PuzzLLM. Your working directory is the player's ~/workspace."
+    tool_prompt+=" When asked to inspect, create, edit, or run something, use the matching function tool, then read its result."
+    tool_prompt+=" For files in ~/workspace, pass a relative path such as hello_world.txt to tools."
+    tool_prompt+=" For a new text file, call write with path, content (the exact file contents), and i (a short description)."
+    tool_prompt+=" Use read before editing existing files. Report success only after the tool succeeds."
     /opt/puzzllm/bin/puzzllm-ollama guest "$port" &
     relay=$!
     # Opening the loopback socket tells us the relay is listening.
@@ -40,6 +46,7 @@ if [ -n "${PUZZLLM_OLLAMA_MODEL:-}" ]; then
             exec 3>&-
             say "using Ollama model $model_id (compute: $compute, requested ${PUZZLLM_CTX:-32768} context tokens)"
             exec /opt/puzzllm/bin/omp --model "puzzllm-local/$model_id" \
+                --system-prompt "$tool_prompt" \
                 --no-title --no-lsp --no-extensions --no-skills --no-rules "$@"
         fi
         kill -0 "$relay" 2>/dev/null || break

@@ -56,12 +56,18 @@ class OllamaHandler(http.server.BaseHTTPRequestHandler):
         effort = "none" if raw is False else "medium" if raw is True else raw
         message = {"role": "assistant", "content": f"Hello from the selected model ({effort})"}
         if request.get("tools"):
+            write = request["tools"][0]["function"]["parameters"]
+            assert "content" in write["required"]
+            assert write["properties"]["path"]["description"].startswith("Workspace-relative")
+            assert write["properties"]["content"]["description"] == "Exact text to write to the file."
             if request["messages"][-1]["role"] == "tool":
                 assert request["messages"][-1]["tool_name"] == "write"
                 assert request["messages"][-2]["tool_calls"][0]["function"]["arguments"]["path"] == "hello_world.txt"
             else:
                 message = {"role": "assistant", "tool_calls": [
-                    {"function": {"name": "write", "arguments": {"path": "hello_world.txt"}}}
+                    {"function": {"name": "write", "arguments": {
+                        "path": "/workspace/hello_world.txt", "content": "Hello, World!", "i": "write the greeting",
+                    }}}
                 ]}
         record = {"message": message, "done": True, "done_reason": "stop",
                   "prompt_eval_count": 11, "eval_count": 3}

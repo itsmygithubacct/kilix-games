@@ -134,6 +134,45 @@ def text_content(content):
             )))
 
 
+def native_tool(tool):
+    """Spell out the omp write contract for the model's native tool renderer."""
+    function = tool.get("function") or {}
+    schema = function.get("parameters") or {}
+    properties = schema.get("properties") or {}
+    descriptions = {
+        "path": "Workspace-relative filename. Example: hello_world.txt.",
+        "content": "Exact text to write to the file.",
+        "i": "Short description of this tool action, separate from the file contents.",
+    }
+    if function.get("name") != "write" or not descriptions.keys() <= properties.keys():
+        return tool
+    properties = {**properties}
+    for key, description in descriptions.items():
+        properties[key] = {**properties[key], "description": description}
+    required = list(dict.fromkeys([*schema.get("required", []), *descriptions]))
+    return {**tool, "function": {
+        **function,
+        "description": "Create a file or replace its contents. Set content to the exact text to write.",
+        "parameters": {**schema, "properties": properties, "required": required},
+    }}
+
+
+def file_arguments(name, arguments):
+    """Translate common workspace aliases in structured file calls only."""
+    if name not in ("read", "write", "edit") or not isinstance(arguments, dict):
+        return arguments
+    path = arguments.get("path")
+    if not isinstance(path, str):
+        return arguments
+    for prefix in ("~/workspace/", "/workspace/", "/kilix/workspace/"):
+        if path.startswith(prefix):
+            relative = path[len(prefix):]
+            if relative and not relative.startswith("/") and ".." not in relative.split("/"):
+                return {**arguments, "path": relative}
+            break
+    return arguments
+
+
 def native_request(request, context, think, compute):
     """Translate omp's text and tool history into Ollama's native chat format."""
     messages = []
@@ -177,7 +216,7 @@ def native_request(request, context, think, compute):
     payload = {"model": request["model"], "messages": messages,
                "stream": bool(request.get("stream")), "options": options}
     if request.get("tools"):
-        payload["tools"] = request["tools"]
+        payload["tools"] = [native_tool(tool) for tool in request["tools"]]
     if think is not None:
         payload["think"] = think
     response_format = request.get("response_format") or {}
@@ -201,9 +240,10 @@ def openai_message(native, request_id, first_index, streaming):
     calls = []
     for index, call in enumerate(message.get("tool_calls") or [], first_index):
         function = call["function"]
+        name = function["name"]
+        arguments = file_arguments(name, function.get("arguments") or {})
         event = {"id": f"{request_id}_{index}", "type": "function",
-                 "function": {"name": function["name"],
-                              "arguments": json.dumps(function.get("arguments") or {})}}
+                 "function": {"name": name, "arguments": json.dumps(arguments)}}
         if streaming:
             event["index"] = index
         calls.append(event)

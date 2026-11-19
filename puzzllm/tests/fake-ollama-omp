@@ -2,6 +2,8 @@
 set -eu
 
 [[ $1 = --model && $2 = "puzzllm-local/$PUZZLLM_MODEL_ID" ]]
+[[ $3 = --system-prompt && $4 = *"use the matching function tool"* &&
+   $4 = *"call write with path, content"* && $4 = *"pass a relative path"* ]]
 # A request to the private guest loopback follows the same route omp uses.
 python3 - <<'PY'
 import http.client
@@ -39,7 +41,10 @@ elif model == "test/always:latest" and effort == "none":
     effort = "low"
 assert status == 200, body.decode()
 assert f"Hello from the selected model ({effort})".encode() in body and b"[DONE]" in body
-tools = [{"type": "function", "function": {"name": "write", "parameters": {"type": "object"}}}]
+tools = [{"type": "function", "function": {"name": "write", "parameters": {
+    "type": "object", "properties": {key: {"type": "string"} for key in ("path", "i", "content")},
+    "required": ["path", "i"],
+}}}]
 status, body = call("/v1/chat/completions", model, tools=tools)
 assert status == 200, body.decode()
 events = [json.loads(line[6:]) for line in body.splitlines()
@@ -48,6 +53,9 @@ tool_chunk = next(e["choices"][0] for e in events if e.get("choices") and
                   e["choices"][0]["delta"].get("tool_calls"))
 tool = tool_chunk["delta"]["tool_calls"][0]
 assert tool_chunk["finish_reason"] == "tool_calls" and tool["function"]["name"] == "write"
+assert json.loads(tool["function"]["arguments"]) == {
+    "path": "hello_world.txt", "content": "Hello, World!", "i": "write the greeting",
+}
 assert events[-1]["usage"]["total_tokens"] == 14
 tool.pop("index")
 history = [{"role": "assistant", "content": None, "tool_calls": [tool]},
