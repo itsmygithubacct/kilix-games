@@ -1459,6 +1459,8 @@ static void test_pane_clipboard(void)
     activity_add(&G.act, ACT_TOOL, "tool result");
     game_pointer(&G, act.x, act.y, POINTER_DOWN);
     game_pointer(&G, act.x + 3 * CELL_W, act.y, POINTER_UP);
+    CHECK(strcmp(G.primary, "tool") == 0 && G.clipboard[0] == 0,
+          "highlighting sets the separate primary selection without a copy key");
     game_key(&G, &copy);
     CHECK(strcmp(G.clipboard, "tool") == 0, "system action text can be copied");
 
@@ -1484,12 +1486,22 @@ static void test_pane_clipboard(void)
         int master = G.shell.fd;
         G.shell.fd = transfer[1];
         fcntl(transfer[0], F_SETFL, O_NONBLOCK);
-        game_pointer(&G, shell.x, shell.y, POINTER_DOWN);
-        game_pointer(&G, shell.x, shell.y, POINTER_UP);
+        game_pointer(&G, omp.x, omp.y, POINTER_DOWN);
+        game_pointer(&G, omp.x + 3 * CELL_W, omp.y, POINTER_UP);
         neuroterm_feed(&G.shell_vt, "\033[?2004h", 8);
-        game_key(&G, &paste);
-        const char *expected = "\033[200~caf\xc3\xa9\r\xe7\x8c\xab!\033[201~";
+        game_pointer(&G, goal.x, goal.y, POINTER_MIDDLE);
+        CHECK(G.sc.focus == FOCUS_ROOM && G.hints_shown == hints,
+              "middle-click ignores the read-only goal pane");
+        game_pointer(&G, shell.x, shell.y, POINTER_MIDDLE);
+        const char *expected = "\033[200~caf\xc3\xa9\033[201~";
         ssize_t n = read(transfer[0], bytes, sizeof bytes);
+        CHECK(G.sc.focus == FOCUS_SHELL && n == (ssize_t)strlen(expected) &&
+              memcmp(bytes, expected, (size_t)n) == 0,
+              "middle-click pastes the highlight into the terminal under the pointer");
+
+        game_key(&G, &paste);
+        expected = "\033[200~caf\xc3\xa9\r\xe7\x8c\xab!\033[201~";
+        n = read(transfer[0], bytes, sizeof bytes);
         CHECK(n == (ssize_t)strlen(expected) && memcmp(bytes, expected, (size_t)n) == 0,
               "clipboard pastes into the focused shell with bracketed paste");
 

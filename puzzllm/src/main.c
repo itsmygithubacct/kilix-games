@@ -88,11 +88,14 @@ static void on_key(void *ctx, const key_event *ev)
     game *g = ctx;
     unsigned long generation = g->clipboard_generation;
     game_key(g, ev);
-    if (g->clipboard_generation != generation) termio_copy(g->clipboard);
+    if (g->clipboard_generation != generation) termio_copy(g->clipboard, false);
 }
 static void on_pointer(void *ctx, int x, int y, pointer_action action)
 {
-    game_pointer(ctx, x, y, action);
+    game *g = ctx;
+    unsigned long generation = g->primary_generation;
+    game_pointer(g, x, y, action);
+    if (g->primary_generation != generation) termio_copy(g->primary, true);
 }
 static void on_paste(void *ctx, const unsigned char *text, size_t len, bool final)
 {

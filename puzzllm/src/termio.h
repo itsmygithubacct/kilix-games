@@ -31,7 +31,7 @@ void termio_size(int *w, int *h);
 /* One line about the session: sizes, scale, transport (for PUZZLLM_STATS). */
 const char *termio_describe(void);
 /* Drain input and dispatch it. -1 when stdin is gone. */
-void termio_copy(const char *text);
+void termio_copy(const char *text, bool primary);
 int termio_read(const termio_handlers *h);
 
 #endif

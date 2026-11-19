@@ -64,6 +64,8 @@ typedef struct game {
     pane_selection selection;
     char clipboard[CLIPBOARD_CAP];
     unsigned long clipboard_generation;
+    char primary[CLIPBOARD_CAP];
+    unsigned long primary_generation;
     char paste[CLIPBOARD_CAP];
     size_t paste_len;
     bool paste_overflow;

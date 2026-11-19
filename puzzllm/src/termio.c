@@ -235,14 +235,14 @@ static void dispatch_key(const termio_handlers *h, const kittykb_event *k)
 }
 
 /* OSC 52 lets the host terminal publish the selection to its clipboard. */
-void termio_copy(const char *text)
+void termio_copy(const char *text, bool primary)
 {
     static const char base64[] =
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     const unsigned char *s = (const unsigned char *)text;
     size_t len = strlen(text);
     if (!active || !len) return;
-    fputs("\033]52;c;", stdout);
+    fputs(primary ? "\033]52;p;" : "\033]52;c;", stdout);
     for (size_t i = 0; i < len; i += 3) {
         size_t remain = len - i;
         unsigned bits = (unsigned)s[i] << 16;
@@ -275,7 +275,8 @@ int termio_read(const termio_handlers *h)
             int px, py;
             bool wheel = m->action == KITTYIN_MOUSE_WHEEL && m->wheel_y != 0;
             bool left = m->button == 1 || (m->button == 0 && m->action == KITTYIN_MOUSE_RELEASE);
-            if (!wheel && !left) continue;
+            bool middle = m->button == 2 && m->action == KITTYIN_MOUSE_PRESS;
+            if (!wheel && !left && !middle) continue;
             if (m->pixel_coordinates) {
                 px = m->x - kittyts_origin_x(&session);
                 py = m->y - kittyts_origin_y(&session);
@@ -287,7 +288,9 @@ int termio_read(const termio_handlers *h)
             py = py < off_y ? -1 : (py - off_y) * den / num;
             bool inside = px >= 0 && py >= 0 && px < canvas_w && py < canvas_h;
             if (wheel && inside) h->scroll(h->ctx, px, py, 3 * m->wheel_y);
-            else if (m->action == KITTYIN_MOUSE_PRESS && inside)
+            else if (middle && inside)
+                h->pointer(h->ctx, px, py, POINTER_MIDDLE);
+            else if (left && m->action == KITTYIN_MOUSE_PRESS && inside)
                 h->pointer(h->ctx, px, py, POINTER_DOWN);
             else if (m->action == KITTYIN_MOUSE_MOVE)
                 h->pointer(h->ctx, px, py, POINTER_DRAG);

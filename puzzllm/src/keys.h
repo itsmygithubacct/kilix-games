@@ -24,7 +24,7 @@ enum {
 enum { MOD_SHIFT = 1u << 0, MOD_ALT = 1u << 1, MOD_CTRL = 1u << 2, MOD_SUPER = 1u << 3 };
 enum { KEY_TEXT_MAX = 16 };
 
-typedef enum pointer_action { POINTER_DOWN, POINTER_DRAG, POINTER_UP } pointer_action;
+typedef enum pointer_action { POINTER_DOWN, POINTER_DRAG, POINTER_UP, POINTER_MIDDLE } pointer_action;
 
 typedef struct key_event {
     uint32_t key;                 /* unicode scalar or KEY_* */

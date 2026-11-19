@@ -47,12 +47,14 @@ aisle through it to reach the next room.
 | mouse click | click a terminal to type into it, the goal for the next hint, or the floor to walk again |
 | mouse wheel | scroll the pane under the pointer |
 | Shift+Page Up / Shift+Page Down | scroll the focused terminal’s history |
-| left drag | select text in any pane |
+| left drag | highlight text in any pane and copy it to the primary selection |
+| middle click | paste the primary selection into the agent or shell under the pointer |
 | Ctrl+Alt+C | copy the selection |
 | Ctrl+Alt+V | paste the game clipboard into the focused terminal |
 
 You can also use your host terminal’s paste shortcut to paste from the system
-clipboard. Copy also updates the system clipboard when the host accepts OSC 52.
+clipboard. Highlighting and explicit copy update the host’s primary selection
+and clipboard, respectively, when the host accepts OSC 52.
 
 Hints come one at a time, every 45 seconds or on H. Progress is kept in
 `~/.local/share/puzzllm/progress`, so the game resumes in the room you

@@ -821,6 +821,17 @@ void game_pointer(game *g, int x, int y, pointer_action action)
         s->dragging = false;
         return;
     }
+    if (action == POINTER_MIDDLE) {
+        if (!g->primary[0]) return;
+        focus_id target;
+        if (inside(layout_screen(SCREEN_OMP), x, y)) target = FOCUS_OMP;
+        else if (inside(layout_screen(SCREEN_SHELL), x, y)) target = FOCUS_SHELL;
+        else return;
+        s->dragging = false;
+        focus_screen(g, target);
+        paste_into_terminal(g, g->primary, strlen(g->primary));
+        return;
+    }
     if (action == POINTER_DOWN) {
         *s = (pane_selection){.pane = SCREEN_NONE, .dragging = true};
         for (int i = 0; i < SCREEN_COUNT; i++) {
@@ -840,7 +851,17 @@ void game_pointer(game *g, int x, int y, pointer_action action)
     }
     if (action == POINTER_UP) {
         s->dragging = false;
-        if (!s->active) game_click(g, x, y);
+        if (s->active) {
+            view v = game_view(g);
+            char text[CLIPBOARD_CAP];
+            size_t len = render_copy_selection(&v, text, sizeof text);
+            if (len) {
+                memcpy(g->primary, text, len + 1);
+                g->primary_generation++;
+            }
+        } else {
+            game_click(g, x, y);
+        }
     }
 }
 
