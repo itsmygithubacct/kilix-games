@@ -15,7 +15,19 @@
 
 #include <stdbool.h>
 
-void art_chest(sr_canvas *c, int x, int y, bool open);
+typedef struct chest_sprite {
+    uint32_t *pixels;
+    int w, h;
+} chest_sprite;
+
+typedef struct chest_art {
+    chest_sprite closed, open, key;
+} chest_art;
+
+void art_load_chest(chest_art *art, const char *root);
+void art_free_chest(chest_art *art);
+/* x is the left edge and y is the base of both chest frames. */
+void art_chest(sr_canvas *c, const chest_art *art, int x, int y, bool open);
 /* Floor, walls and the aisle runner. style is the level's "room:" value. */
 void art_room(sr_canvas *c, const char *style);
 /* The door at the top of the aisle. open: 0 shut .. 1 fully open.

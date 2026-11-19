@@ -1145,6 +1145,38 @@ static void test_start_and_reset_menu(void)
     game_shutdown(&G);
 }
 
+static void test_chest_art(void)
+{
+    chest_art art = {0};
+    sr_canvas closed = {0}, open = {0}, empty = {0};
+    art_load_chest(&art, ".");
+    CHECK(art.closed.pixels && art.open.pixels && art.key.pixels,
+          "all three generated chest sprites load");
+    if (art.closed.pixels && art.open.pixels && art.key.pixels &&
+        sr_canvas_init(&closed, 96, 96) && sr_canvas_init(&open, 96, 96) &&
+        sr_canvas_init(&empty, 96, 96)) {
+        sr_clear(&closed, 0xff38404a);
+        sr_clear(&open, 0xff38404a);
+        sr_clear(&empty, 0xff38404a);
+        art_chest(&closed, &art, 12, 80, false);
+        art_chest(&open, &art, 12, 80, true);
+        draw_picture(&empty, art.open.pixels, art.open.w, art.open.h,
+                     12, 80 - art.open.h, art.open.w, art.open.h, 1.0f);
+        CHECK(differing(&closed, &open, (rect){12, 12, 64, 68}) > 500,
+              "open chest changes the silhouette and interior");
+        CHECK(differing(&empty, &open, (rect){31, 46, art.key.w, art.key.h}) > 45,
+              "the key is visible inside the open chest");
+        CHECK(at(&open, 12, 80 - art.open.h) == at(&closed, 12, 80 - art.open.h),
+              "the sprite corner leaves the floor visible");
+    } else {
+        CHECK(false, "chest render canvases initialized");
+    }
+    sr_canvas_free(&closed);
+    sr_canvas_free(&open);
+    sr_canvas_free(&empty);
+    art_free_chest(&art);
+}
+
 int main(void)
 {
     const char *dir = getenv("PUZZLLM_TEST_DIR");
@@ -1154,6 +1186,7 @@ int main(void)
     }
     snprintf(scratch, sizeof scratch, "%s", dir);
     test_menu();
+    test_chest_art();
     test_start_and_reset_menu();
     test_neuroterm();
     test_keys();

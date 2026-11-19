@@ -4,6 +4,7 @@
 #define PUZZLLM_RENDER_H
 
 #include "activity.h"
+#include "art.h"
 #include "levels.h"
 #include "scene.h"
 #include "soft_raster.h"
@@ -14,6 +15,7 @@
 typedef struct view {
     const scene *sc;
     const level *lv;
+    const chest_art *chest;
     int level_count;
     const neuroterm *omp;            /* may be NULL */
     const neuroterm *shell;          /* may be NULL */

@@ -20,10 +20,11 @@ B        := build
 O        := $(B)/obj
 CORE     := neuroterm keys pty levels json activity layout scene draw art render game \
 	kilix_art damage
+KILIX_ASSETS := third_party/kilix-game-sdk/kilix-assets
 VTERM := third_party/libvterm
 VTERM_SRC := encoding keyboard mouse parser pen screen state unicode vterm
-CORE_OBJ := $(CORE:%=$(O)/%.o) $(VTERM_SRC:%=$(O)/libvterm/%.o)
-override CPPFLAGS += -I$(VTERM)/include
+CORE_OBJ := $(CORE:%=$(O)/%.o) $(O)/kilix_assets.o $(VTERM_SRC:%=$(O)/libvterm/%.o)
+override CPPFLAGS += -I$(VTERM)/include -I$(KILIX_ASSETS)/include
 
 # The renderer. zell-neuronte's Neuronte renderer is built when a Neuronte
 # checkout (github.com/itsmygithubacct/neuronte) is at NEURONTE; its two
@@ -74,6 +75,9 @@ $(O):
 	mkdir -p $@
 
 $(O)/%.o: src/%.c | $(O)
+	$(CC) $(CPPFLAGS) $(DEPFLAGS) $(CFLAGS) -c -o $@ $<
+
+$(O)/kilix_assets.o: $(KILIX_ASSETS)/src/kilix_assets.c | $(O)
 	$(CC) $(CPPFLAGS) $(DEPFLAGS) $(CFLAGS) -c -o $@ $<
 
 $(O)/libvterm:

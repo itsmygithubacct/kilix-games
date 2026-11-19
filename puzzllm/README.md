@@ -131,6 +131,9 @@ The levels so far:
    and you can open it with `unzip` in the shell. Resuming keeps the same chest.
 5. A stub room for the next challenge.
 
+Room 4 uses three generated pixel-art sprites in `assets/`: the closed
+chest, open chest, and key.
+
 ## The sandbox
 
 Both screens run in [bubblewrap](https://github.com/containers/bubblewrap)

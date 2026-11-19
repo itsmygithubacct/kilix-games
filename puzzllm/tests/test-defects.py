@@ -15,6 +15,12 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # (name, file, old, new, make target[, "neuronte" when it needs that build])
 DEFECTS = [
+    ("the chest uses the closed sprite after opening",
+     "src/art.c", "const chest_sprite *sprite = open ? &art->open : &art->closed;",
+     "const chest_sprite *sprite = &art->closed;", "test-unit"),
+    ("the open chest hides the key",
+     "src/art.c", "if (open) {\n        const chest_sprite *key",
+     "if (false) {\n        const chest_sprite *key", "test-unit"),
     ("escape cannot open the game menu",
      "src/game.c", "            else if (!g->menu.open) open_menu(g);", "", "test-unit"),
     ("interactive launch skips the menu",

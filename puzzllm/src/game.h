@@ -6,6 +6,7 @@
 #define PUZZLLM_GAME_H
 
 #include "activity.h"
+#include "art.h"
 #include "keys.h"
 #include "levels.h"
 #include "pty.h"
@@ -38,6 +39,7 @@ typedef struct game {
     char state[2048];       /* persistent folder, e.g. ~/.local/share/puzzllm */
     char workspace[2100];
     level_list levels;
+    chest_art chest;
     scene sc;
     int state_lock;
     bool started;

@@ -2,9 +2,11 @@
 #include "art.h"
 #include "draw.h"
 #include "kilix_art.h"
+#include "kilix_assets.h"
 
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 typedef struct palette {
@@ -157,7 +159,51 @@ void art_prompt(sr_canvas *c, float x, float y, const char *text)
     draw_text(c, bx + 8, y - 23, text, 0xfff0c0, 1.0f);
 }
 
-void art_chest(sr_canvas *c, int x, int y, bool open)
+static void load_sprite(chest_sprite *sprite, const char *root, const char *name)
+{
+    char path[4096];
+    kilix_asset_image image = {0};
+    kilix_asset_limits limits;
+    kilix_asset_limits_init(&limits);
+    limits.max_dimension = 128;
+    int len = snprintf(path, sizeof path, "%s/assets/%s", root, name);
+    if (len < 0 || (size_t)len >= sizeof path ||
+        kilix_asset_image_load_png(&image, path, &limits) != KILIX_ASSET_OK)
+        return;
+
+    uint32_t *pixels = malloc((size_t)image.width * image.height * sizeof *pixels);
+    if (pixels) {
+        for (uint32_t y = 0; y < image.height; y++) {
+            const uint8_t *rgba = image.pixels + y * image.stride;
+            for (uint32_t x = 0; x < image.width; x++, rgba += 4) {
+                unsigned a = rgba[3];
+                unsigned r = (rgba[0] * a + 127) / 255;
+                unsigned g = (rgba[1] * a + 127) / 255;
+                unsigned b = (rgba[2] * a + 127) / 255;
+                pixels[(size_t)y * image.width + x] = (a << 24) | (r << 16) | (g << 8) | b;
+            }
+        }
+        *sprite = (chest_sprite){pixels, (int)image.width, (int)image.height};
+    }
+    kilix_asset_image_clear(&image);
+}
+
+void art_load_chest(chest_art *art, const char *root)
+{
+    load_sprite(&art->closed, root, "chest-closed.png");
+    load_sprite(&art->open, root, "chest-open.png");
+    load_sprite(&art->key, root, "chest-key.png");
+}
+
+void art_free_chest(chest_art *art)
+{
+    free(art->closed.pixels);
+    free(art->open.pixels);
+    free(art->key.pixels);
+    *art = (chest_art){0};
+}
+
+static void draw_chest_placeholder(sr_canvas *c, int x, int y, bool open)
 {
     draw_fill(c, x + 4, y + 28, 56, 7, 0x211817, 0.65f);
     draw_fill(c, x, y + 10, 56, 22, 0x3c241d, 1);
@@ -172,5 +218,22 @@ void art_chest(sr_canvas *c, int x, int y, bool open)
         draw_fill(c, x + 18, y + 5, 4, 4, 0x53341e, 1);
         draw_fill(c, x + 24, y + 6, 15, 3, 0xffdd79, 1);
         draw_fill(c, x + 35, y + 8, 3, 4, 0xffdd79, 1);
+    }
+}
+
+
+void art_chest(sr_canvas *c, const chest_art *art, int x, int y, bool open)
+{
+    if (!art || !art->closed.pixels || !art->open.pixels || !art->key.pixels) {
+        draw_chest_placeholder(c, x, y - 32, open);
+        return;
+    }
+    const chest_sprite *sprite = open ? &art->open : &art->closed;
+    draw_picture(c, sprite->pixels, sprite->w, sprite->h,
+                 x, y - sprite->h, sprite->w, sprite->h, 1.0f);
+    if (open) {
+        const chest_sprite *key = &art->key;
+        draw_picture(c, key->pixels, key->w, key->h,
+                     x + (sprite->w - key->w) / 2, y - 34, key->w, key->h, 1.0f);
     }
 }
