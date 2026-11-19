@@ -4,6 +4,7 @@ set -eu
 [[ $1 = --model && $2 = "puzzllm-local/$PUZZLLM_MODEL_ID" ]]
 [[ $3 = --system-prompt && $4 = *"use the matching function tool"* &&
    $4 = *"call write with path, content"* && $4 = *"pass a relative path"* ]]
+[[ " $* " = *" --allow-home "* ]]
 # A request to the private guest loopback follows the same route omp uses.
 python3 - <<'PY'
 import http.client

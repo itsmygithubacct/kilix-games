@@ -495,7 +495,7 @@ void render_frame(sr_canvas *c, const view *v)
     if (v->omp) vt_cells(c, v->omp, v->omp_history, tx, ty, s->focus == FOCUS_OMP && v->blink);
     if (v->omp_note) note_over(c, SCREEN_OMP, v->omp_note);
 
-    art_screen(c, layout_screen(SCREEN_SHELL), "shell  -  sandbox workspace",
+    art_screen(c, layout_screen(SCREEN_SHELL), "shell  -  sandbox home",
                s->focus == FOCUS_SHELL, near == SCREEN_SHELL);
     layout_text_origin(SCREEN_SHELL, &tx, &ty);
     if (v->shell) vt_cells(c, v->shell, v->shell_history, tx, ty, s->focus == FOCUS_SHELL && v->blink);

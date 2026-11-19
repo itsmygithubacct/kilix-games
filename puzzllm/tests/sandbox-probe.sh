@@ -13,7 +13,9 @@ must_fail_write() {
     if ( : > "$1" ) 2>/dev/null; then fail "wrote $1"; else ok "cannot write $1"; fi
 }
 
-[ "$PWD" = /kilix/workspace ] && ok "cwd is the workspace" || fail "cwd is $PWD"
+[ "$PWD" = "$HOME" ] && [ "$HOME" = /kilix ] &&
+    ok "cwd is the sandbox home" || fail "cwd is $PWD and home is $HOME"
+[ ! -e "$HOME/workspace" ] && ok "no nested work directory" || fail "found an unexpected work subdirectory"
 
 # writes outside the workspace fail
 must_fail_write "$outside/escape-$mode"
@@ -26,14 +28,16 @@ must_fail_write ../../../escape
 [ "$mode" = agent ] && must_fail_write /opt/puzzllm/bin/omp
 
 # the workspace itself is writable, in both sandboxes (owner's decision)
-if echo "$mode" > "./written-by-$mode" 2>/dev/null; then ok "writes the workspace"
+if echo "$mode" > "$HOME/written-by-$mode" 2>/dev/null; then ok "writes the workspace"
 else fail "cannot write the workspace"; fi
 
 if [ "$mode" = agent ]; then
-    if : > "$HOME/.omp/agent/probe" 2>/dev/null; then ok "writes its omp folder"
+    if [ "$PI_CODING_AGENT_DIR" = /opt/puzzllm/agent ] &&
+       ( : > "$PI_CODING_AGENT_DIR/probe" ) 2>/dev/null; then ok "writes its separate omp folder"
     else fail "cannot write its omp folder"; fi
 else
-    [ ! -e "$HOME/.omp" ] && ok "no omp folder in the shell" || fail "shell sees ~/.omp"
+    [ ! -e /opt/puzzllm/agent ] && ok "shell cannot see omp state" || fail "shell sees omp state"
+    [ ! -e /opt/puzzllm/codex-home ] && ok "shell cannot see Codex state" || fail "shell sees Codex state"
 fi
 
 # nothing of the host's home is visible
@@ -52,8 +56,8 @@ else
 fi
 
 # mount audit: every writable mount is one the design allows
-allowed="/kilix/workspace"
-[ "$mode" = agent ] && allowed="$allowed /kilix/.omp/agent"
+allowed="/kilix"
+[ "$mode" = agent ] && allowed="$allowed /opt/puzzllm/agent"
 while read -r _ _ _ _ point opts rest; do
     fstype=${rest#*- }
     fstype=${fstype%% *}
@@ -61,7 +65,7 @@ while read -r _ _ _ _ point opts rest; do
     case "$point" in
     /) fail "root is writable" ;;
     /dev|/dev/*|/proc|/proc/*) ;;
-    /tmp|/home|/kilix)
+    /tmp|/home)
         [ "$fstype" = tmpfs ] || fail "$point is writable $fstype, not tmpfs" ;;
     *)
         case " $allowed " in

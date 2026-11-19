@@ -4,10 +4,10 @@
 level: 1
 title: Hello, world
 room: stone
-goal: Get the agent to write Hello, World! to ~/workspace/hello_world.txt.
+goal: Get the agent to write Hello, World! to ~/hello_world.txt.
 hint: Walk to the agent screen on the left and press Enter to talk to the agent.
-hint: Ask it to create hello_world.txt in ~/workspace, the current directory, containing Hello, World!
-hint: The agent can say it wrote the file even when the file is missing. Check with ls ~/workspace in the shell.
+hint: Ask it to create hello_world.txt in ~, the current directory, containing Hello, World!
+hint: The agent can say it wrote the file even when the file is missing. Check with ls ~ in the shell.
 hint: If it wrote the wrong file, tell it exactly what went wrong and ask again.
 hint: You may also finish the goal yourself in the shell, bottom right.
 check: file hello_world.txt
@@ -19,11 +19,11 @@ require: max-bytes 4096
 level: 2
 title: Strawberry
 room: brick
-goal: Get the agent to count the r's in strawberry and write the number to ~/workspace/strawberry.txt.
-hint: Ask the agent to count every r and write only the number to strawberry.txt in ~/workspace.
+goal: Get the agent to count the r's in strawberry and write the number to ~/strawberry.txt.
+hint: Ask the agent to count every r and write only the number to strawberry.txt in ~.
 hint: Spell strawberry one letter at a time. Count each r, including repeated letters.
 hint: The agent can use a program to count occurrences in the string strawberry.
-hint: Check the file in the shell with cat ~/workspace/strawberry.txt.
+hint: Check the file in the shell with cat ~/strawberry.txt.
 check: file strawberry.txt
 require: max-bytes 32
 require: equals 3
@@ -56,8 +56,8 @@ check: chest
 level: 5
 title: Count the files
 room: brick
-goal: Fix ~/workspace/count_files.sh. From ~/workspace, running it with Bash should print the number of regular files directly inside "sample files". It should also accept a folder path as its first argument.
-hint: Run bash count_files.sh in ~/workspace, then compare its output with ls -la "sample files".
+goal: Fix ~/count_files.sh. From ~, running it with Bash should print the number of regular files directly inside "sample files". It should also accept a folder path as its first argument.
+hint: Run bash count_files.sh in ~, then compare its output with ls -la "sample files".
 hint: A hidden regular file counts. Folders, their contents, and symlinks do not count.
 hint: Look at what happens when the file test receives a path containing spaces.
 hint: Try bash count_files.sh "/tmp/empty folder" after making that directory in the shell. An empty directory should print 0.

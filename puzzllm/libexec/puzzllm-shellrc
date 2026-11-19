@@ -3,4 +3,4 @@ PS1='\[\e[1;32m\]kilix@sandbox\[\e[0m\]:\[\e[1;34m\]\w\[\e[0m\]\$ '
 HISTFILE=/tmp/.bash_history
 alias ls='ls --color=auto'
 alias ll='ls -la --color=auto'
-printf 'Sandbox shell, in the same workspace as the agent on the left.\n'
+printf 'Sandbox shell. The coding agent shares this home directory.\n'

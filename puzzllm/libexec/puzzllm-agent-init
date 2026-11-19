@@ -6,11 +6,11 @@
 # llama-server dies with the sandbox when omp exits.
 #
 # Progress goes to the terminal (the omp screen) and to
-# ~/.omp/agent/puzzllm/status, which the game shows on the activity screen.
+# $PI_CODING_AGENT_DIR/puzzllm/status, which the game shows on the activity screen.
 set -u
 port=${PUZZLLM_PORT:-8765}
 model_id=${PUZZLLM_MODEL_ID:-qwen3.5-0.8b}
-status_dir=$HOME/.omp/agent/puzzllm
+status_dir=$PI_CODING_AGENT_DIR/puzzllm
 status=$status_dir/status
 log=$status_dir/llama-server.log
 mkdir -p "$status_dir"
@@ -42,7 +42,7 @@ if [ -n "${PUZZLLM_OLLAMA_MODEL:-}" ]; then
             say "using Ollama model $model_id (compute: $compute, requested ${PUZZLLM_CTX:-32768} context tokens)"
             exec /opt/puzzllm/bin/omp --model "puzzllm-local/$model_id" \
                 --system-prompt "$tool_prompt" \
-                --no-title --no-lsp --no-extensions --no-skills --no-rules "$@"
+                --allow-home --no-title --no-lsp --no-extensions --no-skills --no-rules "$@"
         fi
         kill -0 "$relay" 2>/dev/null || break
         sleep 0.1
@@ -87,4 +87,4 @@ health || { say "llama-server did not come up"; exec bash -i; }
 
 say "Qwen 3.5 ready; starting omp"
 exec /opt/puzzllm/bin/omp --model "puzzllm-local/$model_id" \
-    --no-title --no-lsp --no-extensions --no-skills --no-rules "$@"
+    --allow-home --no-title --no-lsp --no-extensions --no-skills --no-rules "$@"

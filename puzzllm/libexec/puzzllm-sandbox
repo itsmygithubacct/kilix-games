@@ -15,9 +15,9 @@
 # /tmp. Nothing of the host's home directory is visible.
 #
 # What is writable, and nothing else on the host is:
-#   agent  $STATE/workspace  at /kilix/workspace  (its working directory)
-#          $STATE/agent      at /kilix/.omp/agent (omp's config, sessions)
-#   shell  $STATE/workspace  at /kilix/workspace  (its working directory)
+#   agent  $STATE/workspace  at /kilix  (its home and working directory)
+#          $STATE/agent      at /opt/puzzllm/agent (omp's config, sessions)
+#   shell  $STATE/workspace  at /kilix  (its home and working directory)
 #          The owner decided (2026-11-18) that the player may meet a goal by
 #          hand in this shell, and that it counts the same as the LLM doing it.
 #
@@ -99,7 +99,7 @@ args=(
     --hostname puzzllm
     --ro-bind /usr /usr
     --proc /proc --dev /dev
-    --tmpfs /tmp --tmpfs /home --tmpfs "$box_home"
+    --tmpfs /tmp --tmpfs /home
     --clearenv
     --setenv HOME "$box_home" --setenv USER kilix --setenv LOGNAME kilix
     --setenv PATH /opt/puzzllm/bin:/usr/local/bin:/usr/bin:/bin
@@ -128,9 +128,9 @@ if [ "$compute" = cpu ]; then gpu=; fi
 case "$mode" in
 count-setup)
     exec bwrap "${args[@]}" --new-session \
-        --bind "$state/workspace" "$box_home/workspace" \
+        --bind "$state/workspace" "$box_home" \
         --ro-bind "$here/../levels/count-files" /opt/puzzllm/fixture \
-        --chdir "$box_home/workspace" --remount-ro / -- cp -an /opt/puzzllm/fixture/. .
+        --chdir "$box_home" --remount-ro / -- cp -an /opt/puzzllm/fixture/. .
     ;;
 count-check)
     cases=(--dir "/empty folder" --dir "/other files/subfolder")
@@ -141,17 +141,18 @@ count-check)
     done
     cases+=(--ro-bind /usr/bin/true "/other files/subfolder/ignored.txt")
     exec timeout --kill-after=1s 3s bwrap "${args[@]}" "${cases[@]}" --new-session \
-        --ro-bind "$state/workspace" "$box_home/workspace" \
+        --ro-bind "$state/workspace" "$box_home" \
         --ro-bind "$here/puzzllm-count-check" /opt/puzzllm/count-check \
-        --chdir "$box_home/workspace" --remount-ro / -- bash /opt/puzzllm/count-check
+        --chdir "$box_home" --remount-ro / -- bash /opt/puzzllm/count-check
     ;;
 esac
 
 case "$mode" in
 agent|agent-exec)
-    args+=(--bind "$state/workspace" "$box_home/workspace"
-           --bind "$state/agent" "$box_home/.omp/agent"
-           --chdir "$box_home/workspace")
+    args+=(--bind "$state/workspace" "$box_home"
+           --bind "$state/agent" /opt/puzzllm/agent
+           --setenv PI_CODING_AGENT_DIR /opt/puzzllm/agent
+           --chdir "$box_home")
     [ -n "$omp_bin" ] && [ -x "$omp_bin" ] &&
         args+=(--ro-bind "$(readlink -f "$omp_bin")" /opt/puzzllm/bin/omp)
     [ -z "$ollama" ] && [ -n "$llama_bin" ] && [ -x "$llama_bin" ] &&
@@ -191,16 +192,16 @@ codex)
     # The CLI connects to its hosted provider. Its separate command policy
     # denies network access and masks the Codex credentials from tools.
     args+=(--share-net
-           --bind "$state/workspace" "$box_home/workspace"
-           --bind "$state/codex" "$box_home/.codex"
-           --chdir "$box_home/workspace"
-           --setenv CODEX_HOME "$box_home/.codex"
+           --bind "$state/workspace" "$box_home"
+           --bind "$state/codex" /opt/puzzllm/codex-home
+           --chdir "$box_home"
+           --setenv CODEX_HOME /opt/puzzllm/codex-home
            --ro-bind "$here/puzzllm-codex-init" /opt/puzzllm/bin/puzzllm-codex-init)
     [ ! -r /etc/resolv.conf ] || args+=(--ro-bind /etc/resolv.conf /etc/resolv.conf)
     ;;
 shell|shell-exec)
-    args+=(--bind "$state/workspace" "$box_home/workspace"
-           --chdir "$box_home/workspace"
+    args+=(--bind "$state/workspace" "$box_home"
+           --chdir "$box_home"
            --ro-bind "$here/puzzllm-shellrc" /opt/puzzllm/shellrc)
     ;;
 *)

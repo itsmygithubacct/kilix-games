@@ -321,7 +321,7 @@ static void test_strawberry(void)
     CHECK(levels_load(&levels, "levels/levels.txt", err, sizeof err), "levels.txt: %s", err);
     const level *lv = &levels.items[1];
     CHECK(strcmp(lv->file, "strawberry.txt") == 0, "room 2 checks strawberry.txt");
-    CHECK(strstr(levels.items[0].goal, "~/workspace/hello_world.txt") != NULL,
+    CHECK(strstr(levels.items[0].goal, "~/hello_world.txt") != NULL,
           "room 1 names the workspace destination");
     sub(ws, sizeof ws, "strawberry-ws");
     mkdir(ws, 0700);
@@ -544,7 +544,7 @@ static void test_activity(void)
     char ws[2300], p[2400];
     /* the shapes omp 18 writes (seen in a real session) */
     const char *lines[] = {
-        "{\"type\":\"session\",\"version\":3,\"id\":\"x\",\"cwd\":\"/kilix/workspace\"}",
+        "{\"type\":\"session\",\"version\":3,\"id\":\"x\",\"cwd\":\"/kilix\"}",
         "{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"make hello_world.txt\"}]}}",
         "{\"type\":\"message\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hm\"},"
         "{\"type\":\"toolCall\",\"id\":\"1\",\"name\":\"write\",\"arguments\":{\"path\":\"hello_world.txt\",\"content\":\"Hello\"}}]}}",

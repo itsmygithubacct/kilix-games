@@ -145,13 +145,13 @@ def native_tool(tool, write_schema):
 
 
 def file_arguments(name, arguments):
-    """Translate common workspace aliases in structured file calls only."""
+    """Translate sandbox home paths in structured file calls only."""
     if name not in ("read", "write", "edit") or not isinstance(arguments, dict):
         return arguments
     path = arguments.get("path")
     if not isinstance(path, str):
         return arguments
-    for prefix in ("~/workspace/", "/workspace/", "/kilix/workspace/"):
+    for prefix in ("~/", "/kilix/"):
         if path.startswith(prefix):
             relative = path[len(prefix):]
             if relative and not relative.startswith("/") and ".." not in relative.split("/"):

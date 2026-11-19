@@ -6,7 +6,7 @@
     "properties": {
       "path": {
         "type": "string",
-        "description": "Workspace-relative filename. Example: hello_world.txt."
+        "description": "Path relative to the sandbox home. Example: hello_world.txt."
       },
       "i": {
         "type": "string",

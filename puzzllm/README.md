@@ -27,7 +27,7 @@ Neuronte nets draw the text, the terminal characters and Kilix himself (see
 | top right | the goal, status, and hints |
 | middle right | system actions, including tool calls and workspace changes |
 | above the shell | CPU, RAM, GPU, VRAM, and disk read/write activity |
-| bottom right | a bash shell in the same sandbox and the same workspace |
+| bottom right | a bash shell in the same game home directory |
 
 The resource bar samples the coding harness and any model process it can
 attribute to that session. CPU is shown as a percentage of one logical
@@ -110,7 +110,7 @@ Python 3. It uses port 11434 by default and respects a loopback
 
 ## Level 1: Hello, world
 
-Get the agent to create `~/workspace/hello_world.txt`. The goal is met when the
+Get the agent to create `~/hello_world.txt`. The goal is met when the
 workspace holds a regular file of that name (a symlink does not count), of
 1 to 4096 bytes, containing "hello" and "world" in any case. `Hello, World!`
 passes and an empty file does not. The player may also create the file by
@@ -118,7 +118,7 @@ hand in the shell; that counts the same. A 0.8B model often says it wrote
 the file when it did not, so check with `ls` and `cat` in the shell.
 
 When you leave a room, the coding agent stops before its files move into
-`workspace/level_N/`. The system actions feed clears. Focus the coding pane
+`~/level_N/`. The system actions feed clears. Focus the coding pane
 in the next room to start a fresh session.
 With the game closed, run `bin/puzzllm --reset-progress` to start at level 1.
 The previous workspace is kept under a `reset-*` directory in the game state.
@@ -131,7 +131,7 @@ Levels live in [`levels/levels.txt`](levels/levels.txt), one block each:
 level: 1
 title: Hello, world
 room: stone
-goal: Get the agent to write Hello, World! to ~/workspace/hello_world.txt.
+goal: Get the agent to write Hello, World! to ~/hello_world.txt.
 hint: Walk to the agent screen on the left and press Enter to talk to the agent.
 check: file hello_world.txt
 require: nonempty
@@ -154,7 +154,7 @@ The levels so far:
 
 1. **Hello, world:** `hello_world.txt` saying Hello, World!
 2. **Strawberry:** count the r's in strawberry and write the number by itself
-   to `~/workspace/strawberry.txt`. Surrounding whitespace is optional.
+   to `~/strawberry.txt`. Surrounding whitespace is optional.
 3. **A million ones:** `1.txt` holding exactly 1,000,000 ones and nothing
    else, so no spaces and no line ending:
    ```
@@ -170,7 +170,7 @@ The levels so far:
    `chest.zip` to open the door. The game uses `zip` to create the chest,
    and you can open it with `unzip` in the shell. Run `man unzip` in the
    sandbox to see the command reference. Resuming keeps the same chest.
-5. Count the files. Fix `~/workspace/count_files.sh` so it counts regular
+5. Count the files. Fix `~/count_files.sh` so it counts regular
    files directly inside the supplied `sample files` folder. The script
    also takes a folder path as its first argument. The grader checks the
    supplied folder and additional cases in a read-only sandbox.
@@ -189,14 +189,14 @@ sandboxes started by [`libexec/puzzllm-sandbox`](libexec/puzzllm-sandbox):
   is the sandbox's own loopback, so nothing in it can reach the host or the
   internet.
 - `/usr` and a short list of files from `/etc` are read-only. The sandbox
-  root is read-only. `$HOME` and `/tmp` are fresh tmpfs. Nothing of the
-  user's home is visible.
+  root is read-only and `/tmp` is a fresh tmpfs. The sandbox has its own
+  persistent home. Nothing of the host user's home is visible.
 - Two folders are writable, both under `~/.local/share/puzzllm/` (or
   `$PUZZLLM_STATE`), and both survive restarts:
-  - `workspace/`, mounted as `/kilix/workspace`. It is the working
-    directory of both omp and the shell.
-  - `agent/`, mounted as omp's `~/.omp/agent` in the agent sandbox only.
-    It holds omp's config and sessions.
+  - `workspace/`, mounted as `/kilix`. It is both `$HOME` and the working
+    directory of omp and the shell.
+  - `agent/`, mounted separately at `/opt/puzzllm/agent` in the agent
+    sandbox only. It holds omp's config and sessions.
 - In the agent sandbox, `puzzllm-agent-init` starts `llama-server` on the
   sandbox loopback with the Qwen weights mounted read-only. It waits for the
   server to answer, then starts omp. omp's `models.yml` is written fresh in

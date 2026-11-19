@@ -243,7 +243,7 @@ static int render_to(const char *root, const char *state, const char *dir)
          "\xe2\x95\xad\xe2\x94\x80 you \xe2\x94\x80\xe2\x95\xae\r\n"
          "> create hello_world.txt saying Hello, World!\r\n");
     feed(&the_game.shell_vt,
-         "\033[1;32mkilix@sandbox\033[0m:\033[1;34m~/workspace\033[0m$ ls\r\n");
+         "\033[1;32mkilix@sandbox\033[0m:\033[1;34m~\033[0m$ ls\r\n");
     for (int i = 0; i < 3; i++) {
         if (i == 1) {
             the_game.sc.goal_met = true;

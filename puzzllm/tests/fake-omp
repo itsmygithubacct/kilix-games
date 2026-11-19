@@ -2,16 +2,18 @@
 """Stand-in for omp in the sandbox tests.
 
 Started by puzzllm-agent-init exactly as omp would be. It reads the provider
-the sandbox wrote into ~/.omp/agent/models.yml, asks that model for the
+the sandbox wrote into the agent state folder, asks that model for the
 file's text, and writes hello_world.txt in its working directory: the level-1
 goal reached through the same chain the real agent uses.
 """
 import json
 import os
 import re
+import sys
 import urllib.request
 
-models = open(os.path.expanduser("~/.omp/agent/models.yml")).read()
+assert os.getcwd() == os.environ["HOME"] and "--allow-home" in sys.argv
+models = open(os.path.join(os.environ["PI_CODING_AGENT_DIR"], "models.yml")).read()
 base = re.search(r"baseUrl:\s*(\S+)", models).group(1)
 model = re.search(r"- id:\s*(\S+)", models).group(1)
 request = urllib.request.Request(

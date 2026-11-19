@@ -58,7 +58,7 @@ class OllamaHandler(http.server.BaseHTTPRequestHandler):
         if request.get("tools"):
             write = request["tools"][0]["function"]["parameters"]
             assert "content" in write["required"]
-            assert write["properties"]["path"]["description"].startswith("Workspace-relative")
+            assert write["properties"]["path"]["description"].startswith("Path relative to the sandbox home")
             assert write["properties"]["content"]["description"] == "Exact text to write to the file."
             if request["messages"][-1]["role"] == "tool":
                 assert request["messages"][-1]["tool_name"] == "write"
@@ -66,7 +66,7 @@ class OllamaHandler(http.server.BaseHTTPRequestHandler):
             else:
                 message = {"role": "assistant", "tool_calls": [
                     {"function": {"name": "write", "arguments": {
-                        "path": "/workspace/hello_world.txt", "content": "Hello, World!", "i": "write the greeting",
+                        "path": "/kilix/hello_world.txt", "content": "Hello, World!", "i": "write the greeting",
                     }}}
                 ]}
         record = {"message": message, "done": True, "done_reason": "stop",
