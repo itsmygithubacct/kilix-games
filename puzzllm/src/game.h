@@ -7,6 +7,7 @@
 
 #include "activity.h"
 #include "art.h"
+#include "count_puzzle.h"
 #include "keys.h"
 #include "levels.h"
 #include "pty.h"
@@ -72,6 +73,7 @@ typedef struct game {
     pty_proc omp, shell;
     activity act;
     goal_result goal;
+    count_puzzle count_check;
     bool was_met;
     int hints_shown;
     double level_time;

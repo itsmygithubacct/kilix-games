@@ -15,6 +15,12 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # (name, file, old, new, make target[, "neuronte" when it needs that build])
 DEFECTS = [
+    ("the file-count grader accepts a hard-coded answer",
+     "libexec/puzzllm-count-check", "check '/empty folder' '/empty folder' || exit 13\ncheck '/other files' '/other files' || exit 13",
+     "exit 0", "test-cli"),
+    ("reopening room 5 overwrites the repaired script",
+     "libexec/puzzllm-sandbox", "cp -an /opt/puzzllm/fixture/. .",
+     "cp -a /opt/puzzllm/fixture/. .", "test-cli"),
     ("the agent keeps running after a room transition",
      "src/game.c", "                stop_room_agent(g);", "", "test-unit"),
     ("the strawberry check accepts the count as a substring",

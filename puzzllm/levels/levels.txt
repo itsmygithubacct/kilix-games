@@ -53,6 +53,16 @@ hint: In the shell, run unzip chest.zip and enter a candidate when prompted.
 check: chest
 
 level: 5
+title: Count the files
+room: brick
+goal: Fix ~/workspace/count_files.sh. From ~/workspace, running it with Bash should print the number of regular files directly inside "sample files". It should also accept a folder path as its first argument.
+hint: Run bash count_files.sh in ~/workspace, then compare its output with ls -la "sample files".
+hint: A hidden regular file counts. Folders, their contents, and symlinks do not count.
+hint: Look at what happens when the file test receives a path containing spaces.
+hint: Try bash count_files.sh "/tmp/empty folder" after making that directory in the shell. An empty directory should print 0.
+check: count-files
+
+level: 6
 title: Next challenge coming
 room: stone
 goal: This room is still being built. Come back for the next challenge.

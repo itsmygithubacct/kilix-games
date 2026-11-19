@@ -1,0 +1,18 @@
+#!/bin/bash
+# The workspace and test cases are mounted read-only by the game sandbox.
+set -euo pipefail
+[[ -f count_files.sh && ! -L count_files.sh && -d 'sample files' && ! -L 'sample files' ]] || exit 11
+
+check() {
+    local folder=$1 expected output
+    expected=$(find "$folder" -mindepth 1 -maxdepth 1 -type f -printf . | wc -c)
+    shift
+    # A sentinel preserves the script's final newline in command substitution.
+    output=$(bash --noprofile --norc ./count_files.sh "$@" 2>/dev/null | head -c 128 &&
+             printf '\001') || return 1
+    [[ "$output" == "$expected"$'\n\001' ]]
+}
+
+check 'sample files' || exit 12
+check '/empty folder' '/empty folder' || exit 13
+check '/other files' '/other files' || exit 13

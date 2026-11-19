@@ -18,6 +18,7 @@
  *                    does not count) no bigger than 64 KiB, or than the
  *                    largest size a bytes or max-bytes require names.
  * check: chest       the game supplies a ZIP and checks its extracted key.
+ * check: count-files the game supplies a Bash script and tests its output.
  * check: none        never met: a "coming soon" stub room.
  * require: nonempty            at least one byte
  * require: equals TEXT         exactly TEXT, allowing surrounding whitespace
@@ -45,7 +46,7 @@ enum {
     LEVEL_FILE_MAX = 16 * 1024 * 1024   /* largest file a level can ask for */
 };
 
-typedef enum level_check_kind { CHECK_NONE = 0, CHECK_FILE, CHECK_CHEST } level_check_kind;
+typedef enum level_check_kind { CHECK_NONE = 0, CHECK_FILE, CHECK_CHEST, CHECK_COUNT_FILES } level_check_kind;
 typedef enum level_req_kind {
     REQ_NONEMPTY = 1, REQ_CONTAINS, REQ_CONTAINS_CI, REQ_MAX_BYTES, REQ_BYTES, REQ_ONLY,
     REQ_CONTAINS_ANY_CI, REQ_LACKS_CI, REQ_EQUALS

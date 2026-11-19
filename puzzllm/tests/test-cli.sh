@@ -115,6 +115,30 @@ printf 'Hello, World!\n' > "$workspace/hello_world.txt"
     pass "interrupted transition resumes without overwriting archived files" ||
     fail "transition recovery rc=$rc"
 
+# Room 5 ships the actual broken Bash script and a folder with tricky names.
+printf 'level 5\n' > "$PUZZLLM_STATE/progress"
+"$bin" --check-level 5 > "$scratch/out"; rc=$?
+[ "$rc" -eq 1 ] && grep -q 'did not print the correct count for sample files' "$scratch/out" &&
+    [ -f "$workspace/sample files/beta notes.txt" ] &&
+    [ -f "$workspace/sample files/.hidden" ] && [ -f "$workspace/sample files/archive/old.txt" ] &&
+    pass "room 5 ships the folder and rejects the broken script" || fail "room 5 setup rc=$rc"
+printf 'echo 3\n' > "$workspace/count_files.sh"
+"$bin" --check-level 5 > "$scratch/out"; rc=$?
+[ "$rc" -eq 1 ] && grep -q 'must also work with other folder paths' "$scratch/out" &&
+    pass "a hard-coded count fails the extra folder checks" || fail "room 5 constant rc=$rc"
+cat > "$workspace/count_files.sh" <<'EOF'
+folder=${1:-sample files}
+find "$folder" -maxdepth 1 -mindepth 1 -type f -printf . | wc -c
+EOF
+"$bin" --check-level 5 > "$scratch/out"; rc=$?
+[ "$rc" -eq 0 ] && grep -q 'level 5: met' "$scratch/out" &&
+    grep -q '^find ' "$workspace/count_files.sh" &&
+    pass "a general fix opens room 5 and survives reopening the save" || fail "room 5 fix rc=$rc"
+printf 'An extra file for the same script.\n' > "$workspace/sample files/new file.txt"
+"$bin" --check-level 5 > "$scratch/out"; rc=$?
+[ "$rc" -eq 0 ] && [ -f "$workspace/sample files/new file.txt" ] &&
+    pass "the grader uses the actual shipped directory in the workspace" || fail "room 5 changed folder rc=$rc"
+
 # a broken level file is reported with its line
 mkdir -p "$scratch/root/levels"
 printf 'level: 1\ntitle: t\ngoal: g\ncheck: file ../escape\n' > "$scratch/root/levels/levels.txt"

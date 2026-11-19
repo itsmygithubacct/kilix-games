@@ -273,6 +273,8 @@ static bool prepare_chest(const game *g)
 goal_result game_check_level(const game *g, int index)
 {
     const level *lv = &g->levels.items[index];
+    if (lv->check == CHECK_COUNT_FILES)
+        return count_puzzle_check(g->root, g->state, g->workspace);
     if (lv->check != CHECK_CHEST) return levels_check(lv, g->workspace);
 
     goal_result result = {false, "extract key.txt from chest.zip"};
@@ -527,6 +529,7 @@ static void menu_key(game *g, const key_event *ev)
 
 void game_enter_level(game *g, int level)
 {
+    count_puzzle_stop(&g->count_check);
     scene_enter_room(&g->sc, level);
     g->last_pane = FOCUS_OMP;
     g->hints_shown = cur_level(g)->nhints > 0 ? 1 : 0;
@@ -537,8 +540,14 @@ void game_enter_level(game *g, int level)
     activity_begin_room(&g->act, g->state, g->workspace);
     if (cur_level(g)->check == CHECK_CHEST && g->state_lock >= 0 && !prepare_chest(g))
         activity_add(&g->act, ACT_ERROR, "Could not prepare chest.zip (requires zip).");
+    if (cur_level(g)->check == CHECK_COUNT_FILES && g->state_lock >= 0 &&
+        !count_puzzle_prepare(g->root, g->state))
+        activity_add(&g->act, ACT_ERROR, "Could not install the count_files.sh puzzle.");
     activity_add(&g->act, ACT_GOAL, "Room %d: %s", level + 1, cur_level(g)->title);
-    game_poll_goal(g);
+    if (!g->spawn && cur_level(g)->check == CHECK_COUNT_FILES)
+        g->goal = levels_check(cur_level(g), g->workspace);
+    else
+        game_poll_goal(g);
     if (g->sc.goal_met) g->sc.door = 1.0f;   /* already done earlier */
 }
 
@@ -599,6 +608,7 @@ bool game_init(game *g, const char *root, const char *state, bool spawn,
 
 void game_shutdown(game *g)
 {
+    count_puzzle_stop(&g->count_check);
     pty_stop(&g->omp);
     pty_stop(&g->shell);
     pty_stop(&g->menu.discovery);
@@ -615,7 +625,9 @@ void game_shutdown(game *g)
 
 void game_poll_goal(game *g)
 {
-    g->goal = game_check_level(g, g->sc.level);
+    g->goal = cur_level(g)->check == CHECK_COUNT_FILES ?
+        count_puzzle_poll(&g->count_check, g->root, g->state, g->workspace) :
+        game_check_level(g, g->sc.level);
     g->sc.goal_met = g->goal.met;
     if (g->goal.met && !g->was_met)
         activity_add(&g->act, ACT_GOAL, "GOAL MET: %s. The door opens.", g->goal.why);

@@ -140,6 +140,8 @@ bool levels_parse(level_list *out, const char *text, char *err, size_t errcap)
                 cur->check = CHECK_NONE;
             } else if (strcmp(val, "chest") == 0) {
                 cur->check = CHECK_CHEST;
+            } else if (strcmp(val, "count-files") == 0) {
+                cur->check = CHECK_COUNT_FILES;
             } else if (strncmp(val, "file ", 5) == 0) {
                 char *name = trim(val + 5);
                 if (!safe_name(name) || !copy_field(cur->file, sizeof cur->file, name)) {
@@ -148,7 +150,7 @@ bool levels_parse(level_list *out, const char *text, char *err, size_t errcap)
                 }
                 cur->check = CHECK_FILE;
             } else {
-                set_err(err, errcap, line_no, "check must be 'file NAME', 'chest' or 'none'");
+                set_err(err, errcap, line_no, "check must be 'file NAME', 'chest', 'count-files' or 'none'");
                 return false;
             }
             have_check = true;
@@ -304,6 +306,8 @@ goal_result levels_check(const level *lv, const char *workspace)
         snprintf(r.why, sizeof r.why, "extract key.txt from chest.zip");
         return r;
     }
+    if (lv->check == CHECK_COUNT_FILES)
+        return (goal_result){false, "repair count_files.sh"};
     snprintf(path, sizeof path, "%s/%s", workspace, lv->file);
     if (lstat(path, &st) != 0) {
         snprintf(r.why, sizeof r.why, "%.160s does not exist yet", lv->file);

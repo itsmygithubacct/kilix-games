@@ -154,7 +154,11 @@ The levels so far:
 4. The treasure chest. Extract `key.txt` from the password-protected
    `chest.zip` to open the door. The game uses `zip` to create the chest,
    and you can open it with `unzip` in the shell. Resuming keeps the same chest.
-5. A stub room for the next challenge.
+5. Count the files. Fix `~/workspace/count_files.sh` so it counts regular
+   files directly inside the supplied `sample files` folder. The script
+   also takes a folder path as its first argument. The grader checks the
+   supplied folder and additional cases in a read-only sandbox.
+6. A stub room for the next challenge.
 
 The generated pixel art in `assets/` includes blue stone and red brick walls,
 slate floor tiles, the sliding wooden door and its lit passage, and Room 4’s

@@ -6,6 +6,7 @@
 #   puzzllm-sandbox shell                   the player's bash
 #   puzzllm-sandbox agent-exec -- CMD...    CMD with exactly the agent's mounts
 #   puzzllm-sandbox shell-exec -- CMD...    CMD with exactly the shell's mounts
+#   puzzllm-sandbox count-setup|count-check  install or check the Bash puzzle
 #   puzzllm-sandbox paths                   print the resolved paths and exit
 #
 # The omp and shell sandboxes are bubblewrap containers with every namespace unshared
@@ -123,6 +124,28 @@ compute=${PUZZLLM_COMPUTE:-auto}
 case "$compute" in auto|cpu|gpu) ;; *) die "PUZZLLM_COMPUTE must be auto, cpu, or gpu" ;; esac
 gpu=${PUZZLLM_GPU:-}
 if [ "$compute" = cpu ]; then gpu=; fi
+
+case "$mode" in
+count-setup)
+    exec bwrap "${args[@]}" --new-session \
+        --bind "$state/workspace" "$box_home/workspace" \
+        --ro-bind "$here/../levels/count-files" /opt/puzzllm/fixture \
+        --chdir "$box_home/workspace" --remount-ro / -- cp -an /opt/puzzllm/fixture/. .
+    ;;
+count-check)
+    cases=(--dir "/empty folder" --dir "/other files/subfolder")
+    # Vary the second populated case to keep a hard-coded total from passing.
+    extra=$((4 + RANDOM % 4))
+    for ((i = 0; i < extra; i++)); do
+        cases+=(--ro-bind /usr/bin/true "/other files/item $i")
+    done
+    cases+=(--ro-bind /usr/bin/true "/other files/subfolder/ignored.txt")
+    exec timeout --kill-after=1s 3s bwrap "${args[@]}" "${cases[@]}" --new-session \
+        --ro-bind "$state/workspace" "$box_home/workspace" \
+        --ro-bind "$here/puzzllm-count-check" /opt/puzzllm/count-check \
+        --chdir "$box_home/workspace" --remount-ro / -- bash /opt/puzzllm/count-check
+    ;;
+esac
 
 case "$mode" in
 agent|agent-exec)
