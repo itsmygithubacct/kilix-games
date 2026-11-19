@@ -65,6 +65,12 @@ profile grants workspace access, denies access to that directory, and
 disables command networking. The Codex client uses OpenAI's hosted service
 when selected. Set `PUZZLLM_CODEX` to override the executable found on PATH.
 
+PuzzLLM requests **32,768 context tokens** from Ollama for every turn.
+`PUZZLLM_CTX` changes the requested limit. The game checks the model's
+reported maximum and requires at least 16,384 tokens. If Ollama reports
+that it started a runner with less context than requested, the agent pane
+shows an error instead of using the truncated completion.
+
 **Thinking** is off at startup and after switching models. The switch is
 unavailable for models without reported thinking support. Changing it
 restarts the agent. For models that always reason, Ollama uses their minimum

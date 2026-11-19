@@ -9,13 +9,15 @@ import json
 import os
 
 
-def call(path, model, content=None):
+def call(path, model, content=None, history=(), tools=(), stream=True):
     if content is None:
         content = [{"type": "text", "text": "Hello"}]
     request = http.client.HTTPConnection("127.0.0.1", int(os.environ["PUZZLLM_PORT"]), timeout=5)
     try:
         request.request("POST", path, json.dumps({"model": model, "messages": [
-            {"role": "user", "content": content}], "stream": True, "reasoning_effort": "high"}))
+            {"role": "user", "content": content}, *history], "stream": stream,
+            "stream_options": {"include_usage": True}, "tools": list(tools),
+            "reasoning_effort": "high"}))
         with request.getresponse() as response:
             return response.status, response.read()
     finally:
@@ -27,7 +29,7 @@ other = "test/other:latest" if model == "test/agent:7b" else "test/agent:7b"
 assert call("/api/pull", model)[0] == 404
 assert call("/v1/chat/completions", other)[0] == 400
 assert call("/v1/chat/completions", model, [
-    {"type": "image_url", "image_url": {"url": "https://example.invalid/image"}}
+    {"type": "image_url", "text": "also text", "image_url": {"url": "https://example.invalid/image"}}
 ])[0] == 400
 status, body = call("/v1/chat/completions", model)
 effort = "medium" if os.environ.get("PUZZLLM_THINK") == "1" else "none"
@@ -35,6 +37,22 @@ if model == "test/other:latest":
     effort = "absent"
 elif model == "test/always:latest" and effort == "none":
     effort = "low"
-assert status == 200 and f"Hello from the selected model ({effort})".encode() in body and b"[DONE]" in body
+assert status == 200, body.decode()
+assert f"Hello from the selected model ({effort})".encode() in body and b"[DONE]" in body
+tools = [{"type": "function", "function": {"name": "write", "parameters": {"type": "object"}}}]
+status, body = call("/v1/chat/completions", model, tools=tools)
+assert status == 200, body.decode()
+events = [json.loads(line[6:]) for line in body.splitlines()
+          if line.startswith(b"data: {")]
+tool_chunk = next(e["choices"][0] for e in events if e.get("choices") and
+                  e["choices"][0]["delta"].get("tool_calls"))
+tool = tool_chunk["delta"]["tool_calls"][0]
+assert tool_chunk["finish_reason"] == "tool_calls" and tool["function"]["name"] == "write"
+assert events[-1]["usage"]["total_tokens"] == 14
+tool.pop("index")
+history = [{"role": "assistant", "content": None, "tool_calls": [tool]},
+           {"role": "tool", "tool_call_id": tool["id"], "content": "wrote file"}]
+status, body = call("/v1/chat/completions", model, history=history, tools=tools, stream=False)
+assert status == 200 and json.loads(body)["choices"][0]["message"]["content"].startswith("Hello")
 print("fake-ollama-omp: completion received with effort " + effort)
 PY

@@ -12,12 +12,16 @@ import socketserver
 import subprocess
 import sys
 import tempfile
+import time
+import uuid
 import threading
 from urllib.parse import urlsplit
 
 HOST = "127.0.0.1"
 SOCKET = "/opt/puzzllm/ollama.sock"
 CHAT = "/v1/chat/completions"
+MIN_CONTEXT = 16384
+DEFAULT_CONTEXT = 32768
 NAME = re.compile(r"[a-zA-Z0-9_][a-zA-Z0-9_.:/-]{0,254}")
 
 
@@ -53,21 +57,23 @@ def installed_models():
         connection.close()
 
 
-def thinking_controls(model):
-    """Return the control type and the OpenAI efforts for on and off."""
+def model_metadata(model):
     connection = ollama_connection(2)
     try:
         connection.request("POST", "/api/show", json.dumps({"model": model}),
                            {"Content-Type": "application/json"})
         with connection.getresponse() as response:
-            if response.status != 200:
-                return "0", None, None
-            metadata = json.load(response)
+            if response.status == 200:
+                return json.load(response)
     except (OSError, ValueError, TypeError, http.client.HTTPException):
-        return "0", None, None
+        pass
     finally:
         connection.close()
+    return {}
 
+
+def thinking_controls(metadata):
+    """Return the control type and native chat values for on and off."""
     thinking = metadata.get("thinking") or {}
     values = thinking.get("values", [])
     named = [value for value in values if isinstance(value, str)]
@@ -75,25 +81,49 @@ def thinking_controls(model):
     if effort not in named:
         effort = "medium" if "medium" in named or not named else named[0]
     if False in values and (True in values or named):
-        return "1", effort, "none"
+        return "1", effort if named else True, False
     if named:
         minimum = "low" if "low" in named else named[0]
         return "2", effort, minimum
     if True in values:
-        return "2", effort, "none"
+        return "2", effort, False
     if not values and "thinking" in metadata.get("capabilities", []):
         if metadata.get("model_info", {}).get("general.architecture") == "gptoss":
             return "2", "medium", "low"
-        return "1", "medium", "none"
+        return "1", True, False
     return "0", None, None
 
 
-CHAT_FIELDS = {
-    "model", "messages", "stream", "stream_options", "tools", "tool_choice",
-    "parallel_tool_calls", "max_tokens", "max_completion_tokens", "temperature",
-    "top_p", "stop", "seed", "frequency_penalty", "presence_penalty",
-    "response_format", "logprobs", "top_logprobs",
-}
+def check_context(metadata):
+    try:
+        context = int(os.environ.get("PUZZLLM_CTX") or DEFAULT_CONTEXT)
+    except ValueError as error:
+        raise ValueError("PUZZLLM_CTX must be a token count") from error
+    if context < MIN_CONTEXT:
+        raise ValueError(f"PuzzLLM needs at least {MIN_CONTEXT:,} context tokens for tool use "
+                         f"(PUZZLLM_CTX requests {context:,})")
+    info = metadata.get("model_info", {})
+    capacity = info.get(f"{info.get('general.architecture')}.context_length")
+    if isinstance(capacity, int) and 0 < capacity < context:
+        raise ValueError(f"the selected model supports {capacity:,} context tokens, "
+                         f"but PuzzLLM requests {context:,}")
+    return context
+
+
+def runner_context(model):
+    connection = ollama_connection(2)
+    try:
+        connection.request("GET", "/api/ps")
+        with connection.getresponse() as response:
+            if response.status == 200:
+                for entry in json.load(response).get("models", []):
+                    if model in (entry.get("name"), entry.get("model")):
+                        return entry.get("context_length")
+    except (OSError, ValueError, TypeError, http.client.HTTPException):
+        pass
+    finally:
+        connection.close()
+    return None
 
 
 def text_content(content):
@@ -102,6 +132,85 @@ def text_content(content):
                 isinstance(part, dict) and part.get("type") == "text" and
                 isinstance(part.get("text"), str) for part in content
             )))
+
+
+def native_request(request, context, think):
+    """Translate omp's text and tool history into Ollama's native chat format."""
+    messages = []
+    call_names = {}
+    for message in request["messages"]:
+        content = message.get("content") or ""
+        if isinstance(content, list):
+            content = "".join(part["text"] for part in content)
+        item = {"role": message["role"], "content": content}
+        thinking = message.get("reasoning") or message.get("reasoning_content")
+        if isinstance(thinking, str):
+            item["thinking"] = thinking
+        for call in message.get("tool_calls") or []:
+            function = call["function"]
+            name = function["name"]
+            arguments = function.get("arguments") or {}
+            if isinstance(arguments, str):
+                arguments = json.loads(arguments)
+            if not isinstance(arguments, dict):
+                raise ValueError("tool arguments must be a JSON object")
+            item.setdefault("tool_calls", []).append({
+                "function": {"name": name, "arguments": arguments},
+            })
+            if call.get("id"):
+                call_names[call["id"]] = name
+        if item["role"] == "tool":
+            item["tool_name"] = message.get("name") or call_names.get(message.get("tool_call_id"), "")
+        messages.append(item)
+
+    options = {key: request[key] for key in
+               ("temperature", "top_p", "stop", "seed", "frequency_penalty", "presence_penalty")
+               if request.get(key) is not None}
+    options["num_ctx"] = context
+    max_tokens = request.get("max_completion_tokens") or request.get("max_tokens")
+    if max_tokens is not None:
+        options["num_predict"] = max_tokens
+    payload = {"model": request["model"], "messages": messages,
+               "stream": bool(request.get("stream")), "options": options}
+    if request.get("tools"):
+        payload["tools"] = request["tools"]
+    if think is not None:
+        payload["think"] = think
+    response_format = request.get("response_format") or {}
+    if response_format.get("type") == "json_object":
+        payload["format"] = "json"
+    elif response_format.get("type") == "json_schema":
+        payload["format"] = response_format["json_schema"]["schema"]
+    for key in ("logprobs", "top_logprobs"):
+        if request.get(key) is not None:
+            payload[key] = request[key]
+    return payload
+
+
+def openai_message(native, request_id, first_index, streaming):
+    output = {}
+    message = native.get("message") or {}
+    if message.get("content") or not streaming:
+        output["content"] = message.get("content", "")
+    if message.get("thinking"):
+        output["reasoning_content"] = message["thinking"]
+    calls = []
+    for index, call in enumerate(message.get("tool_calls") or [], first_index):
+        function = call["function"]
+        event = {"id": f"{request_id}_{index}", "type": "function",
+                 "function": {"name": function["name"],
+                              "arguments": json.dumps(function.get("arguments") or {})}}
+        if streaming:
+            event["index"] = index
+        calls.append(event)
+    if calls:
+        output["tool_calls"] = calls
+    return output, len(calls)
+
+
+def token_usage(native):
+    inputs, outputs = native.get("prompt_eval_count", 0), native.get("eval_count", 0)
+    return {"prompt_tokens": inputs, "completion_tokens": outputs, "total_tokens": inputs + outputs}
 
 
 class ChatHandler(http.server.BaseHTTPRequestHandler):
@@ -133,10 +242,8 @@ class ChatHandler(http.server.BaseHTTPRequestHandler):
                 not isinstance(tool, dict) or tool.get("type") != "function" for tool in tools
             ):
                 raise ValueError()
-            request = {key: value for key, value in request.items() if key in CHAT_FIELDS}
-            if self.server.reasoning_effort is not None:
-                request["reasoning_effort"] = self.server.reasoning_effort
-        except (ValueError, UnicodeError, OSError):
+            payload = native_request(request, self.server.context, self.server.think)
+        except (ValueError, TypeError, KeyError, AttributeError, OSError):
             self.send_error(400)
             return
 
@@ -150,7 +257,7 @@ class ChatHandler(http.server.BaseHTTPRequestHandler):
 
         connection = ollama_connection(300)
         try:
-            connection.request("POST", CHAT, json.dumps(request),
+            connection.request("POST", "/api/chat", json.dumps(payload),
                                {"Content-Type": "application/json"})
             response = connection.getresponse()
         except (OSError, http.client.HTTPException):
@@ -158,16 +265,76 @@ class ChatHandler(http.server.BaseHTTPRequestHandler):
             self.send_error(502, "Local Ollama is unavailable")
             return
         try:
-            self.send_response(response.status)
-            self.send_header("Content-Type", response.getheader("Content-Type", "application/json"))
-            self.end_headers()
-            # Close-delimit the reply and forward each available streaming chunk.
-            while chunk := response.read1(65536):
-                self.wfile.write(chunk)
-        except (OSError, http.client.HTTPException):
+            if response.status != 200:
+                self.send_response(response.status)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(response.read())
+                return
+            # The runner exists once the first chat record arrives.
+            first = response.readline()
+            if not first:
+                self.send_error(502, "Ollama returned no completion")
+                return
+            actual = runner_context(self.server.model)
+            if isinstance(actual, int) and 0 < actual < self.server.context:
+                self.send_error(409, f"Ollama loaded {actual:,} context tokens. "
+                                     f"PuzzLLM requested {self.server.context:,}.")
+                return
+            if payload["stream"]:
+                self.output_stream(request, first, response)
+            else:
+                self.output_completion(request, json.loads(first + response.read()))
+        except (OSError, ValueError, KeyError, TypeError, http.client.HTTPException):
             pass
         finally:
             connection.close()
+
+    def output_stream(self, request, first, response):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        request_id = "chatcmpl_" + uuid.uuid4().hex
+        base = {"id": request_id, "object": "chat.completion.chunk",
+                "created": int(time.time()), "model": request["model"]}
+
+        def send(data):
+            self.wfile.write(b"data: " + json.dumps(data).encode() + b"\n\n")
+
+        send({**base, "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}]})
+        index = 0
+        line = first
+        while line:
+            record = json.loads(line)
+            if "error" in record:
+                send({"error": {"message": record["error"], "type": "server_error"}})
+                return
+            delta, count = openai_message(record, request_id, index, True)
+            index += count
+            reason = None
+            if record.get("done"):
+                reason = "length" if record.get("done_reason") == "length" else "tool_calls" if index else "stop"
+            if delta or reason:
+                send({**base, "choices": [{"index": 0, "delta": delta, "finish_reason": reason}]})
+            if reason:
+                if (request.get("stream_options") or {}).get("include_usage"):
+                    send({**base, "choices": [], "usage": token_usage(record)})
+                self.wfile.write(b"data: [DONE]\n\n")
+                return
+            line = response.readline()
+
+    def output_completion(self, request, record):
+        request_id = "chatcmpl_" + uuid.uuid4().hex
+        message, count = openai_message(record, request_id, 0, False)
+        message["role"] = "assistant"
+        reason = "length" if record.get("done_reason") == "length" else "tool_calls" if count else "stop"
+        result = {"id": request_id, "object": "chat.completion", "created": int(time.time()),
+                  "model": request["model"], "usage": token_usage(record),
+                  "choices": [{"index": 0, "message": message, "finish_reason": reason}]}
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps(result).encode())
 
 
 class HostServer(socketserver.ThreadingUnixStreamServer):
@@ -182,6 +349,8 @@ class HostServer(socketserver.ThreadingUnixStreamServer):
 def run_host(state, model, argv):
     if model not in installed_models():
         raise ValueError("the selected model is no longer installed")
+    metadata = model_metadata(model)
+    context = check_context(metadata)
     # Bind by a short relative name so long state directory paths work too.
     with tempfile.TemporaryDirectory(prefix="ollama-", dir=os.path.abspath(state)) as directory:
         cwd = os.getcwd()
@@ -192,8 +361,9 @@ def run_host(state, model, argv):
             os.chdir(cwd)
         with server:
             server.model = model
-            _, enabled, disabled = thinking_controls(model)
-            server.reasoning_effort = enabled if os.environ.get("PUZZLLM_THINK") == "1" else disabled
+            _, enabled, disabled = thinking_controls(metadata)
+            server.think = enabled if os.environ.get("PUZZLLM_THINK") == "1" else disabled
+            server.context = context
             threading.Thread(target=server.serve_forever, daemon=True).start()
             argv = [os.path.join(directory, "socket") if arg == "@OLLAMA_SOCKET@" else arg
                     for arg in argv]
@@ -254,7 +424,7 @@ def main():
             print(name)
     elif mode == "list-details":
         for name in installed_models():
-            controls, _, _ = thinking_controls(name)
+            controls, _, _ = thinking_controls(model_metadata(name))
             print(controls + name, flush=True)
     elif mode == "host":
         return run_host(args[0], args[1], args[2:])

@@ -21,6 +21,7 @@ command -v bwrap >/dev/null || { echo "test-sandbox: bwrap is required"; exit 1;
 rm -rf "$scratch"
 mkdir -p "$scratch/outside"
 export PUZZLLM_STATE=$scratch/state
+export PUZZLLM_CTX=32768
 
 # A listener on the host's loopback that the sandboxes must not reach.
 port_file=$scratch/port
@@ -160,6 +161,32 @@ if PUZZLLM_OMP=$here/tests/fake-ollama-omp PUZZLLM_OLLAMA_MODEL=test/always:late
     pass "Ollama uses minimum effort for an always-thinking model when off"
 else
     fail "Ollama minimum: $(tail -n 10 "$scratch/ollama-minimum.log" | tr '\n' ' ')"
+fi
+
+if PUZZLLM_CTX=4096 PUZZLLM_OMP=$here/tests/fake-ollama-omp PUZZLLM_OLLAMA_MODEL=test/agent:7b \
+        timeout 15 "$sandbox" agent < /dev/null > "$scratch/ollama-context.log" 2>&1; then
+    fail "Ollama accepted a configured context smaller than the game's minimum"
+elif grep -q 'at least 16,384 context tokens' "$scratch/ollama-context.log"; then
+    pass "Ollama launch rejects a configured context below the game minimum"
+else
+    fail "Ollama context check reported: $(tail -n 3 "$scratch/ollama-context.log")"
+fi
+if PUZZLLM_CTX=65537 PUZZLLM_OMP=$here/tests/fake-ollama-omp PUZZLLM_OLLAMA_MODEL=test/agent:7b \
+        timeout 15 "$sandbox" agent < /dev/null > "$scratch/ollama-capacity.log" 2>&1; then
+    fail "Ollama accepted a context larger than the model's capacity"
+elif grep -q 'selected model supports 65,536 context tokens' "$scratch/ollama-capacity.log"; then
+    pass "Ollama launch checks the selected model's maximum context"
+else
+    fail "Ollama capacity check reported: $(tail -n 3 "$scratch/ollama-capacity.log")"
+fi
+printf '4096\n' > "$scratch/ollama-port.context"
+if PUZZLLM_OMP=$here/tests/fake-ollama-omp PUZZLLM_OLLAMA_MODEL=test/agent:7b \
+        timeout 15 "$sandbox" agent < /dev/null > "$scratch/ollama-runner.log" 2>&1; then
+    fail "Ollama used a runner with too little context"
+elif grep -q 'Ollama loaded 4,096 context tokens' "$scratch/ollama-runner.log"; then
+    pass "Ollama refuses a runner that loads less than the requested context"
+else
+    fail "Ollama runner check reported: $(tail -n 3 "$scratch/ollama-runner.log")"
 fi
 
 echo "test-sandbox: $fails failed"
