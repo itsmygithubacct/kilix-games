@@ -43,6 +43,27 @@ static bool safe_name(const char *name)
     return true;
 }
 
+/* Split "a | b | c" into its trimmed parts. Returns how many, or 0 when
+ * one is empty or there are too many. */
+static int alternatives(const char *text, char out[][LEVEL_TEXT], int max)
+{
+    int n = 0;
+    const char *p = text;
+    for (;;) {
+        const char *bar = strchr(p, '|');
+        size_t len = bar ? (size_t)(bar - p) : strlen(p);
+        char part[LEVEL_TEXT], *t;
+        if (n >= max || len >= sizeof part) return 0;
+        memcpy(part, p, len);
+        part[len] = '\0';
+        t = trim(part);
+        if (*t == '\0') return 0;
+        snprintf(out[n++], LEVEL_TEXT, "%s", t);
+        if (bar == NULL) return n;
+        p = bar + 1;
+    }
+}
+
 static bool finish(level *lv, int line, char *err, size_t cap)
 {
     if (lv->title[0] == '\0') { set_err(err, cap, line, "level has no title"); return false; }
@@ -135,6 +156,16 @@ bool levels_parse(level_list *out, const char *text, char *err, size_t errcap)
             r = &cur->reqs[cur->nreqs];
             if (strcmp(val, "nonempty") == 0) {
                 r->kind = REQ_NONEMPTY;
+            } else if (strncmp(val, "contains-any-ci ", 16) == 0 ||
+                       strncmp(val, "lacks-ci ", 9) == 0) {
+                bool any = val[0] == 'c';
+                char parts[LEVEL_ALT_MAX][LEVEL_TEXT];
+                r->kind = any ? REQ_CONTAINS_ANY_CI : REQ_LACKS_CI;
+                if (!copy_field(r->text, sizeof r->text, trim(val + (any ? 16 : 9)))) goto bad_value;
+                if (alternatives(r->text, parts, LEVEL_ALT_MAX) == 0) {
+                    set_err(err, errcap, line_no, "expected 'TEXT | TEXT ...' with nothing empty");
+                    return false;
+                }
             } else if (strncmp(val, "contains-ci ", 12) == 0) {
                 r->kind = REQ_CONTAINS_CI;
                 if (!copy_field(r->text, sizeof r->text, trim(val + 12))) goto bad_value;
@@ -335,6 +366,26 @@ goal_result levels_check(const level *lv, const char *workspace)
             snprintf(r.why, sizeof r.why, "%.160s does not say \"%.60s\"", lv->file, q->text);
             free(data);
             return r;
+        }
+        if (q->kind == REQ_CONTAINS_ANY_CI || q->kind == REQ_LACKS_CI) {
+            char parts[LEVEL_ALT_MAX][LEVEL_TEXT];
+            int k = alternatives(q->text, parts, LEVEL_ALT_MAX), hit = -1;
+            for (int j = 0; j < k && hit < 0; j++)
+                if (contains(data, (size_t)n, parts[j], true)) hit = j;
+            if (q->kind == REQ_CONTAINS_ANY_CI && hit < 0) {
+                if (k == 1)
+                    snprintf(r.why, sizeof r.why, "%.120s does not say \"%.100s\"", lv->file, parts[0]);
+                else
+                    snprintf(r.why, sizeof r.why, "%.120s says none of: %.120s", lv->file, q->text);
+                free(data);
+                return r;
+            }
+            if (q->kind == REQ_LACKS_CI && hit >= 0) {
+                snprintf(r.why, sizeof r.why, "%.120s says \"%.100s\", which it must not",
+                         lv->file, parts[hit]);
+                free(data);
+                return r;
+            }
         }
         if (q->kind == REQ_ONLY) {
             for (long j = 0; j < n; j++) {

@@ -17,6 +17,24 @@ require: contains-ci world
 require: max-bytes 4096
 
 level: 2
+title: The carwash
+room: brick
+goal: Get the agent to write carwash.txt: you must drive to the carwash, because the car has to be there.
+hint: Ask: My car is dirty and the carwash is 50 m away. Walk or drive? Write your answer to carwash.txt.
+hint: Small models often answer walk, because it is close. But what gets washed?
+hint: If it says walk, ask it how the car gets washed if the car stays at home.
+hint: The file must name the carwash, say drive, and give a reason (because...). It must not say to walk.
+hint: Check with cat carwash.txt in the shell. The check reads the file, not the chat.
+hint: You may also write the statement yourself in the shell, top right.
+check: file carwash.txt
+require: nonempty
+require: max-bytes 4096
+require: lacks-ci should walk | better to walk | recommend walking | walking is better | walk instead
+require: contains-any-ci carwash | car wash | car-wash
+require: contains-any-ci drive | driving | drove
+require: contains-any-ci because | since | so that | otherwise | has to be | must be | needs to be | need to be
+
+level: 3
 title: A million ones
 room: brick
 goal: Make 1.txt hold exactly 1,000,000 ones and nothing else: no spaces, no line ending.
@@ -31,7 +49,7 @@ check: file 1.txt
 require: bytes 1000000
 require: only 1
 
-level: 3
+level: 4
 title: Next challenge coming
 room: stone
 goal: This room is still being built. Come back for the next challenge.

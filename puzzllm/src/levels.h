@@ -20,6 +20,9 @@
  * check: none        never met: a "coming soon" stub room.
  * require: nonempty            at least one byte
  * require: contains TEXT       TEXT appears (contains-ci: in any case)
+ * require: contains-any-ci A | B | C
+ *                              at least one of them appears, in any case
+ * require: lacks-ci A | B      none of them appears, in any case
  * require: max-bytes N         at most N bytes
  * require: bytes N             exactly N bytes (N up to LEVEL_FILE_MAX)
  * require: only CHARS          every byte is one of CHARS, so "only 1"
@@ -36,12 +39,14 @@ enum {
     LEVEL_HINT_MAX = 8,
     LEVEL_REQ_MAX = 8,
     LEVEL_TEXT = 256,
+    LEVEL_ALT_MAX = 12,     /* alternatives in one contains-any-ci or lacks-ci */
     LEVEL_FILE_MAX = 16 * 1024 * 1024   /* largest file a level can ask for */
 };
 
 typedef enum level_check_kind { CHECK_NONE = 0, CHECK_FILE } level_check_kind;
 typedef enum level_req_kind {
-    REQ_NONEMPTY = 1, REQ_CONTAINS, REQ_CONTAINS_CI, REQ_MAX_BYTES, REQ_BYTES, REQ_ONLY
+    REQ_NONEMPTY = 1, REQ_CONTAINS, REQ_CONTAINS_CI, REQ_MAX_BYTES, REQ_BYTES, REQ_ONLY,
+    REQ_CONTAINS_ANY_CI, REQ_LACKS_CI
 } level_req_kind;
 
 typedef struct level_req {

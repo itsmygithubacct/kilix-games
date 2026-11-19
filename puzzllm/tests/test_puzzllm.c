@@ -299,8 +299,76 @@ static void test_levels(void)
     CHECK(!levels_check(&L.items[L.count - 1], ws).met, "the stub room is never met");
 }
 
-/* Level 2: 1.txt holds exactly a million ones and nothing else. */
-static void test_level_two(void)
+/* Level 2: a statement that you must drive to the carwash, and why. */
+static void test_carwash(void)
+{
+    static const char *good[] = {
+        "To take your car to the carwash you must drive, because the car has to be at the carwash to be washed.",
+        "You need to DRIVE to the car wash. Walking leaves the car at home, and the car must be there.",
+        "Drive. The carwash is close, but you can't just walk there: the car needs to be at the car-wash so it can be washed.",
+        "You have to drive it to the carwash since you must have the car at the carwash to wash it.",
+        "Driving is the only way: you shouldn't walk, because the car would stay home instead of at the carwash.",
+    };
+    static const char *bad[][2] = {
+        {"You should walk to the carwash because it is only 50 metres away.", "should walk"},
+        {"It is better to walk to the car wash, since driving 50 m wastes fuel.", "better to walk"},
+        {"Walk instead of driving to the carwash, because it is close.", "walk instead"},
+        {"You must drive, because the car has to be there.", "none of: carwash"},
+        {"Take the car to the carwash because it has to be washed.", "none of: drive"},
+        {"Drive to the carwash.", "none of: because"},
+        {"I recommend walking to the carwash; driving is pointless since it is near.", "recommend walking"},
+    };
+    level_list L;
+    const level *lv;
+    char err[256], ws[2300], path[2400];
+    goal_result r;
+    int wrong = 0;
+
+    CHECK(levels_load(&L, "levels/levels.txt", err, sizeof err), "levels.txt: %s", err);
+    lv = &L.items[1];
+    CHECK(lv->check == CHECK_FILE && strcmp(lv->file, "carwash.txt") == 0,
+          "level 2 checks carwash.txt");
+    CHECK(lv->nhints >= 4, "level 2 has hints");
+    sub(ws, sizeof ws, "level2-ws");
+    mkdir(ws, 0700);
+    snprintf(path, sizeof path, "%s/carwash.txt", ws);
+    r = levels_check(lv, ws);
+    CHECK(!r.met && strstr(r.why, "does not exist"), "missing: %s", r.why);
+    for (size_t i = 0; i < sizeof good / sizeof good[0]; i++) {
+        write_file(path, good[i], strlen(good[i]));
+        r = levels_check(lv, ws);
+        if (!r.met) { wrong++; printf("  rejected: %s (%s)\n", good[i], r.why); }
+    }
+    CHECK(wrong == 0, "every right statement is accepted (%d rejected)", wrong);
+    wrong = 0;
+    for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++) {
+        write_file(path, bad[i][0], strlen(bad[i][0]));
+        r = levels_check(lv, ws);
+        if (r.met || strstr(r.why, bad[i][1]) == NULL) {
+            wrong++;
+            printf("  accepted or misreported: %s (%s)\n", bad[i][0], r.why);
+        }
+    }
+    CHECK(wrong == 0, "every wrong statement is refused, for its reason (%d not)", wrong);
+
+    /* the new requires on their own */
+    CHECK(!levels_parse(&L, "level: 1\ntitle: t\ngoal: g\ncheck: file a\nrequire: lacks-ci a | | b\n",
+                        err, sizeof err), "an empty alternative is rejected");
+    CHECK(!levels_parse(&L, "level: 1\ntitle: t\ngoal: g\ncheck: file a\n"
+                            "require: contains-any-ci a|b|c|d|e|f|g|h|i|j|k|l|m\n", err, sizeof err),
+          "too many alternatives are rejected");
+    CHECK(levels_parse(&L, "level: 1\ntitle: t\ngoal: g\ncheck: file a.txt\n"
+                           "require: contains-any-ci Zebra\n", err, sizeof err), "one alternative: %s", err);
+    snprintf(path, sizeof path, "%s/a.txt", ws);
+    write_file(path, "a horse", 7);
+    r = levels_check(&L.items[0], ws);
+    CHECK(!r.met && strstr(r.why, "does not say \"Zebra\""), "one alternative, missing: %s", r.why);
+    write_file(path, "a ZEBRA", 7);
+    CHECK(levels_check(&L.items[0], ws).met, "any case");
+}
+
+/* Level 3: 1.txt holds exactly a million ones and nothing else. */
+static void test_million_ones(void)
 {
     enum { MILLION = 1000000 };
     level_list L;
@@ -313,11 +381,11 @@ static void test_level_two(void)
     if (buf == NULL) return;
     memset(buf, '1', 2 * MILLION + 2);
     CHECK(levels_load(&L, "levels/levels.txt", err, sizeof err), "levels.txt: %s", err);
-    lv = &L.items[1];
-    CHECK(L.count >= 3 && lv->check == CHECK_FILE && strcmp(lv->file, "1.txt") == 0,
-          "level 2 checks 1.txt");
-    CHECK(lv->nhints >= 4, "level 2 has hints");
-    sub(ws, sizeof ws, "level2-ws");
+    lv = &L.items[2];
+    CHECK(L.count >= 4 && lv->check == CHECK_FILE && strcmp(lv->file, "1.txt") == 0,
+          "level 3 checks 1.txt");
+    CHECK(lv->nhints >= 4, "level 3 has hints");
+    sub(ws, sizeof ws, "level3-ws");
     mkdir(ws, 0700);
     snprintf(path, sizeof path, "%s/1.txt", ws);
 
@@ -979,7 +1047,8 @@ int main(void)
     test_vt();
     test_keys();
     test_levels();
-    test_level_two();
+    test_carwash();
+    test_million_ones();
     test_json();
     test_activity();
     test_scene();

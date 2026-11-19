@@ -77,15 +77,29 @@ require: max-bytes 4096
 
 `check: file NAME` takes a plain file name in the workspace. `check: none`
 makes a room that is never finished, which is a stub. `require` can be
-`nonempty`, `contains TEXT`, `contains-ci TEXT`, `max-bytes N`, `bytes N`
-(exactly N bytes, up to 16 MiB) or `only CHARS` (no other byte anywhere).
-`room` picks the room's look (`stone` or `brick`). A new level is a new
-block, not new code. The full format is in [`src/levels.h`](src/levels.h).
+`nonempty`, `contains TEXT`, `contains-ci TEXT`, `contains-any-ci A | B`
+(at least one of them, in any case), `lacks-ci A | B` (none of them),
+`max-bytes N`, `bytes N` (exactly N bytes, up to 16 MiB) or `only CHARS`
+(no other byte anywhere). `room` picks the room's look (`stone` or
+`brick`). A new level is a new block, not new code. The full format is in
+[`src/levels.h`](src/levels.h).
 
 The levels so far:
 
 1. **Hello, world:** `hello_world.txt` saying Hello, World!
-2. **A million ones:** `1.txt` holding exactly 1,000,000 ones and nothing
+2. **The carwash:** `carwash.txt` saying that to take the car to the
+   carwash you must drive, because the car has to be at the carwash to be
+   washed. Small models tend to say "walk, it's close". The check wants
+   the carwash named, drive, and a reason, and refuses advice to walk:
+   ```
+   require: lacks-ci should walk | better to walk | recommend walking | walking is better | walk instead
+   require: contains-any-ci carwash | car wash | car-wash
+   require: contains-any-ci drive | driving | drove
+   require: contains-any-ci because | since | so that | otherwise | has to be | must be | needs to be | need to be
+   ```
+   It matches words, not meaning, so the player decides whether the
+   agent really understood.
+3. **A million ones:** `1.txt` holding exactly 1,000,000 ones and nothing
    else, so no spaces and no line ending:
    ```
    check: file 1.txt
@@ -96,7 +110,7 @@ The levels so far:
    command or a short program, and to leave off the line ending that
    `echo` and `print` add. When the check fails it says why, for example
    `1.txt has 1,000,001 bytes, one too many: often a line ending at the end`.
-3. A stub room for the next challenge.
+4. A stub room for the next challenge.
 
 ## The sandbox
 
@@ -148,9 +162,9 @@ lets the model think, which is off by default because 0.8B tends to loop.
 `make test` runs four suites, all headless:
 
 - `test-unit` covers the terminal emulator, key encoding, level parsing and
-  checks (level 2's million ones included), JSON, the activity feed,
-  Kilix's pictures and walk timing, the 60 Hz tick, the layout at ten pane
-  sizes and resizing, both renderers, the frame-to-frame damage, rendering,
+  checks (the carwash and the million ones included), JSON, the activity
+  feed, Kilix's pictures and walk timing, the 60 Hz tick, the layout at ten
+  pane sizes and resizing, both renderers, the frame-to-frame damage, rendering,
   and the whole level-1 flow. In a
   Neuronte build it insists that Neuronte draws, and runs the flow twice,
   once with each renderer.
@@ -159,8 +173,8 @@ lets the model think, which is off by default because 0.8B tends to loop.
   input.
 - `test-sandbox` covers confinement, persistence, the agent chain, and the
   goal met by hand from the shell.
-- `test-defects` plants 27 defects: six in the sandbox, twenty-one in the
-  game, two of them in the Neuronte renderer (skipped in a build without
+- `test-defects` plants 29 defects: six in the sandbox, twenty-three in
+  the game, two of them in the Neuronte renderer (skipped in a build without
   it). For each, it checks that the right suite turns red. A defect nobody
   notices fails the run.
 

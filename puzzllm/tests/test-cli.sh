@@ -24,13 +24,21 @@ printf 'Hello, World!\n' > "$scratch/state/workspace/hello_world.txt"
 [ $rc -eq 0 ] && grep -q 'level 1: met' "$scratch/out" && pass "level 1 met" ||
     fail "met check rc=$rc $(cat "$scratch/out")"
 head -c 1000000 /dev/zero | tr '\0' 1 > "$scratch/state/workspace/1.txt"
-"$bin" --check-level 2 > "$scratch/out"; rc=$?
-[ $rc -eq 0 ] && grep -q 'level 2: met' "$scratch/out" && pass "level 2 met by a million ones" ||
-    fail "level 2 rc=$rc $(cat "$scratch/out")"
+"$bin" --check-level 3 > "$scratch/out"; rc=$?
+[ $rc -eq 0 ] && grep -q 'level 3: met' "$scratch/out" && pass "level 3 met by a million ones" ||
+    fail "level 3 rc=$rc $(cat "$scratch/out")"
 echo >> "$scratch/state/workspace/1.txt"
-"$bin" --check-level 2 > "$scratch/out"; rc=$?
+"$bin" --check-level 3 > "$scratch/out"; rc=$?
 [ $rc -eq 1 ] && grep -q 'one too many: often a line ending' "$scratch/out" &&
-    pass "level 2 not met with a line ending" || fail "level 2 newline rc=$rc $(cat "$scratch/out")"
+    pass "level 3 not met with a line ending" || fail "level 3 newline rc=$rc $(cat "$scratch/out")"
+echo 'You should walk to the carwash, because it is close.' > "$scratch/state/workspace/carwash.txt"
+"$bin" --check-level 2 > "$scratch/out"; rc=$?
+[ $rc -eq 1 ] && grep -q 'says "should walk"' "$scratch/out" &&
+    pass "level 2 refuses walking" || fail "level 2 walk rc=$rc $(cat "$scratch/out")"
+echo 'Drive to the carwash, because the car has to be there to be washed.' > "$scratch/state/workspace/carwash.txt"
+"$bin" --check-level 2 > "$scratch/out"; rc=$?
+[ $rc -eq 0 ] && grep -q 'level 2: met' "$scratch/out" && pass "level 2 met by driving" ||
+    fail "level 2 drive rc=$rc $(cat "$scratch/out")"
 "$bin" --check-level 9 2>/dev/null; rc=$?
 [ $rc -eq 2 ] && pass "unknown level is an error" || fail "level 9 rc=$rc"
 "$bin" --bogus 2>/dev/null; rc=$?

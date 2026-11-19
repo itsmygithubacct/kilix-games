@@ -24,7 +24,7 @@ self-test argument parsing and the command-line tests.
 | [kilix-rancher](kilix-rancher/) | Creature-raising game | C |
 | [kilix-fishtank](kilix-fishtank/) | Arcade-style virtual fishtank | C |
 | [tictactoe-tui](tictactoe-tui/) | Tic-tac-toe in the terminal it runs from, with a trained neural opponent | C |
-| [puzzllm](puzzllm/) | Coding puzzle rooms solved with a local LLM agent (omp and Qwen 3.5) in a sandbox; levels 1 and 2 so far, not yet in the catalog | C |
+| [puzzllm](puzzllm/) | Coding puzzle rooms solved with a local LLM agent (omp and Qwen 3.5) in a sandbox; three levels so far, not yet in the catalog | C |
 
 Ten of the C games moved here from their own repositories with their full
 history; solitaire-tui and tictactoe-tui were started here. The old repositories
