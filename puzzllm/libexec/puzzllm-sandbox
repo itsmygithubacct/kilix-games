@@ -217,6 +217,7 @@ agent)
         model_name="$ollama (Ollama)"
         args+=(--ro-bind @OLLAMA_SOCKET@ /opt/puzzllm/ollama.sock
                --ro-bind "$here/puzzllm-ollama" /opt/puzzllm/bin/puzzllm-ollama
+               --ro-bind "$here/puzzllm-ollama-prompt.txt" /opt/puzzllm/ollama-prompt.txt
                --setenv PUZZLLM_OLLAMA_MODEL "$ollama")
     else
         [ -n "$llama_bin" ] && [ -x "$llama_bin" ] ||

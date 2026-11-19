@@ -1200,6 +1200,44 @@ static void test_thinking_menu(void)
     game_shutdown(&G);
 }
 
+static void test_model_details_menu(void)
+{
+    char err[256], state[2300];
+    sub(state, sizeof state, "model-details");
+    layout_set(LAYOUT_MIN_W, LAYOUT_MIN_H);
+    CHECK(game_init(&G, ".", state, false, err, sizeof err), "model details menu: %s", err);
+    menu_press(KEY_ESCAPE);
+    for (int i = 0; i < MENU_MODEL_DETAILS; i++) menu_press(KEY_DOWN);
+    menu_press(KEY_ENTER);
+    CHECK(G.menu.open && G.menu.details_open && G.menu.details_tab == DETAILS_LLAMA,
+          "model details opens on the active backend");
+    menu_press(KEY_LEFT);
+    CHECK(G.menu.details_tab == DETAILS_OLLAMA && strstr(G.menu.prompt, "use the matching function tool") &&
+          strstr(G.menu.write_schema, "\"required\": [\"path\", \"i\", \"content\"]"),
+          "Ollama details load the shipped prompt and write schema");
+
+    sr_canvas top = {0}, end = {0};
+    if (sr_canvas_init(&top, CANVAS_W, CANVAS_H) && sr_canvas_init(&end, CANVAS_W, CANVAS_H)) {
+        game_render(&G, &top);
+        menu_press(KEY_END);
+        game_render(&G, &end);
+        CHECK(G.menu.details_scroll > 0 &&
+              differing(&top, &end, (rect){50, 120, CANVAS_W - 100, CANVAS_H - 210}) > 0,
+              "model details scroll to the end of the schema");
+        game_scroll(&G, CANVAS_W / 2, CANVAS_H / 2, -12);
+        CHECK(G.menu.details_scroll == 0, "wheel scrolls model details");
+    } else {
+        CHECK(false, "model details test canvases initialized");
+    }
+    sr_canvas_free(&top);
+    sr_canvas_free(&end);
+    menu_press(KEY_ESCAPE);
+    CHECK(G.menu.open && !G.menu.details_open && G.menu.selected == MENU_MODEL_DETAILS && !G.ollama_model[0],
+          "Escape returns to the menu without changing the model");
+    game_shutdown(&G);
+    layout_set(LAYOUT_DEFAULT_W, LAYOUT_DEFAULT_H);
+}
+
 static void test_compute_menu(void)
 {
     char err[256], state[2300];
@@ -1579,6 +1617,7 @@ int main(void)
     test_room_art();
     test_chest_art();
     test_compute_menu();
+    test_model_details_menu();
     test_start_and_reset_menu();
     test_neuroterm();
     test_keys();

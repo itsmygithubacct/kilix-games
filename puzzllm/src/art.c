@@ -31,6 +31,12 @@ static palette room_palette(const char *style)
     return p;
 }
 
+static const art_sprite *room_wall(const room_art *art, const char *style)
+{
+    if (!art) return NULL;
+    return style && strcmp(style, "brick") == 0 ? &art->brick : &art->stone;
+}
+
 static void draw_wall_fallback(sr_canvas *c, palette p)
 {
     draw_fill(c, 0, 0, CANVAS_W, WALL_H, p.wall_mortar, 1.0f);
@@ -46,9 +52,7 @@ static void draw_wall_fallback(sr_canvas *c, palette p)
 void art_room(sr_canvas *c, const room_art *art, const char *style)
 {
     palette p = room_palette(style);
-    const art_sprite *wall = NULL;
-    if (art)
-        wall = style && strcmp(style, "brick") == 0 ? &art->brick : &art->stone;
+    const art_sprite *wall = room_wall(art, style);
 
     if (wall && wall->pixels) {
         for (int x = 0; x < CANVAS_W; x += wall->w)
@@ -92,9 +96,7 @@ static void draw_next_room(sr_canvas *c, const room_art *art, const char *style)
 {
     int x = DOOR_X, y = DOOR_Y;
     palette p = room_palette(style);
-    const art_sprite *wall = NULL;
-    if (art)
-        wall = style && strcmp(style, "brick") == 0 ? &art->brick : &art->stone;
+    const art_sprite *wall = room_wall(art, style);
 
     draw_fill(c, x, y, DOOR_W, 28, p.wall, 1);
     if (wall && wall->pixels)

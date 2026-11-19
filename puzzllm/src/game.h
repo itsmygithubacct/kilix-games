@@ -37,6 +37,10 @@ typedef struct game_menu {
     bool loading;
     bool load_failed;
     bool confirm_reset;
+    bool details_open;
+    model_details_tab details_tab;
+    int details_scroll;
+    char prompt[MODEL_SPEC_CAP], write_schema[MODEL_SPEC_CAP];
     char notice[160];
     int selected;
     model_option *models;

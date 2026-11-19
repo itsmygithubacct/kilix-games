@@ -1,0 +1,23 @@
+{
+  "name": "write",
+  "description": "Create a file or replace its contents. Set content to the exact text to write.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string",
+        "description": "Workspace-relative filename. Example: hello_world.txt."
+      },
+      "i": {
+        "type": "string",
+        "description": "Short description of this tool action, separate from the file contents."
+      },
+      "content": {
+        "type": "string",
+        "description": "Exact text to write to the file."
+      }
+    },
+    "required": ["path", "i", "content"],
+    "additionalProperties": false
+  }
+}

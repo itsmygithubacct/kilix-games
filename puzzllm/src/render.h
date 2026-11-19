@@ -42,7 +42,13 @@ typedef struct view {
 
 typedef enum compute_mode { COMPUTE_AUTO, COMPUTE_CPU, COMPUTE_GPU } compute_mode;
 
-enum { MENU_RESUME, MENU_QUIT, MENU_RESET, MENU_THINKING, MENU_COMPUTE, MENU_CODEX, MENU_LOCAL, MENU_FIRST_OLLAMA };
+enum { MENU_RESUME, MENU_QUIT, MENU_RESET, MENU_THINKING, MENU_COMPUTE, MENU_MODEL_DETAILS, MENU_CODEX, MENU_LOCAL, MENU_FIRST_OLLAMA };
+
+enum { MODEL_SPEC_CAP = 4096 };
+typedef enum model_details_tab { DETAILS_OLLAMA, DETAILS_LLAMA, DETAILS_CODEX, DETAILS_COUNT } model_details_tab;
+
+int render_model_details(sr_canvas *c, model_details_tab tab, int scroll,
+                         const char *prompt, const char *schema);
 
 struct model_option;
 void render_menu(sr_canvas *c, const struct model_option *models, int count, int selected,

@@ -134,27 +134,14 @@ def text_content(content):
             )))
 
 
-def native_tool(tool):
-    """Spell out the omp write contract for the model's native tool renderer."""
+def native_tool(tool, write_schema):
+    """Use the game's write schema for omp's standard three-argument tool."""
     function = tool.get("function") or {}
-    schema = function.get("parameters") or {}
-    properties = schema.get("properties") or {}
-    descriptions = {
-        "path": "Workspace-relative filename. Example: hello_world.txt.",
-        "content": "Exact text to write to the file.",
-        "i": "Short description of this tool action, separate from the file contents.",
-    }
-    if function.get("name") != "write" or not descriptions.keys() <= properties.keys():
+    parameters = function.get("parameters") or {}
+    properties = parameters.get("properties") or {}
+    if function.get("name") != "write" or properties.keys() != write_schema["parameters"]["properties"].keys():
         return tool
-    properties = {**properties}
-    for key, description in descriptions.items():
-        properties[key] = {**properties[key], "description": description}
-    required = list(dict.fromkeys([*schema.get("required", []), *descriptions]))
-    return {**tool, "function": {
-        **function,
-        "description": "Create a file or replace its contents. Set content to the exact text to write.",
-        "parameters": {**schema, "properties": properties, "required": required},
-    }}
+    return {**tool, "function": {**function, **write_schema}}
 
 
 def file_arguments(name, arguments):
@@ -173,7 +160,7 @@ def file_arguments(name, arguments):
     return arguments
 
 
-def native_request(request, context, think, compute):
+def native_request(request, context, think, compute, write_schema):
     """Translate omp's text and tool history into Ollama's native chat format."""
     messages = []
     call_names = {}
@@ -216,7 +203,7 @@ def native_request(request, context, think, compute):
     payload = {"model": request["model"], "messages": messages,
                "stream": bool(request.get("stream")), "options": options}
     if request.get("tools"):
-        payload["tools"] = [native_tool(tool) for tool in request["tools"]]
+        payload["tools"] = [native_tool(tool, write_schema) for tool in request["tools"]]
     if think is not None:
         payload["think"] = think
     response_format = request.get("response_format") or {}
@@ -287,7 +274,7 @@ class ChatHandler(http.server.BaseHTTPRequestHandler):
             ):
                 raise ValueError()
             payload = native_request(request, self.server.context, self.server.think,
-                                     self.server.compute)
+                                     self.server.compute, self.server.write_schema)
         except (ValueError, TypeError, KeyError, AttributeError, OSError):
             self.send_error(400)
             return
@@ -418,6 +405,9 @@ def run_host(state, model, argv):
             server.think = enabled if os.environ.get("PUZZLLM_THINK") == "1" else disabled
             server.context = context
             server.compute = os.environ.get("PUZZLLM_COMPUTE") or "auto"
+            schema_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "puzzllm-write-tool.json")
+            with open(schema_path, encoding="utf-8") as schema_file:
+                server.write_schema = json.load(schema_file)
             threading.Thread(target=server.serve_forever, daemon=True).start()
             argv = [os.path.join(directory, "socket") if arg == "@OLLAMA_SOCKET@" else arg
                     for arg in argv]

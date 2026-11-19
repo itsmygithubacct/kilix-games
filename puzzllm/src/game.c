@@ -458,10 +458,54 @@ static void restart_agent(game *g)
     }
 }
 
+static void model_details_scroll(game_menu *menu, int rows)
+{
+    int limit = render_model_details(NULL, menu->details_tab, 0,
+                                     menu->prompt, menu->write_schema);
+    int next = menu->details_scroll + rows;
+    menu->details_scroll = next < 0 ? 0 : next > limit ? limit : next;
+}
+
+static void model_details_key(game_menu *menu, const key_event *ev)
+{
+    switch (ev->key) {
+    case KEY_LEFT:
+    case KEY_RIGHT:
+        if (ev->action == 1) {
+            int change = ev->key == KEY_LEFT ? DETAILS_COUNT - 1 : 1;
+            menu->details_tab = (menu->details_tab + change) % DETAILS_COUNT;
+            menu->details_scroll = 0;
+        }
+        break;
+    case KEY_UP: model_details_scroll(menu, -1); break;
+    case KEY_DOWN: model_details_scroll(menu, 1); break;
+    case KEY_PAGE_UP: model_details_scroll(menu, -16); break;
+    case KEY_PAGE_DOWN: model_details_scroll(menu, 16); break;
+    case KEY_HOME: model_details_scroll(menu, -MODEL_SPEC_CAP); break;
+    case KEY_END: model_details_scroll(menu, MODEL_SPEC_CAP); break;
+    default: break;
+    }
+}
+
+static void read_model_spec(const char *root, const char *name, char text[MODEL_SPEC_CAP])
+{
+    char path[4096];
+    snprintf(path, sizeof path, "%s/libexec/%s", root, name);
+    text[0] = 0;
+    FILE *f = fopen(path, "r");
+    if (!f) return;
+    text[fread(text, 1, MODEL_SPEC_CAP - 1, f)] = '\0';
+    fclose(f);
+}
+
 static void menu_key(game *g, const key_event *ev)
 {
     game_menu *menu = &g->menu;
     int last = menu->count + MENU_LOCAL;
+    if (menu->details_open) {
+        model_details_key(menu, ev);
+        return;
+    }
     if (menu->confirm_reset) {
         if (ev->key == KEY_ENTER && ev->action != 2) reset_from_menu(g);
         return;
@@ -497,6 +541,14 @@ static void menu_key(game *g, const key_event *ev)
             } else {
                 snprintf(menu->notice, sizeof menu->notice, "Could not save the compute setting.");
             }
+        }
+        if (menu->selected == MENU_MODEL_DETAILS) {
+            menu->details_open = true;
+            menu->details_scroll = 0;
+            menu->details_tab = g->use_codex ? DETAILS_CODEX :
+                                g->ollama_model[0] ? DETAILS_OLLAMA : DETAILS_LLAMA;
+            read_model_spec(g->root, "puzzllm-ollama-prompt.txt", menu->prompt);
+            read_model_spec(g->root, "puzzllm-write-tool.json", menu->write_schema);
         }
         if (menu->selected >= MENU_CODEX) {
             bool codex = menu->selected == MENU_CODEX;
@@ -751,7 +803,8 @@ void game_key(game *g, const key_event *ev)
 
     if (ev->key == KEY_ESCAPE && ev->mods == 0) {
         if (press && ev->action != 2) {
-            if (g->menu.confirm_reset) g->menu.confirm_reset = false;
+            if (g->menu.details_open) g->menu.details_open = false;
+            else if (g->menu.confirm_reset) g->menu.confirm_reset = false;
             else if (!g->menu.open) open_menu(g);
             else if (g->started) g->menu.open = false;
         }
@@ -913,7 +966,12 @@ void game_pointer(game *g, int x, int y, pointer_action action)
 
 void game_scroll(game *g, int x, int y, int rows)
 {
-    if (g->menu.open || !rows) return;
+    if (!rows) return;
+    if (g->menu.details_open) {
+        model_details_scroll(&g->menu, rows);
+        return;
+    }
+    if (g->menu.open) return;
     for (int i = 0; i < SCREEN_COUNT; i++) {
         screen_id id = (screen_id)i;
         if (!inside(layout_screen(id), x, y)) continue;
@@ -1073,7 +1131,10 @@ void game_render(game *g, sr_canvas *c)
 {
     view v = game_view(g);
     render_frame(c, &v);
-    if (g->menu.open)
+    if (g->menu.details_open)
+        render_model_details(c, g->menu.details_tab, g->menu.details_scroll,
+                             g->menu.prompt, g->menu.write_schema);
+    else if (g->menu.open)
         render_menu(c, g->menu.models, g->menu.count, g->menu.selected,
                     v.agent_model, g->menu.loading, g->menu.load_failed,
                     g->started, g->sc.level + 1, g->menu.confirm_reset, g->menu.notice,

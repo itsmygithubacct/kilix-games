@@ -323,6 +323,7 @@ void render_menu(sr_canvas *c, const model_option *models, int count, int select
 {
     static const char *const actions[] = {
         [MENU_QUIT] = "Exit game", [MENU_RESET] = "Reset progress",
+        [MENU_MODEL_DETAILS] = "Model prompt and tools",
         [MENU_CODEX] = "Codex (OpenAI)",
         [MENU_LOCAL] = "Qwen 3.5 (llama.cpp)",
     };
@@ -390,6 +391,71 @@ void render_menu(sr_canvas *c, const model_option *models, int count, int select
     draw_text(c, x + 18, y + height - 26,
               started ? "Up/Down move    Enter select    Esc close" : "Up/Down move    Enter select",
               0xbccadb, 1);
+}
+
+static void details_block(pane_text *pane, const char *text)
+{
+    while (*text) {
+        char line[MODEL_SPEC_CAP];
+        size_t length = strcspn(text, "\n");
+        if (length) {
+            memcpy(line, text, length);
+            line[length] = 0;
+            pane_message(pane, line, 0xd0d4dc);
+        } else {
+            pane->count++;
+        }
+        text += length;
+        if (*text) text++;
+    }
+}
+
+static void details_text(pane_text *pane, model_details_tab tab, const char *prompt, const char *schema)
+{
+    if (tab == DETAILS_OLLAMA) {
+        pane_message(pane, "PuzzLLM system prompt", 0xffdf94);
+        details_block(pane, *prompt ? prompt : "System prompt file unavailable.");
+        pane->count++;
+        pane_message(pane, "Ollama write-tool schema", 0xffdf94);
+        details_block(pane, *schema ? schema : "Write-tool schema file unavailable.");
+    } else if (tab == DETAILS_LLAMA) {
+        pane_message(pane, "omp supplies its built-in system prompt and tool definitions to llama.cpp.", 0xd0d4dc);
+        pane_message(pane, "The Ollama tab shows the prompt and write schema configured by PuzzLLM.", 0xd0d4dc);
+    } else {
+        pane_message(pane, "The Codex CLI supplies its own prompt and tools.", 0xd0d4dc);
+    }
+}
+
+int render_model_details(sr_canvas *c, model_details_tab tab, int scroll,
+                         const char *prompt, const char *schema)
+{
+    static const char *const tabs[] = {"Ollama", "llama.cpp", "Codex"};
+    int width = CANVAS_W < 1000 ? CANVAS_W - 100 : 880;
+    int height = CANVAS_H - 96;
+    int x = (CANVAS_W - width) / 2, y = 48;
+    pane_text pane = {.cols = (width - 40) / CELL_W, .rows = (height - 116) / CELL_H};
+    details_text(&pane, tab, prompt, schema);
+    int limit = pane.count > pane.rows ? pane.count - pane.rows : 0;
+    if (!c) return limit;
+
+    draw_fill(c, 0, 0, CANVAS_W, CANVAS_H, 0x0c1018, 0.72f);
+    draw_fill(c, x, y, width, height, 0x151d29, 1);
+    draw_stroke(c, x, y, width, height, 2, 0x826b47, 1);
+    draw_text(c, x + 20, y + 14, "Model prompt and tools", 0xffde8c, 1);
+    for (int i = 0; i < DETAILS_COUNT; i++) {
+        int tx = x + 20 + i * 104;
+        if (i == (int)tab) draw_fill(c, tx - 5, y + 39, 96, 22, 0x354356, 1);
+        draw_text(c, tx, y + 42, tabs[i], i == (int)tab ? 0xffde8c : 0xa6b5c6, 1);
+    }
+    pane.canvas = c;
+    pane.x = x + 20;
+    pane.y = y + 72;
+    pane.first = scroll > limit ? limit : scroll;
+    pane.count = 0;
+    details_text(&pane, tab, prompt, schema);
+    draw_text(c, x + 20, y + height - 29,
+              "Left/Right backend    Up/Down or wheel scroll    Esc back", 0xbccadb, 1);
+    return limit;
 }
 
 void render_frame(sr_canvas *c, const view *v)
