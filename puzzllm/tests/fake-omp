@@ -12,7 +12,14 @@ import re
 import sys
 import urllib.request
 
-assert os.getcwd() == os.environ["HOME"] and "--allow-home" in sys.argv
+home = os.environ["HOME"]
+assert home == "/opt/puzzllm/home" and os.path.islink(home) and os.readlink(home) == "/kilix"
+assert os.getcwd() == "/kilix" and "--allow-home" in sys.argv
+if os.environ.get("PUZZLLM_YOLO") == "1":
+    assert "--approval-mode=yolo" in sys.argv
+    print("fake-omp: yolo")
+else:
+    assert "--approval-mode=yolo" not in sys.argv
 models = open(os.path.join(os.environ["PI_CODING_AGENT_DIR"], "models.yml")).read()
 base = re.search(r"baseUrl:\s*(\S+)", models).group(1)
 model = re.search(r"- id:\s*(\S+)", models).group(1)

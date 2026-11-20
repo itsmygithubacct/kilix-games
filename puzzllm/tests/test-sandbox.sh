@@ -92,6 +92,15 @@ if grep -q 'fake-omp: wrote hello_world.txt' "$scratch/agent.log"; then
 else
     fail "agent chain: $(tail -n 5 "$scratch/agent.log" | tr '\n' ' ')"
 fi
+if PUZZLLM_YOLO=1 PUZZLLM_OMP=$here/tests/fake-omp \
+        PUZZLLM_LLAMA_SERVER=$here/tests/fake-llama/llama-server \
+        PUZZLLM_MODEL=$here/tests/fake-llama/model.gguf \
+        timeout 60 "$sandbox" agent < /dev/null > "$scratch/agent-yolo.log" 2>&1 &&
+        grep -q 'fake-omp: yolo' "$scratch/agent-yolo.log"; then
+    pass "omp yolo uses approval-mode yolo"
+else
+    fail "omp yolo: $(tail -n 5 "$scratch/agent-yolo.log" | tr '\n' ' ')"
+fi
 if grep -q 'device=none layers=0' "$PUZZLLM_STATE/agent/puzzllm/llama-server.log"; then
     pass "llama.cpp defaults to CPU"
 else
@@ -156,6 +165,32 @@ if PUZZLLM_CODEX="$here/tests/fake-codex" timeout 15 "$sandbox" codex \
     pass "Codex signs in to separate game state and completes a workspace goal"
 else
     fail "Codex agent chain: $(tail -n 10 "$scratch/codex.log" | tr '\n' ' ')"
+fi
+rm -f "$PUZZLLM_STATE/workspace/hello_world.txt"
+if PUZZLLM_YOLO=1 PUZZLLM_CODEX="$here/tests/fake-codex" timeout 15 "$sandbox" codex \
+        < /dev/null > "$scratch/codex-yolo.log" 2>&1 &&
+    grep -q 'fake-codex: wrote the workspace file' "$scratch/codex-yolo.log"; then
+    pass "Codex yolo skips the game permission profile"
+else
+    fail "Codex yolo: $(tail -n 8 "$scratch/codex-yolo.log" | tr '\n' ' ')"
+fi
+rm -f "$PUZZLLM_STATE/workspace/hello_world.txt"
+if PUZZLLM_CLAUDE="$here/tests/fake-claude" timeout 15 "$sandbox" claude \
+        < /dev/null > "$scratch/claude.log" 2>&1 &&
+    grep -q 'fake-claude: asked' "$scratch/claude.log" &&
+    grep -q 'fake-claude: wrote the workspace file' "$scratch/claude.log" &&
+    [ -f "$PUZZLLM_STATE/claude/mock-signed-in" ]; then
+    pass "Claude signs in to separate game state and asks for permission"
+else
+    fail "Claude agent chain: $(tail -n 10 "$scratch/claude.log" | tr '\n' ' ')"
+fi
+rm -f "$PUZZLLM_STATE/workspace/hello_world.txt"
+if PUZZLLM_YOLO=1 PUZZLLM_CLAUDE="$here/tests/fake-claude" timeout 15 "$sandbox" claude \
+        < /dev/null > "$scratch/claude-yolo.log" 2>&1 &&
+    grep -q 'fake-claude: yolo' "$scratch/claude-yolo.log"; then
+    pass "Claude yolo skips permission checks"
+else
+    fail "Claude yolo: $(tail -n 8 "$scratch/claude-yolo.log" | tr '\n' ' ')"
 fi
 
 # Ollama is exposed to the agent through a model-specific bridge only.
@@ -248,6 +283,22 @@ elif grep -q 'Ollama loaded the model on CPU' "$scratch/ollama-no-gpu.log"; then
     pass "Ollama reports CPU fallback in GPU mode"
 else
     fail "Ollama GPU check reported: $(tail -n 3 "$scratch/ollama-no-gpu.log")"
+fi
+
+if PUZZLLM_HARNESS=pi PUZZLLM_PI=$here/tests/fake-pi PUZZLLM_OLLAMA_MODEL=test/agent:7b \
+        timeout 20 "$sandbox" agent < /dev/null > "$scratch/pi.log" 2>&1 &&
+        grep -q 'fake-pi: asked' "$scratch/pi.log"; then
+    pass "Pi asks for approval unless yolo is on"
+else
+    fail "Pi approvals: $(tail -n 8 "$scratch/pi.log" | tr '\n' ' ')"
+fi
+if PUZZLLM_YOLO=1 PUZZLLM_HARNESS=pi PUZZLLM_PI=$here/tests/fake-pi \
+        PUZZLLM_OLLAMA_MODEL=test/agent:7b \
+        timeout 20 "$sandbox" agent < /dev/null > "$scratch/pi-yolo.log" 2>&1 &&
+        grep -q 'fake-pi: yolo' "$scratch/pi-yolo.log"; then
+    pass "Pi yolo passes --no-approve"
+else
+    fail "Pi yolo: $(tail -n 8 "$scratch/pi-yolo.log" | tr '\n' ' ')"
 fi
 
 echo "test-sandbox: $fails failed"

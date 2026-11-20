@@ -29,11 +29,13 @@ Neuronte nets draw the text, the terminal characters and Kilix himself (see
 | above the shell | CPU, RAM, GPU, VRAM, and disk read/write activity |
 | bottom right | a bash shell in the shared game home, inside tmux |
 
-The shell runs in a tmux session and window called `shell`. The coding
-agent using Ollama or llama.cpp can inspect it with
-`tmux capture-pane -p -t shell` (add `-S -` for scrollback). The shell
-appends its raw output to `~/shell.log` across rooms and sessions. The
-sandbox includes instructions in `~/docs/tmux.md`.
+The shell runs in a tmux session and window called `shell`, inside the
+player sandbox. Grok, Claude, Codex, and the local agent connect to that
+same tmux server. Inspect it with `tmux capture-pane -p -t shell` (add
+`-S -` for scrollback). The shell appends its raw output to `~/shell.log`
+across rooms and sessions. The sandbox includes instructions in
+`~/docs/tmux.md`. `~` is `/opt/puzzllm/home`, a symlink to the shared
+workspace at `/kilix`.
 Codex can read the log from its command sandbox. Resetting progress
 backs up the log with the other files.
 
@@ -95,8 +97,8 @@ The game opens on its menu in this order: **Harness**, **Model**, then
 Escape steps back one page, and closes the menu once play has started.
 
 **Harness** toggles between OMP and Pi for a local model. **Model** chooses
-Codex, Grok, llama.cpp, or Ollama, and holds the prompt, thinking, and
-compute settings. The llama.cpp and Ollama rows open their model lists.
+Codex, Grok, Claude, llama.cpp, or Ollama, and holds the prompt, thinking,
+compute, and Yolo settings. The llama.cpp and Ollama rows open their model lists.
 Confirming a model from the opening menu starts the game. Model changes
 restart the agent with a fresh conversation in the same workspace. Model
 choices apply until you quit.
@@ -125,7 +127,7 @@ within each model.
 
 **Campaign** locks the current model for every playable room. Turn it on
 from the game menu. The choice is saved, and the game reopens on that
-model. While it is on, Codex, Grok, llama.cpp, and Ollama stay on the
+model. While it is on, Codex, Grok, Claude, llama.cpp, and Ollama stay on the
 locked model. Finish every playable room with reported token use from
 that model and the campaign is ranked. The unfinished stub room is not
 part of the campaign. Walking through a room again keeps that room's
@@ -166,8 +168,23 @@ Choose **Grok Build (xAI)** to use the native Grok Build CLI with the same
 workspace. Install the native `grok` executable or set `PUZZLLM_GROK` to
 its path. On first use, follow the device sign-in instructions in the
 pane. Grok stores its sign-in separately in the game's `grok/` state
-directory and runs with its strict sandbox profile. Its session token
+directory and runs with a strict sandbox that can also use the player
+tmux server. Its session token
 usage is currently available in Grok's own `/usage` view.
+
+Choose **Claude Code (Anthropic)** to run Claude Code in the agent pane
+with the same workspace. Install the `claude` executable or set
+`PUZZLLM_CLAUDE` to its path. On first use, follow the sign-in instructions
+in the pane. Claude stores its sign-in separately in the game's `claude/`
+state directory. It asks before using tools until Yolo is on.
+
+**Yolo** is on the Model page and is off by default. The choice is saved.
+Turning it on restarts the agent and skips that harness's approval prompts:
+`--yolo` for Codex and Grok, `--dangerously-skip-permissions` for Claude,
+`--approval-mode=yolo` for OMP, and `--no-approve` for Pi. While it is off,
+Codex keeps its game permission profile, Grok keeps its strict sandbox
+with access to the player tmux server,
+Claude and OMP ask, and Pi asks instead of skipping approval.
 
 PuzzLLM requests **32,768 context tokens** from Ollama for every turn.
 `PUZZLLM_CTX` changes the requested limit. The game checks the model's
@@ -303,7 +320,7 @@ the workspace fail. The host loopback and outside addresses are unreachable.
 The host home is invisible. Every writable mount is one of those above.
 Nothing appears in a host folder next to the state. It also runs the whole
 agent chain with stand-ins for llama-server and omp, and checks the separate
-Codex launch and sign-in path with a stand-in CLI.
+Codex and Claude launch paths with stand-in CLIs.
 
 Both panes link the [NeuroTerm](https://github.com/itsmygithubacct/neuroterm)
 embedded core from `third_party/neuroterm`. It supplies terminal parsing and
@@ -319,6 +336,7 @@ NeuroTerm's `embed.mk` and `include/neuroterm_terminal.h`.
 | bubblewrap | `bwrap` on `PATH` | |
 | omp | `omp` on `PATH`, then `~/.local/bin/omp` | `PUZZLLM_OMP` |
 | Pi | `pi` on `PATH`, then `~/.local/bin/pi`, then the game's private install | `PUZZLLM_PI`, `PUZZLLM_PI_NODE` |
+| Claude Code | `claude` on `PATH`, then `~/.local/bin/claude` | `PUZZLLM_CLAUDE` |
 | llama-server | `llama-server` on `PATH`, then a Kilix LLM bench build under `~/.local/share/kilix-llm/bench/engine/` | `PUZZLLM_LLAMA_SERVER` |
 | Neuronte (drawing; optional) | a checkout at `~/projects/neuronte`, built from its two library sources | `make NEURONTE=DIR`, `RENDER=raster`; weights `PUZZLLM_NEURONTE_WEIGHTS` |
 | Qwen 3.5 weights | `Qwen3.5-0.8B-Q8_0.gguf`, the model Zell routes to as `qwen3.5-0.8b`, in the Kilix LLM models folder | `PUZZLLM_MODEL` |

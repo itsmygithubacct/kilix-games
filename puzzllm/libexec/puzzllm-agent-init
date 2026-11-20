@@ -32,16 +32,20 @@ health() {
 
 start_pi() {
     local thinking=off
+    local -a pi_yolo=()
     [ "${PUZZLLM_THINK:-0}" = 1 ] && thinking=medium
+    [ "${PUZZLLM_YOLO:-0}" = 1 ] && pi_yolo=(--no-approve)
     exec "$PUZZLLM_PI_COMMAND" --provider puzzllm-local --model "$model_id" \
         --models "puzzllm-local/$model_id" --thinking "$thinking" \
         --session-dir "$PI_CODING_AGENT_DIR/sessions" \
-        --offline --no-approve --no-extensions --no-skills --no-prompt-templates \
+        --offline "${pi_yolo[@]}" --no-extensions --no-skills --no-prompt-templates \
         --no-context-files --no-themes \
         --append-system-prompt "Inspect the player shell as described in ~/docs/tmux.md." "$@"
 }
 
 compute=${PUZZLLM_COMPUTE:-auto}
+omp_yolo=()
+[ "${PUZZLLM_YOLO:-0}" = 1 ] && omp_yolo=(--approval-mode=yolo)
 if [ -n "${PUZZLLM_OLLAMA_MODEL:-}" ]; then
     tool_prompt=$(cat /opt/puzzllm/ollama-prompt.txt) || exit 2
     if [ -f "$HOME/.system/ollama-prompt.txt" ]; then
@@ -63,6 +67,7 @@ if [ -n "${PUZZLLM_OLLAMA_MODEL:-}" ]; then
             fi
             exec /opt/puzzllm/bin/omp --model "puzzllm-local/$model_id" \
                 --system-prompt "$tool_prompt" \
+                "${omp_yolo[@]}" \
                 --allow-home --no-title --no-lsp --no-extensions --no-skills --no-rules "$@"
         fi
         kill -0 "$relay" 2>/dev/null || break
@@ -119,4 +124,5 @@ say "Qwen 3.5 ready; starting omp"
 exec /opt/puzzllm/bin/omp --model "puzzllm-local/$model_id" \
     "${prompt_args[@]}" \
     --append-system-prompt "Inspect the player's shell with tmux capture-pane -p -t shell. Its output is recorded in ~/shell.log." \
+    "${omp_yolo[@]}" \
     --allow-home --no-title --no-lsp --no-extensions --no-skills --no-rules "$@"

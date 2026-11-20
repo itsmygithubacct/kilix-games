@@ -13,8 +13,9 @@ must_fail_write() {
     if ( : > "$1" ) 2>/dev/null; then fail "wrote $1"; else ok "cannot write $1"; fi
 }
 
-[ "$PWD" = "$HOME" ] && [ "$HOME" = /kilix ] &&
-    ok "cwd is the sandbox home" || fail "cwd is $PWD and home is $HOME"
+[ "$HOME" = /opt/puzzllm/home ] && [ -L "$HOME" ] && [ "$(readlink "$HOME")" = /kilix ] &&
+[ "$(pwd -P)" = /kilix ] &&
+    ok "home is a symlink to the workspace" || fail "cwd is $PWD and home is $HOME"
 [ ! -e "$HOME/workspace" ] && ok "no nested work directory" || fail "found an unexpected work subdirectory"
 grep -Fq 'tmux capture-pane -p -t shell' "$HOME/docs/tmux.md" &&
     ok "tmux help is available at ~/docs/tmux.md" || fail "tmux help missing"
@@ -61,6 +62,7 @@ fi
 # mount audit: every writable mount is one the design allows
 allowed="/kilix"
 [ "$mode" = agent ] && allowed="$allowed /opt/puzzllm/agent"
+[ "$mode" = shell ] && allowed="$allowed /opt/puzzllm/tmux"
 while read -r _ _ _ _ point opts rest; do
     fstype=${rest#*- }
     fstype=${fstype%% *}

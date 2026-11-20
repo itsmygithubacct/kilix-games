@@ -119,7 +119,9 @@ typedef struct game {
     char ollama_model[OLLAMA_NAME_CAP];
     bool use_codex;
     bool use_grok;
+    bool use_claude;
     bool use_pi;
+    bool yolo;
     thinking_support thinking_support;
     bool thinking_enabled;
     compute_mode compute;

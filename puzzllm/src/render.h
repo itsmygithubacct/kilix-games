@@ -44,14 +44,14 @@ typedef struct view {
 
 typedef enum compute_mode { COMPUTE_AUTO, COMPUTE_CPU, COMPUTE_GPU } compute_mode;
 
-enum { MENU_RESUME, MENU_QUIT, MENU_RESET, MENU_RESET_LEVEL, MENU_THINKING, MENU_COMPUTE, MENU_TOOLTIPS, MENU_ROOM_BUTTONS, MENU_HINTS_FILE, MENU_MODEL_DETAILS, MENU_LEADERBOARD, MENU_CAMPAIGN, MENU_CAMPAIGN_BOARD, MENU_CLEAR_CAMPAIGN, MENU_HARNESS, MENU_CODEX, MENU_GROK, MENU_LOCAL, MENU_OLLAMA, MENU_NEURONTE, MENU_MODEL, MENU_SCORES, MENU_DISPLAY, MENU_RESETS };
+enum { MENU_RESUME, MENU_QUIT, MENU_RESET, MENU_RESET_LEVEL, MENU_THINKING, MENU_COMPUTE, MENU_TOOLTIPS, MENU_ROOM_BUTTONS, MENU_HINTS_FILE, MENU_MODEL_DETAILS, MENU_LEADERBOARD, MENU_CAMPAIGN, MENU_CAMPAIGN_BOARD, MENU_CLEAR_CAMPAIGN, MENU_HARNESS, MENU_CODEX, MENU_GROK, MENU_LOCAL, MENU_OLLAMA, MENU_NEURONTE, MENU_MODEL, MENU_SCORES, MENU_DISPLAY, MENU_RESETS, MENU_CLAUDE, MENU_YOLO };
 
 enum { MENU_PAGE_MAIN, MENU_PAGE_MODEL, MENU_PAGE_SCORES, MENU_PAGE_DISPLAY, MENU_PAGE_RESET };
 
 int menu_page_rows(int page, bool neuronte, int *out, int cap);
 
 enum { MODEL_SPEC_CAP = 16384 };
-typedef enum model_details_tab { DETAILS_OLLAMA, DETAILS_LLAMA, DETAILS_CODEX, DETAILS_PI, DETAILS_GROK, DETAILS_COUNT } model_details_tab;
+typedef enum model_details_tab { DETAILS_OLLAMA, DETAILS_LLAMA, DETAILS_CODEX, DETAILS_PI, DETAILS_GROK, DETAILS_CLAUDE, DETAILS_COUNT } model_details_tab;
 
 int render_model_details(sr_canvas *c, model_details_tab tab, int scroll,
                          const char *prompt, const char *schema, const char *count);
@@ -61,7 +61,7 @@ struct model_option;
 void render_menu(sr_canvas *c, int selected, const char *active_model,
                  bool started, int level, bool confirm_reset, const char *notice, int thinking_support, bool thinking_enabled, const char *hosted_agent,
                  bool pi, compute_mode compute, bool tooltips, bool room_buttons,
-                 bool campaign, const char *campaign_model, bool hints_file, int page);
+                 bool campaign, const char *campaign_model, bool hints_file, bool yolo, int page);
 void render_model_menu(sr_canvas *c, bool ollama, const struct model_option *models,
                        int count, int selected, bool loading, bool failed,
                        const char *llama_model);

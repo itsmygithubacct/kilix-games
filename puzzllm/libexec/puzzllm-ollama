@@ -152,7 +152,7 @@ def file_arguments(name, arguments):
     path = arguments.get("path")
     if not isinstance(path, str):
         return arguments
-    for prefix in ("~/", "/kilix/"):
+    for prefix in ("~/", "/kilix/", "/opt/puzzllm/home/"):
         if path.startswith(prefix):
             relative = path[len(prefix):]
             if relative and not relative.startswith("/") and ".." not in relative.split("/"):

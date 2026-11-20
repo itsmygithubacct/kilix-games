@@ -427,7 +427,7 @@ static const level *cur_level(const game *g)
 
 static const char *hosted_agent(const game *g)
 {
-    return g->use_codex ? "Codex" : g->use_grok ? "Grok" : NULL;
+    return g->use_codex ? "Codex" : g->use_grok ? "Grok" : g->use_claude ? "Claude" : NULL;
 }
 
 static void model_label_for(bool codex, bool grok, const char *ollama, char out[SCORE_MODEL_CAP])
@@ -440,6 +440,15 @@ static void model_label_for(bool codex, bool grok, const char *ollama, char out[
              hosted ? hosted : ollama && *ollama ? ollama :
              weights && *weights ? (leaf ? leaf + 1 : weights) : "Qwen3.5-0.8B-Q8_0.gguf");
     leaderboard_label(out, SCORE_MODEL_CAP, model);
+}
+
+static void current_model_label(const game *g, char out[SCORE_MODEL_CAP])
+{
+    if (g->use_claude) {
+        leaderboard_label(out, SCORE_MODEL_CAP, "Claude");
+        return;
+    }
+    model_label_for(g->use_codex, g->use_grok, g->ollama_model, out);
 }
 
 static void player_name(char out[SCORE_PLAYER_CAP])
@@ -466,12 +475,15 @@ static void apply_locked_model(game *g, const char *label)
 {
     bool codex = strncmp(label, "Codex", 5) == 0 && (label[5] == 0 || label[5] == '/');
     bool grok = !codex && strncmp(label, "Grok", 4) == 0 && (label[4] == 0 || label[4] == '/');
+    bool claude = !codex && !grok && strncmp(label, "Claude", 6) == 0 &&
+                  (label[6] == 0 || label[6] == '/');
     g->use_codex = g->act.codex = codex;
     g->use_grok = g->act.grok = grok;
+    g->use_claude = g->act.claude = claude;
     g->ollama_model[0] = 0;
-    if (!codex && !grok && strncmp(label, "Ollama/", 7) == 0)
+    if (!codex && !grok && !claude && strncmp(label, "Ollama/", 7) == 0)
         snprintf(g->ollama_model, sizeof g->ollama_model, "%s", label + 7);
-    if (codex || grok) g->thinking_support = THINK_UNAVAILABLE;
+    if (codex || grok || claude) g->thinking_support = THINK_UNAVAILABLE;
 }
 
 static void stop_metrics(agent_metrics *metrics)
@@ -486,7 +498,8 @@ static void start_metrics(game *g)
 {
     char helper[4096], pid[32];
     const char *gpu = getenv("PUZZLLM_GPU");
-    const char *backend = g->use_codex ? "codex" : g->use_grok ? "grok" : g->ollama_model[0] ? "ollama" : "llama";
+    const char *backend = g->use_codex ? "codex" : g->use_grok ? "grok" :
+                          g->use_claude ? "claude" : g->ollama_model[0] ? "ollama" : "llama";
     bool cpu = g->compute == COMPUTE_CPU || (g->compute == COMPUTE_AUTO && (!gpu || !*gpu));
     char *argv[] = {helper, pid, (char *)backend, g->ollama_model, cpu ? "cpu" : "auto", NULL};
 
@@ -596,7 +609,7 @@ static void begin_ranked_agent(game *g)
 {
     score_entry *score = &g->ranked_attempt;
     char clean[SCORE_MODEL_CAP];
-    model_label_for(g->use_codex, g->use_grok, g->ollama_model, clean);
+    current_model_label(g, clean);
     bool same = !strcmp(score->model, clean) ||
                 (g->use_codex && !strncmp(score->model, "Codex/", 6));
     if ((!score->id || (!score->measure[SCORE_TOKENS] && !same)) &&
@@ -627,12 +640,14 @@ static void spawn_agent_prompt(game *g, const char *prompt)
     poll_ranked_attempt(g);
     activity_begin_session(&g->act, g->state);
     begin_ranked_agent(g);
-    char sandbox[4096], st_env[2100], model_env[OLLAMA_NAME_CAP + 32];
-    char *argv[] = {sandbox, g->use_codex ? "codex" : g->use_grok ? "grok" : "agent", (char *)prompt, NULL};
+    char sandbox[4096], st_env[2100], model_env[OLLAMA_NAME_CAP + 32], yolo_env[18];
+    char *mode = g->use_codex ? "codex" : g->use_grok ? "grok" : g->use_claude ? "claude" : "agent";
+    char *argv[] = {sandbox, mode, (char *)prompt, NULL};
     char *think_env = g->thinking_enabled ? "PUZZLLM_THINK=1" : "PUZZLLM_THINK=0";
     char compute_env[32];
     snprintf(compute_env, sizeof compute_env, "PUZZLLM_COMPUTE=%s", compute_name[g->compute]);
-    char *env[] = {st_env, model_env, think_env, compute_env,
+    snprintf(yolo_env, sizeof yolo_env, "PUZZLLM_YOLO=%d", g->yolo ? 1 : 0);
+    char *env[] = {st_env, model_env, think_env, compute_env, yolo_env,
                    g->use_pi ? "PUZZLLM_HARNESS=pi" : "PUZZLLM_HARNESS=omp",
                    "TERM=xterm-256color", NULL};
 
@@ -762,6 +777,7 @@ static void start_play(game *g)
         }
     }
     g->menu.open = false;
+    g->menu.page = MENU_PAGE_MAIN;
 }
 
 static void reset_from_menu(game *g)
@@ -954,7 +970,8 @@ static void refresh_model_details(game *g)
     pty_init(&menu->prompt_counter);
     menu->prompt_count[0] = 0;
     menu->prompt_input_len = 0;
-    if (!menu->prompt[0] || !g->spawn || menu->details_tab == DETAILS_CODEX || menu->details_tab == DETAILS_GROK) return;
+    if (!menu->prompt[0] || !g->spawn || menu->details_tab == DETAILS_CODEX ||
+        menu->details_tab == DETAILS_GROK || menu->details_tab == DETAILS_CLAUDE) return;
     char helper[4096], input[MODEL_SPEC_CAP + 32];
     snprintf(helper, sizeof helper, "%s/libexec/puzzllm-prompt-tokens", g->root);
     snprintf(input, sizeof input, "PUZZLLM_PROMPT_TEXT=%s", menu->prompt);
@@ -1127,19 +1144,46 @@ static void select_model(game *g, bool codex, bool grok, const model_option *mod
     }
     thinking_support support = (codex || grok) ? THINK_UNAVAILABLE :
                                model ? model->thinking : bundled_thinking();
-    if (codex != g->use_codex || grok != g->use_grok || strcmp(name, g->ollama_model) != 0 ||
-        support != g->thinking_support) {
+    if (codex != g->use_codex || grok != g->use_grok || g->use_claude ||
+        strcmp(name, g->ollama_model) != 0 || support != g->thinking_support) {
         g->thinking_enabled = false;
         g->thinking_support = support;
         snprintf(g->ollama_model, sizeof g->ollama_model, "%s", name);
-        if (g->use_codex != codex || g->use_grok != grok) {
+        if (g->use_codex != codex || g->use_grok != grok || g->use_claude) {
             poll_ranked_attempt(g);
             g->ranked_session_model[0] = 0;
             g->use_codex = codex;
             g->act.codex = codex;
             g->use_grok = g->act.grok = grok;
+            g->use_claude = g->act.claude = false;
             activity_begin_room(&g->act, g->state, g->workspace);
         }
+        restart_agent(g);
+    } else if (g->spawn && g->started && pty_poll_exit(&g->omp)) {
+        restart_agent(g);
+    }
+    g->menu.model_submenu = 0;
+    start_play(g);
+}
+
+static void select_claude(game *g)
+{
+    char label[SCORE_MODEL_CAP];
+    leaderboard_label(label, SCORE_MODEL_CAP, "Claude");
+    if (g->campaign && !campaign_same_model(g->campaign_model, label)) {
+        snprintf(g->menu.notice, sizeof g->menu.notice, "Campaign is locked to %s.", g->campaign_model);
+        return;
+    }
+    if (!g->use_claude) {
+        g->thinking_support = THINK_UNAVAILABLE;
+        g->thinking_enabled = g->thinking_support == THINK_SWITCHABLE;
+        g->ollama_model[0] = 0;
+        poll_ranked_attempt(g);
+        g->ranked_session_model[0] = 0;
+        g->use_codex = g->act.codex = false;
+        g->use_grok = g->act.grok = false;
+        g->use_claude = g->act.claude = true;
+        activity_begin_room(&g->act, g->state, g->workspace);
         restart_agent(g);
     } else if (g->spawn && g->started && pty_poll_exit(&g->omp)) {
         restart_agent(g);
@@ -1278,7 +1322,7 @@ static void menu_key(game *g, const key_event *ev)
     if (menu->details_open) {
         if (menu->prompt_edit) prompt_editor_key(g, ev);
         else if (ev->key == KEY_ENTER && ev->action == 1 && menu->details_tab != DETAILS_CODEX &&
-                 menu->details_tab != DETAILS_GROK) {
+                 menu->details_tab != DETAILS_GROK && menu->details_tab != DETAILS_CLAUDE) {
             snprintf(menu->prompt_draft, sizeof menu->prompt_draft, "%s", menu->prompt);
             menu->prompt_cursor = strlen(menu->prompt_draft);
             menu->notice[0] = 0;
@@ -1326,7 +1370,7 @@ static void menu_key(game *g, const key_event *ev)
         if (menu->selected == MENU_CAMPAIGN) {
             bool enabled = !g->campaign;
             char label[SCORE_MODEL_CAP], player[SCORE_PLAYER_CAP];
-            model_label_for(g->use_codex, g->use_grok, g->ollama_model, label);
+            current_model_label(g, label);
             if (enabled && !(g->campaign_model[0] && campaign_same_model(g->campaign_model, label))) {
                 player_name(player);
                 if (!campaign_restart(g->state, label, player, fresh_score_id())) {
@@ -1406,16 +1450,27 @@ static void menu_key(game *g, const key_event *ev)
                 snprintf(menu->notice, sizeof menu->notice, "Could not save the renderer setting.");
             }
         }
+        if (menu->selected == MENU_YOLO) {
+            bool enabled = !g->yolo;
+            if (g->state_lock < 0 || !save_state_line(g->state, "yolo", enabled ? "on" : "off"))
+                snprintf(menu->notice, sizeof menu->notice, "Could not save the yolo setting.");
+            else {
+                g->yolo = enabled;
+                restart_agent(g);
+            }
+        }
         if (menu->selected == MENU_MODEL_DETAILS) {
             menu->details_open = true;
             menu->details_scroll = 0;
-            menu->details_tab = g->use_codex ? DETAILS_CODEX : g->use_grok ? DETAILS_GROK : g->use_pi ? DETAILS_PI :
+            menu->details_tab = g->use_codex ? DETAILS_CODEX : g->use_grok ? DETAILS_GROK :
+                                g->use_claude ? DETAILS_CLAUDE : g->use_pi ? DETAILS_PI :
                                 g->ollama_model[0] ? DETAILS_OLLAMA : DETAILS_LLAMA;
             refresh_model_details(g);
         }
         if (menu->selected == MENU_LEADERBOARD) open_leaderboard(g);
         if (menu->selected == MENU_CODEX) select_model(g, true, false, NULL);
         if (menu->selected == MENU_GROK) select_model(g, false, true, NULL);
+        if (menu->selected == MENU_CLAUDE) select_claude(g);
         if (menu->selected == MENU_LOCAL || menu->selected == MENU_OLLAMA) {
             menu->model_submenu = menu->selected;
             menu->model_selected = 0;
@@ -1568,6 +1623,8 @@ bool game_init(game *g, const char *root, const char *state, bool spawn,
     g->room_buttons = load_preference(state, "room-buttons", buttons) && strcmp(buttons, "on") == 0;
     char hints_file[8];
     g->hints_file = !(load_preference(state, "hints-file", hints_file) && strcmp(hints_file, "off") == 0);
+    char yolo[8];
+    g->yolo = load_preference(state, "yolo", yolo) && strcmp(yolo, "on") == 0;
     char campaign[8];
     if (!campaign_active_model(state, g->campaign_model)) g->campaign_model[0] = 0;
     g->campaign = load_preference(state, "campaign", campaign) && strcmp(campaign, "on") == 0 &&
@@ -1761,7 +1818,8 @@ static void press_room_button(game *g, room_button button)
         }
         if (button == BUTTON_MODEL) {
             g->menu.page = MENU_PAGE_MODEL;
-            g->menu.selected = g->use_codex ? MENU_CODEX : g->use_grok ? MENU_GROK : g->ollama_model[0] ? MENU_OLLAMA : MENU_LOCAL;
+            g->menu.selected = g->use_codex ? MENU_CODEX : g->use_grok ? MENU_GROK :
+                               g->use_claude ? MENU_CLAUDE : g->ollama_model[0] ? MENU_OLLAMA : MENU_LOCAL;
         }
         if (button == BUTTON_RESET_LEVEL || button == BUTTON_RESET_GAME) {
             g->menu.page = MENU_PAGE_RESET;
@@ -1820,7 +1878,7 @@ void game_key(game *g, const key_event *ev)
             }
             else if (g->menu.confirm_reset) g->menu.confirm_reset = false;
             else if (g->menu.model_submenu) g->menu.model_submenu = 0;
-            else if (g->menu.page != MENU_PAGE_MAIN) {
+            else if (g->menu.open && g->menu.page != MENU_PAGE_MAIN) {
                 int page = g->menu.page;
                 g->menu.page = MENU_PAGE_MAIN;
                 g->menu.selected = page == MENU_PAGE_MODEL ? MENU_MODEL :
@@ -2243,5 +2301,5 @@ void game_render(game *g, sr_canvas *c)
                     g->started, g->sc.level + 1, g->menu.confirm_reset, g->menu.notice,
                     g->thinking_support, g->thinking_enabled, v.hosted_agent, g->use_pi,
                     g->compute, g->tooltips, g->room_buttons, g->campaign, g->campaign_model,
-                    g->hints_file, g->menu.page);
+                    g->hints_file, g->yolo, g->menu.page);
 }

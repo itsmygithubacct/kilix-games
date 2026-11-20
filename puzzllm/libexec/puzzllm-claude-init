@@ -1,0 +1,16 @@
+#!/bin/bash
+# Runs only inside the Claude container.
+set -eu
+umask 077
+claude=/opt/puzzllm/bin/claude
+if [ "${1:-}" = --version ]; then exec "$claude" --version; fi
+if ! "$claude" auth status >/dev/null 2>&1; then
+    printf 'Sign in to Claude Code for PuzzLLM.\n'
+    "$claude" auth login
+fi
+yolo=()
+if [ "${PUZZLLM_YOLO:-0}" = 1 ]; then
+    yolo=(--dangerously-skip-permissions)
+fi
+exec "$claude" "${yolo[@]}" \
+    --append-system-prompt 'The player shell transcript is at ~/shell.log.' "$@"

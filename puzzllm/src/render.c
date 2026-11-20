@@ -322,8 +322,8 @@ int menu_page_rows(int page, bool neuronte, int *out, int cap)
         MENU_HARNESS, MENU_MODEL, MENU_RESUME, MENU_SCORES, MENU_DISPLAY, MENU_RESETS, MENU_QUIT
     };
     static const int model_rows[] = {
-        MENU_CODEX, MENU_GROK, MENU_LOCAL, MENU_OLLAMA,
-        MENU_MODEL_DETAILS, MENU_THINKING, MENU_COMPUTE
+        MENU_CODEX, MENU_GROK, MENU_CLAUDE, MENU_LOCAL, MENU_OLLAMA,
+        MENU_MODEL_DETAILS, MENU_THINKING, MENU_COMPUTE, MENU_YOLO
     };
     static const int score_rows[] = {
         MENU_LEADERBOARD, MENU_CAMPAIGN, MENU_CAMPAIGN_BOARD, MENU_CLEAR_CAMPAIGN
@@ -356,7 +356,7 @@ int menu_page_rows(int page, bool neuronte, int *out, int cap)
 void render_menu(sr_canvas *c, int selected, const char *active_model,
                  bool started, int level, bool confirm_reset, const char *notice, int support, bool thinking_enabled, const char *hosted_agent,
                  bool pi, compute_mode compute, bool tooltips, bool room_buttons,
-                 bool campaign, const char *campaign_model, bool hints_file, int page)
+                 bool campaign, const char *campaign_model, bool hints_file, bool yolo, int page)
 {
     static const char *const actions[] = {
         [MENU_QUIT] = "Exit game", [MENU_RESET] = "Reset Game",
@@ -367,6 +367,7 @@ void render_menu(sr_canvas *c, int selected, const char *active_model,
         [MENU_CLEAR_CAMPAIGN] = "Clear campaign board",
         [MENU_CODEX] = "Codex (OpenAI)",
         [MENU_GROK] = "Grok Build (xAI)",
+        [MENU_CLAUDE] = "Claude Code (Anthropic)",
         [MENU_LOCAL] = "llama.cpp models >",
         [MENU_OLLAMA] = "Ollama models >",
         [MENU_MODEL] = "Model >",
@@ -444,6 +445,8 @@ void render_menu(sr_canvas *c, int selected, const char *active_model,
             snprintf(label, sizeof label, "Level buttons: %s", room_buttons ? "On" : "Off");
         else if (i == MENU_HINTS_FILE)
             snprintf(label, sizeof label, "Hint file: %s", hints_file ? "On" : "Off");
+        else if (i == MENU_YOLO)
+            snprintf(label, sizeof label, "Yolo: %s", yolo ? "On" : "Off");
         else if (i == MENU_CAMPAIGN)
             snprintf(label, sizeof label, "Campaign: %s",
                      campaign && campaign_model && *campaign_model ? campaign_model : "Off");
@@ -451,7 +454,8 @@ void render_menu(sr_canvas *c, int selected, const char *active_model,
             snprintf(label, sizeof label, "Neuronte v2: %s", draw_neuronte_enabled() ? "On" : "Off");
         else
             snprintf(label, sizeof label, "%s", actions[i]);
-        bool model_choice = i == MENU_CODEX || i == MENU_GROK || i == MENU_LOCAL || i == MENU_OLLAMA;
+        bool model_choice = i == MENU_CODEX || i == MENU_GROK || i == MENU_CLAUDE ||
+                            i == MENU_LOCAL || i == MENU_OLLAMA;
         bool disabled = (i == MENU_THINKING && support == THINK_UNAVAILABLE) ||
                         ((i == MENU_COMPUTE || i == MENU_HARNESS) && hosted_agent) ||
                         (campaign && model_choice);
@@ -581,7 +585,7 @@ static void details_block(pane_text *pane, const char *text)
 static void details_text(pane_text *pane, model_details_tab tab, const char *prompt,
                          const char *schema, const char *count)
 {
-    if (tab != DETAILS_CODEX && tab != DETAILS_GROK) {
+    if (tab != DETAILS_CODEX && tab != DETAILS_GROK && tab != DETAILS_CLAUDE) {
         pane_message(pane, "Default system message tokens (Qwen 3.5, text only)", 0xffdf94);
         pane_message(pane, "llama.cpp: OMP 2,460 / Pi 553    Ollama: OMP 256 / Pi 166", 0xd0d4dc);
         pane_message(pane, "Shipped Ollama prompt file: 132 tokens", 0xd0d4dc);
@@ -603,6 +607,8 @@ static void details_text(pane_text *pane, model_details_tab tab, const char *pro
         details_block(pane, *prompt ? prompt : "Empty file. Pi uses its built-in system prompt.");
     } else if (tab == DETAILS_GROK) {
         pane_message(pane, "Grok Build supplies its own system prompt and tools.", 0xd0d4dc);
+    } else if (tab == DETAILS_CLAUDE) {
+        pane_message(pane, "Claude Code supplies its own system prompt and tools.", 0xd0d4dc);
     } else {
         pane_message(pane, "The Codex CLI supplies its own prompt and tools.", 0xd0d4dc);
     }
@@ -611,7 +617,7 @@ static void details_text(pane_text *pane, model_details_tab tab, const char *pro
 int render_model_details(sr_canvas *c, model_details_tab tab, int scroll,
                          const char *prompt, const char *schema, const char *count)
 {
-    static const char *const tabs[] = {"Ollama", "llama.cpp", "Codex", "Pi", "Grok"};
+    static const char *const tabs[] = {"Ollama", "llama.cpp", "Codex", "Pi", "Grok", "Claude"};
     int width = CANVAS_W < 1000 ? CANVAS_W - 100 : 880;
     int height = CANVAS_H - 96;
     int x = (CANVAS_W - width) / 2, y = 48;
@@ -635,7 +641,8 @@ int render_model_details(sr_canvas *c, model_details_tab tab, int scroll,
     pane.count = 0;
     details_text(&pane, tab, prompt, schema, count);
     draw_text(c, x + 20, y + height - 29,
-              (tab == DETAILS_CODEX || tab == DETAILS_GROK) ? "Left/Right backend    Esc back" :
+              (tab == DETAILS_CODEX || tab == DETAILS_GROK || tab == DETAILS_CLAUDE) ?
+              "Left/Right backend    Esc back" :
               "Enter edit prompt    Left/Right tabs    Up/Down scroll    Esc back", 0xbccadb, 1);
     return limit;
 }

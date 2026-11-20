@@ -253,7 +253,7 @@ static void find_session(const char *root, int depth, char *out, size_t cap, lon
 
 static bool newest_session(const activity *a, const char *state, char *out, size_t cap)
 {
-    if (a->grok) return false;
+    if (a->grok || a->claude) return false;
     char root[4096];
     long long best = -1;
     snprintf(root, sizeof root, "%s/%s/sessions", state,
@@ -394,7 +394,7 @@ void activity_poll(activity *a, const char *state)
 {
     char ws[4096];
     snprintf(ws, sizeof ws, "%s/workspace", state);
-    if (!a->codex && !a->grok) poll_status(a, state);
+    if (!a->codex && !a->grok && !a->claude) poll_status(a, state);
     poll_session(a, state);
     activity_scan_workspace(a, ws);
 }

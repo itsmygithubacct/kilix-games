@@ -1,0 +1,21 @@
+#!/bin/bash
+# Stand-in for the Grok CLI inside the agent sandbox.
+set -eu
+[[ $HOME = /opt/puzzllm/home && -L $HOME && $(readlink "$HOME") = /kilix ]]
+[[ ${TMUX_TMPDIR:-} = /opt/puzzllm/tmux ]]
+if [[ " $* " = *" login "* ]]; then
+    printf '{}\n' > "$GROK_HOME/auth.json"
+    exit 0
+fi
+if [[ "${PUZZLLM_YOLO:-0}" = 1 ]]; then
+    [[ " $* " = *" --yolo "* ]]
+    [[ " $* " != *" --sandbox strict "* ]]
+else
+    [[ " $* " = *" --sandbox puzzllm "* ]]
+    [[ " $* " != *" --sandbox strict "* ]]
+    grep -q '/opt/puzzllm/tmux' "$GROK_HOME/sandbox.toml"
+fi
+if [[ " $* " = *" capture-pane "* ]]; then
+    exec tmux capture-pane -p -t shell
+fi
+exit 0

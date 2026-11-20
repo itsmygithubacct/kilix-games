@@ -1655,8 +1655,38 @@ static void test_codex_menu(void)
     menu_to(MENU_LOCAL);
     menu_press(KEY_ENTER);
     menu_press(KEY_ENTER);
-    CHECK(!G.use_codex && !G.act.codex && !G.use_grok && !G.act.grok,
+    CHECK(!G.use_codex && !G.act.codex && !G.use_grok && !G.act.grok &&
+          !G.use_claude && !G.act.claude,
           "the bundled model switches back from a hosted agent");
+    game_shutdown(&G);
+}
+
+static void test_yolo_menu(void)
+{
+    char err[256], state[2300], path[4096], line[8];
+    FILE *f;
+    sub(state, sizeof state, "yolo-menu");
+    CHECK(game_init(&G, ".", state, false, err, sizeof err), "yolo menu: %s", err);
+    CHECK(!G.yolo && !G.use_claude, "yolo defaults off and Claude is not selected");
+    menu_to(MENU_YOLO);
+    menu_press(KEY_ENTER);
+    CHECK(G.yolo && G.menu.open, "yolo turns on from the model menu");
+    snprintf(path, sizeof path, "%s/yolo", state);
+    f = fopen(path, "r");
+    CHECK(f && fgets(line, sizeof line, f) && strcmp(line, "on\n") == 0, "yolo preference is saved");
+    if (f) fclose(f);
+    game_shutdown(&G);
+    CHECK(game_init(&G, ".", state, false, err, sizeof err), "yolo reload: %s", err);
+    CHECK(G.yolo, "yolo stays on after relaunch");
+    menu_to(MENU_CLAUDE);
+    menu_press(KEY_ENTER);
+    CHECK(G.use_claude && G.act.claude && !G.use_codex && !G.use_grok && !G.act.codex &&
+          !G.act.grok && G.yolo && G.thinking_support == THINK_UNAVAILABLE,
+          "Claude is a hosted agent and keeps the yolo setting");
+    menu_to(MENU_LOCAL);
+    menu_press(KEY_ENTER);
+    menu_press(KEY_ENTER);
+    CHECK(!G.use_claude && !G.act.claude && G.yolo, "leaving Claude clears that agent and keeps yolo");
     game_shutdown(&G);
 }
 
@@ -2267,6 +2297,7 @@ int main(void)
     test_pane_clipboard();
     test_thinking_menu();
     test_codex_menu();
+    test_yolo_menu();
     test_leaderboard();
     test_campaign();
     test_room_buttons();

@@ -6,9 +6,21 @@ if [ "${1:-}" = --version ]; then exec "$grok" --version; fi
 if [ ! -s "$GROK_HOME/config.toml" ]; then
     printf '[cli]\nauto_update = false\n' > "$GROK_HOME/config.toml"
 fi
+# strict can write the workspace, but a tmux client has to write the server
+# socket. That socket is the shell sandbox's server, not a new one.
+cat > "$GROK_HOME/sandbox.toml" <<'EOF'
+[profiles.puzzllm]
+extends = "strict"
+read_write = ["/opt/puzzllm/tmux", "/opt/puzzllm/home"]
+EOF
+rules='Read the player shell with tmux capture-pane -p -t shell. That tmux server is the one inside this sandbox. The transcript is also at ~/shell.log. Do not start another tmux server.'
 if [ ! -s "$GROK_HOME/auth.json" ]; then
     printf 'Sign in to Grok Build for PuzzLLM.\n'
     "$grok" login --device-auth
 fi
-exec "$grok" --sandbox strict --disable-web-search --no-subagents \
-    --rules 'The player shell transcript is at ~/shell.log.' "$@"
+if [ "${PUZZLLM_YOLO:-0}" = 1 ]; then
+    exec "$grok" --yolo --disable-web-search --no-subagents \
+        --rules "$rules" "$@"
+fi
+exec "$grok" --sandbox puzzllm --disable-web-search --no-subagents \
+    --rules "$rules" "$@"

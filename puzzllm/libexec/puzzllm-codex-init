@@ -6,7 +6,7 @@ codex=$1
 shift
 auth=(-c 'cli_auth_credentials_store="file"')
 policy=(-c 'default_permissions="puzzllm"'
-        -c 'permissions.puzzllm.filesystem={":minimal"="read","/kilix"="write","/opt/puzzllm/codex-home"="deny"}'
+        -c 'permissions.puzzllm.filesystem={":minimal"="read","/kilix"="write","/opt/puzzllm/home"="write","/opt/puzzllm/tmux"="write","/opt/puzzllm/codex-home"="deny"}'
         -c 'permissions.puzzllm.network.enabled=false'
         -c 'projects."/kilix".trust_level="untrusted"'
         -c 'web_search="disabled"'
@@ -19,6 +19,9 @@ fi
 if ! "$codex" "${auth[@]}" login status >/dev/null 2>&1; then
     printf 'Sign in to Codex for PuzzLLM.\n'
     "$codex" "${auth[@]}" login --device-auth
+fi
+if [ "${PUZZLLM_YOLO:-0}" = 1 ]; then
+    exec "$codex" "${auth[@]}" --yolo --no-daemon --no-alt-screen "$@"
 fi
 exec "$codex" "${auth[@]}" "${policy[@]}" --no-daemon --no-alt-screen \
     --ask-for-approval never "$@"

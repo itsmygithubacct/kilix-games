@@ -1,0 +1,13 @@
+#!/bin/bash
+set -eu
+if [ "${PUZZLLM_YOLO:-0}" = 1 ]; then
+    case " $* " in
+        *" --no-approve "*) printf 'fake-pi: yolo\n' ;;
+        *) printf 'fake-pi: missing approval skip\n' >&2; exit 1 ;;
+    esac
+else
+    case " $* " in
+        *" --no-approve "*) printf 'fake-pi: unexpected approval skip\n' >&2; exit 1 ;;
+        *) printf 'fake-pi: asked\n' ;;
+    esac
+fi

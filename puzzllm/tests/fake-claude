@@ -1,0 +1,21 @@
+#!/bin/bash
+set -eu
+[[ $PWD = /kilix && $HOME = /opt/puzzllm/home && $CLAUDE_CONFIG_DIR = /opt/puzzllm/claude-home ]]
+[[ -L $HOME && $(readlink "$HOME") = /kilix ]]
+if [[ " $* " = *" auth status "* ]]; then
+    test -f "$CLAUDE_CONFIG_DIR/mock-signed-in"
+    exit
+fi
+if [[ " $* " = *" auth login "* ]]; then
+    touch "$CLAUDE_CONFIG_DIR/mock-signed-in"
+    exit
+fi
+if [[ "${PUZZLLM_YOLO:-0}" = 1 ]]; then
+    [[ " $* " = *" --dangerously-skip-permissions "* ]]
+    printf 'fake-claude: yolo\n'
+else
+    [[ " $* " != *" --dangerously-skip-permissions "* ]]
+    printf 'fake-claude: asked\n'
+fi
+printf 'Hello, World!\n' > hello_world.txt
+printf 'fake-claude: wrote the workspace file\n'

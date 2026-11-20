@@ -36,9 +36,20 @@ def drain():
                 raise
 
 
+fake_grok = str(Path(sandbox).resolve().parent.parent / "tests" / "fake-grok")
+
+
 def agent_tmux(*args):
     return subprocess.run([sandbox, "agent-exec", "--", "tmux", *args],
                           capture_output=True, text=True, timeout=2, env=env)
+
+
+def grok_tmux(yolo):
+    child_env = env | {"PUZZLLM_GROK": fake_grok}
+    if yolo:
+        child_env["PUZZLLM_YOLO"] = "1"
+    return subprocess.run([sandbox, "grok", "--", "capture-pane", "-p", "-t", "shell"],
+                          capture_output=True, text=True, timeout=15, env=child_env)
 
 
 def wait_for_log(marker):
@@ -73,6 +84,11 @@ try:
 
     mouse = agent_tmux("show-options", "-gv", "mouse")
     assert mouse.returncode == 0 and mouse.stdout.strip() == "on"
+
+    for yolo in (False, True):
+        capture = grok_tmux(yolo)
+        assert capture.returncode == 0 and "kilix@sandbox" in capture.stdout, (
+            f"grok yolo={yolo} missed the sandbox tmux: {capture.stderr!r} {capture.stdout!r}")
 
     old = log.with_suffix(".log.old")
     log.replace(old)

@@ -4,6 +4,7 @@
 #   puzzllm-sandbox agent [OMP-ARGS...]     llama-server + omp, interactive
 #   puzzllm-sandbox codex                   Codex CLI with separate sign-in
 #   puzzllm-sandbox grok                    Grok Build CLI with separate sign-in
+#   puzzllm-sandbox claude                  Claude Code with separate sign-in
 #   puzzllm-sandbox shell                   the player's bash
 #   puzzllm-sandbox agent-exec -- CMD...    CMD with exactly the agent's mounts
 #   puzzllm-sandbox shell-exec -- CMD...    CMD with exactly the shell's mounts
@@ -26,6 +27,8 @@
 #   PUZZLLM_STATE         persistent folder, default ~/.local/share/puzzllm
 #   PUZZLLM_CODEX          Codex CLI executable (default: codex on PATH)
 #   PUZZLLM_GROK           Native Grok Build executable
+#   PUZZLLM_CLAUDE         Claude Code executable (default: claude on PATH)
+#   PUZZLLM_YOLO=1         skip harness approval prompts (off by default)
 #   PUZZLLM_OMP           omp binary (default: omp on PATH, then ~/.local/bin/omp)
 #   PUZZLLM_HARNESS       omp (default) or pi
 #   PUZZLLM_PI            Pi entry point (default: pi on PATH or ~/.local/bin/pi)
@@ -46,6 +49,8 @@ model_id=${PUZZLLM_MODEL_ID:-qwen3.5-0.8b}
 ctx=${PUZZLLM_CTX:-32768}
 reasoning=false
 [ "${PUZZLLM_THINK:-0}" = 1 ] && reasoning=true
+yolo=0
+[ "${PUZZLLM_YOLO:-0}" = 1 ] && yolo=1
 port=8765
 box_home=/kilix
 harness=${PUZZLLM_HARNESS:-omp}
@@ -181,8 +186,10 @@ args=(
     --ro-bind /usr /usr
     --proc /proc --dev /dev
     --tmpfs /tmp --tmpfs /home
+    --dir /opt/puzzllm
+    --symlink "$box_home" /opt/puzzllm/home
     --clearenv
-    --setenv HOME "$box_home" --setenv USER kilix --setenv LOGNAME kilix
+    --setenv HOME /opt/puzzllm/home --setenv USER kilix --setenv LOGNAME kilix
     --setenv PATH /opt/puzzllm/bin:/usr/local/bin:/usr/bin:/bin
     --setenv TERM "${TERM:-xterm-256color}"
     --setenv LANG C.UTF-8 --setenv COLORTERM truecolor
@@ -200,6 +207,10 @@ for f in passwd group nsswitch.conf ld.so.cache ld.so.conf ld.so.conf.d \
          hosts host.conf manpath.config man_db.conf; do
     [ -e "/etc/$f" ] && args+=(--ro-bind "/etc/$f" "/etc/$f")
 done
+# ~ is /opt/puzzllm/home, a symlink to the workspace at /kilix. The password
+# entry matches, so a lookup that ignores $HOME still lands in the workspace.
+printf 'kilix:x:%s:%s:PuzzLLM:/opt/puzzllm/home:/bin/bash\n' "$(id -u)" "$(id -g)" > "$state/passwd"
+args+=(--ro-bind "$state/passwd" /etc/passwd)
 
 compute=${PUZZLLM_COMPUTE:-auto}
 case "$compute" in auto|cpu|gpu) ;; *) die "PUZZLLM_COMPUTE must be auto, cpu, or gpu" ;; esac
@@ -230,10 +241,10 @@ count-check)
     ;;
 esac
 
-# Only the shell server needs to create the socket. Agents connect to
-# the same pathname from their separate namespaces.
+# Only the shell server creates the socket. Every agent, including Grok,
+# connects to that same server from its own mount namespace.
 case "$mode" in
-agent|agent-exec|shell|shell-exec)
+agent|agent-exec|codex|grok|claude|shell|shell-exec)
     (umask 077 && mkdir -p "$state/tmux") || die "cannot create tmux state"
     tmux_mount=--ro-bind
     [ "$mode" = shell ] && tmux_mount=--bind
@@ -270,7 +281,8 @@ agent|agent-exec)
            --setenv PUZZLLM_CTX "$ctx"
            --setenv PUZZLLM_THINK "${PUZZLLM_THINK:-0}"
            --setenv PUZZLLM_COMPUTE "$compute"
-           --setenv PUZZLLM_GPU "$gpu")
+           --setenv PUZZLLM_GPU "$gpu"
+           --setenv PUZZLLM_YOLO "$yolo")
     if [ -z "$ollama" ] && { [ "$compute" = gpu ] || [ -n "$gpu" ]; }; then
         for n in /dev/dri /dev/kfd /dev/nvidiactl /dev/nvidia-uvm /dev/nvidia-modeset \
                  /dev/nvidia[0-9]*; do
@@ -301,6 +313,7 @@ codex)
            --bind "$state/codex" /opt/puzzllm/codex-home
            --chdir "$box_home"
            --setenv CODEX_HOME /opt/puzzllm/codex-home
+           --setenv PUZZLLM_YOLO "$yolo"
            --ro-bind "$here/puzzllm-codex-init" /opt/puzzllm/bin/puzzllm-codex-init)
     [ ! -r /etc/resolv.conf ] || args+=(--ro-bind /etc/resolv.conf /etc/resolv.conf)
     ;;
@@ -319,8 +332,29 @@ grok)
            --bind "$state/grok" /opt/puzzllm/grok-home
            --chdir "$box_home"
            --setenv GROK_HOME /opt/puzzllm/grok-home
+           --setenv PUZZLLM_YOLO "$yolo"
            --ro-bind "$(readlink -f "$grok_bin")" /opt/puzzllm/bin/grok
            --ro-bind "$here/puzzllm-grok-init" /opt/puzzllm/bin/puzzllm-grok-init)
+    [ ! -r /etc/resolv.conf ] || args+=(--ro-bind /etc/resolv.conf /etc/resolv.conf)
+    ;;
+claude)
+    claude_bin=${PUZZLLM_CLAUDE:-$(command -v claude || true)}
+    if [ -z "$claude_bin" ]; then
+        for candidate in "$HOME/.local/bin/claude" "$HOME/.claude/local/claude"; do
+            if [ -x "$candidate" ]; then claude_bin=$candidate; break; fi
+        done
+    fi
+    [ -n "$claude_bin" ] && [ -x "$claude_bin" ] ||
+        die "Claude Code not found (install claude or set PUZZLLM_CLAUDE)"
+    (umask 077 && mkdir -p "$state/claude") || die "cannot create Claude state"
+    args+=(--share-net
+           --bind "$state/workspace" "$box_home"
+           --bind "$state/claude" /opt/puzzllm/claude-home
+           --chdir "$box_home"
+           --setenv CLAUDE_CONFIG_DIR /opt/puzzllm/claude-home
+           --setenv PUZZLLM_YOLO "$yolo"
+           --ro-bind "$(readlink -f "$claude_bin")" /opt/puzzllm/bin/claude
+           --ro-bind "$here/puzzllm-claude-init" /opt/puzzllm/bin/puzzllm-claude-init)
     [ ! -r /etc/resolv.conf ] || args+=(--ro-bind /etc/resolv.conf /etc/resolv.conf)
     ;;
 shell|shell-exec)
@@ -331,12 +365,12 @@ shell|shell-exec)
            --ro-bind "$here/puzzllm-shell-init" /opt/puzzllm/bin/puzzllm-shell-init)
     ;;
 *)
-    die "usage: puzzllm-sandbox agent|codex|grok|shell|agent-exec -- CMD|shell-exec -- CMD|paths"
+    die "usage: puzzllm-sandbox agent|codex|grok|claude|shell|agent-exec -- CMD|shell-exec -- CMD|paths"
     ;;
 esac
 
 case "$mode" in
-agent|agent-exec|codex|grok|shell|shell-exec)
+agent|agent-exec|codex|grok|claude|shell|shell-exec)
     # This mount must follow the workspace mount.
     args+=(--ro-bind "$here/docs" "$box_home/docs")
     ;;
@@ -414,6 +448,9 @@ codex)
     ;;
 grok)
     exec bwrap "${args[@]}" --remount-ro / -- /opt/puzzllm/bin/puzzllm-grok-init "$@"
+    ;;
+claude)
+    exec bwrap "${args[@]}" --remount-ro / -- /opt/puzzllm/bin/puzzllm-claude-init "$@"
     ;;
 shell)
     exec bwrap "${args[@]}" --remount-ro / -- /opt/puzzllm/bin/puzzllm-shell-init
