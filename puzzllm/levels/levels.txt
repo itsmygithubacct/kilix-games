@@ -73,6 +73,36 @@ hint: Every run creates a new ID. Copy the ID and filename from the same failure
 check: follow-log
 
 level: 7
+title: The seal
+room: stone
+goal: Write ~/seal.txt by repeating the lowercase letters whose alphabet positions are multiples of 3, in order, to exactly 32 bytes, with no line ending and no other bytes.
+hint: Alphabet positions start at 1: a is 1, b is 2, c is 3. Keep a letter when its position is a multiple of 3.
+hint: Take those letters in alphabet order. That cycle has eight letters. Repeat the cycle from the start.
+hint: seal.txt is only those repeated letters. No spaces, no label, and no line ending. The file is exactly 32 bytes.
+hint: echo and print add a line ending, and that extra byte fails the goal. Write the bytes and stop.
+hint: In the shell, wc -c seal.txt must print 32. A trailing line ending makes it 33.
+hint: You may also finish the goal yourself in the shell, bottom right.
+check: file seal.txt
+require: bytes 32
+require: only cfilorux
+require: equals cfiloruxcfiloruxcfiloruxcfilorux
+
+level: 8
+title: The mirror
+room: brick
+goal: Write ~/mirror.txt as the 32-byte seal from room 7, then one comma, then those same 32 bytes reversed. Exactly 65 bytes, with no line ending and no other bytes.
+hint: Build the room 7 seal first: eight letters, repeated to 32 bytes, no line ending.
+hint: The file is the seal, one comma, then the seal reversed. The comma is the only byte that is not a letter.
+hint: Reversing by words or by cycles is wrong. Reverse the 32 characters one by one.
+hint: 32 plus 32 is 64. The comma makes 65. A line ending makes 66.
+hint: In the shell, wc -c mirror.txt must print 65.
+hint: You may also finish the goal yourself in the shell, bottom right.
+check: file mirror.txt
+require: bytes 65
+require: only cfilorux,
+require: equals cfiloruxcfiloruxcfiloruxcfilorux,xurolifcxurolifcxurolifcxurolifc
+
+level: 9
 title: Next challenge coming
 room: soon
 goal: This room is still being built. Come back for the next challenge.

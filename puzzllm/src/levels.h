@@ -17,6 +17,10 @@
  *                    "..", not hidden. It must be a regular file (a symlink
  *                    does not count) no bigger than 64 KiB, or than the
  *                    largest size a bytes or max-bytes require names.
+ * check: script NAME same name rule. The game runs `bash NAME` on hidden
+ *                    inputs. A symlink does not count.
+ * check: stamped-log the latest shell failure, plus a stamp counted from
+ *                    the filename. The stamp is not stored in this file.
  * check: chest       the game supplies a ZIP and checks its extracted key.
  * check: count-files the game supplies a Bash script and tests its output.
  * check: none        never met: a "coming soon" stub room.
@@ -47,7 +51,8 @@ enum {
 };
 
 typedef enum level_check_kind {
-    CHECK_NONE = 0, CHECK_FILE, CHECK_CHEST, CHECK_COUNT_FILES, CHECK_FOLLOW_LOG
+    CHECK_NONE = 0, CHECK_FILE, CHECK_CHEST, CHECK_COUNT_FILES, CHECK_FOLLOW_LOG,
+    CHECK_SCRIPT, CHECK_STAMPED_LOG
 } level_check_kind;
 typedef enum level_req_kind {
     REQ_NONEMPTY = 1, REQ_CONTAINS, REQ_CONTAINS_CI, REQ_MAX_BYTES, REQ_BYTES, REQ_ONLY,

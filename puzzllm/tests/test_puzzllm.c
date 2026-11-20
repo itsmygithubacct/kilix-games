@@ -326,6 +326,162 @@ static void test_levels(void)
     CHECK(!levels_check(&L.items[L.count - 1], ws).met, "the stub room is never met");
 }
 
+static int run_script_check(const char *dir, const char *script_name)
+{
+    char checker[4096], cwd[4096];
+    pid_t pid;
+    int status;
+    if (getcwd(cwd, sizeof cwd) == NULL) return 127;
+    {
+        int n = snprintf(checker, sizeof checker, "%s/libexec/puzzllm-script-check", cwd);
+        if (n < 0 || (size_t)n >= sizeof checker) return 127;
+    }
+    pid = fork();
+    if (pid < 0) return 127;
+    if (pid == 0) {
+        if (chdir(dir) != 0) _exit(127);
+        execlp("timeout", "timeout", "--kill-after=1s", "3s",
+               "bash", checker, script_name, (char *)NULL);
+        _exit(127);
+    }
+    if (waitpid(pid, &status, 0) < 0) return 127;
+    return WIFEXITED(status) ? WEXITSTATUS(status) : 128;
+}
+
+static void test_script_and_stamp(void)
+{
+    level_list L;
+    char err[256], ws[2300], path[2400], body[700];
+    goal_result r;
+    script_puzzle sp;
+    const char *block =
+        "level: 1\ntitle: t\ngoal: g\ncheck: script keep.sh\n"
+        "level: 2\ntitle: u\ngoal: h\ncheck: stamped-log\n"
+        "level: 3\ntitle: v\ngoal: i\ncheck: follow-log\n"
+        "level: 4\ntitle: w\ngoal: j\ncheck: none\n";
+    const char *keeper =
+        "awk '{\n"
+        "  for (i = 1; i <= NF; i++) {\n"
+        "    n = $i + 0\n"
+        "    if (seen && n > prev) print n\n"
+        "    prev = n\n"
+        "    seen = 1\n"
+        "  }\n"
+        "}'\n";
+    const char *drops_negatives =
+        "awk '{\n"
+        "  for (i = 1; i <= NF; i++) {\n"
+        "    n = $i + 0\n"
+        "    if (seen && n > prev && n >= 0 && prev >= 0) print n\n"
+        "    prev = n\n"
+        "    seen = 1\n"
+        "  }\n"
+        "}'\n";
+    static const struct { const char *id, *file; int stamp; } rows[] = {
+        {"0123456789abcdef01234567", "inventory.csv", 4},
+        {"fedcba9876543210fedcba98", "rooms.json", 4},
+        {"00112233445566778899aabb", "assets.manifest", 2},
+        {"abcdeffedcba0123456789ab", "routes.txt", 4},
+    };
+
+    CHECK(levels_parse(&L, block, err, sizeof err) && L.count == 4, "both checks parse: %s", err);
+    CHECK(L.items[0].check == CHECK_SCRIPT && strcmp(L.items[0].file, "keep.sh") == 0,
+          "script check names keep.sh");
+    CHECK(L.items[1].check == CHECK_STAMPED_LOG && L.items[1].file[0] == '\0',
+          "stamped-log stores no filename");
+    CHECK(L.items[2].check == CHECK_FOLLOW_LOG, "follow-log still parses");
+    CHECK(!levels_parse(&L, "level: 1\ntitle: t\ngoal: g\ncheck: script\n", err, sizeof err),
+          "a script check needs a file name");
+    CHECK(strstr(err, "plain, visible") != NULL, "script name error: %s", err);
+    CHECK(!levels_parse(&L, "level: 1\ntitle: t\ngoal: g\ncheck: script ../keep.sh\n", err, sizeof err),
+          "a script path is rejected");
+    CHECK(!levels_parse(&L, "level: 1\ntitle: t\ngoal: g\ncheck: script .keep.sh\n", err, sizeof err),
+          "a hidden script name is rejected");
+    CHECK(levels_parse(&L, block, err, sizeof err), "reparse: %s", err);
+
+    sub(ws, sizeof ws, "stamp-ws");
+    mkdir(ws, 0700);
+    r = levels_check(&L.items[1], ws);
+    CHECK(!r.met && strstr(r.why, "run ./run_check.sh") != NULL, "missing log: %s", r.why);
+    snprintf(path, sizeof path, "%s/shell.log", ws);
+    snprintf(body, sizeof body,
+             "noise\nPuzzLLM check failed: %s %s\n", rows[0].id, rows[0].file);
+    write_file(path, body, strlen(body));
+    r = levels_check(&L.items[1], ws);
+    CHECK(!r.met && strstr(r.why, "stamp") != NULL, "missing stamped report: %s", r.why);
+
+    for (size_t i = 0; i < sizeof rows / sizeof rows[0]; i++) {
+        int n = snprintf(body, sizeof body, "noise\nPuzzLLM check failed: %s %s\n",
+                         rows[i].id, rows[i].file);
+        snprintf(path, sizeof path, "%s/shell.log", ws);
+        write_file(path, body, (size_t)n);
+        n = snprintf(body, sizeof body, "%s %s %d\n", rows[i].id, rows[i].file, rows[i].stamp);
+        snprintf(path, sizeof path, "%s/report.txt", ws);
+        write_file(path, body, (size_t)n);
+        r = levels_check(&L.items[1], ws);
+        CHECK(r.met, "%s stamp %d: %s", rows[i].file, rows[i].stamp, r.why);
+        n = snprintf(body, sizeof body, "%s %s %d\n", rows[i].id, rows[i].file, rows[i].stamp + 1);
+        write_file(path, body, (size_t)n);
+        CHECK(!levels_check(&L.items[1], ws).met, "%s rejects the next stamp", rows[i].file);
+    }
+
+    snprintf(path, sizeof path, "%s/shell.log", ws);
+    snprintf(body, sizeof body,
+             "PuzzLLM check failed: %s %s\nPuzzLLM check failed: %s %s\n",
+             rows[3].id, rows[3].file, rows[0].id, rows[0].file);
+    write_file(path, body, strlen(body));
+    snprintf(path, sizeof path, "%s/report.txt", ws);
+    snprintf(body, sizeof body, "%s %s %d\n", rows[0].id, rows[0].file, rows[0].stamp);
+    write_file(path, body, strlen(body));
+    r = levels_check(&L.items[1], ws);
+    CHECK(r.met, "latest failure wins: %s", r.why);
+    snprintf(body, sizeof body, "%s %s %d\n", rows[3].id, rows[3].file, rows[3].stamp);
+    write_file(path, body, strlen(body));
+    CHECK(!levels_check(&L.items[1], ws).met, "an older failure does not pass");
+    snprintf(body, sizeof body, "%s %s\n", rows[0].id, rows[0].file);
+    write_file(path, body, strlen(body));
+    CHECK(!levels_check(&L.items[1], ws).met, "a two-field report is missing the stamp");
+    r = levels_check(&L.items[2], ws);
+    CHECK(r.met, "follow-log still accepts the two-field report: %s", r.why);
+
+    sub(ws, sizeof ws, "script-ws");
+    mkdir(ws, 0700);
+    snprintf(path, sizeof path, "%s/keep.sh", ws);
+    r = script_puzzle_check(".", ".", ws, "keep.sh");
+    CHECK(!r.met && strstr(r.why, "regular file") != NULL, "missing script: %s", r.why);
+    r = script_puzzle_check(".", ".", ws, "../keep.sh");
+    CHECK(!r.met, "a script path is not launched: %s", r.why);
+    memset(&sp, 0, sizeof sp);
+    r = script_puzzle_poll(&sp, ".", ".", ws, "keep.sh");
+    CHECK(!r.met && sp.grader == 0, "a missing script does not fork: %s", r.why);
+    script_puzzle_stop(&sp);
+
+    const char *sample_only = "printf '4\\n9\\n'\n";
+    write_file(path, keeper, strlen(keeper));
+    CHECK(run_script_check(ws, "keep.sh") == 0, "the keeper passes the hidden inputs");
+    write_file(path, sample_only, strlen(sample_only));
+    CHECK(run_script_check(ws, "keep.sh") == 12, "the sample output is not a fixture");
+    write_file(path, drops_negatives, strlen(drops_negatives));
+    CHECK(run_script_check(ws, "keep.sh") == 13, "dropping negatives fails");
+    r = levels_check(&L.items[0], ws);
+    CHECK(!r.met, "the host file check does not grade the script: %s", r.why);
+
+    unlink(path);
+    CHECK(symlink("other.sh", path) == 0, "script symlink");
+    CHECK(run_script_check(ws, "keep.sh") == 11, "a symlink is not the script");
+    unlink(path);
+    {
+        char *big = malloc(65537);
+        CHECK(big != NULL, "size buffer");
+        if (big != NULL) {
+            memset(big, 'x', 65537);
+            write_file(path, big, 65537);
+            free(big);
+            CHECK(run_script_check(ws, "keep.sh") == 11, "an oversized script is refused");
+        }
+    }
+}
+
 static void test_strawberry(void)
 {
     level_list levels;
@@ -1465,7 +1621,7 @@ static void test_room_buttons(void)
 static void test_campaign(void)
 {
     char err[256], state[2300], path[2500], locked[SCORE_MODEL_CAP];
-    int needed[] = {1, 2, 3, 4, 5, 6};
+    int needed[LEVEL_MAX], needed_count = 0;
     score_entry room = {.level = 1, .id = 9, .measure = {100, 10, -1, -1, -1, -1, -1}};
     score_entry *board = NULL;
     int count = 0;
@@ -1474,6 +1630,12 @@ static void test_campaign(void)
 
     sub(state, sizeof state, "campaign-state");
     CHECK(game_init(&G, ".", state, false, err, sizeof err), "campaign game: %s", err);
+    for (int i = 0; i < G.levels.count; i++) {
+        if (G.levels.items[i].check != CHECK_NONE)
+            needed[needed_count++] = G.levels.items[i].number;
+    }
+    CHECK(needed_count >= 6 && needed[0] == 1, "the campaign covers the playable rooms");
+    room.level = needed[0];
     CHECK(!G.campaign, "campaign starts off");
     snprintf(path, sizeof path, "%s/workspace/GOAL.md", state);
     CHECK(file_contains(path, "Hello, World"), "campaign save still publishes ~/GOAL.md");
@@ -1491,41 +1653,42 @@ static void test_campaign(void)
     CHECK(!G.use_codex && G.menu.open && strstr(G.menu.notice, "locked"),
           "campaign rejects a different model");
 
-    CHECK(campaign_note(state, &room, needed, 6, NULL), "record the first campaign room");
+    CHECK(campaign_note(state, &room, needed, needed_count, NULL), "record the first campaign room");
     CHECK(campaign_load(state, &board, &count) && count == 0, "one room does not rank a campaign");
     free(board);
     board = NULL;
     room.measure[SCORE_TOKENS] = 999;
-    CHECK(campaign_note(state, &room, needed, 6, NULL), "a repeated room keeps the first result");
+    CHECK(campaign_note(state, &room, needed, needed_count, NULL), "a repeated room keeps the first result");
     room.measure[SCORE_TOKENS] = 10;
-    for (int level = 2; level <= 6; level++) {
-        room.level = level;
+    for (int i = 1; i < needed_count; i++) {
+        room.level = needed[i];
         tokens += room.measure[SCORE_TOKENS];
         ranked = false;
-        CHECK(campaign_note(state, &room, needed, 6, &ranked), "record campaign room %d", level);
-        CHECK(ranked == (level == 6), "the campaign ranks only when every room is done");
+        CHECK(campaign_note(state, &room, needed, needed_count, &ranked),
+              "record campaign room %d", needed[i]);
+        CHECK(ranked == (i + 1 == needed_count), "the campaign ranks only when every room is done");
     }
-    CHECK(campaign_load(state, &board, &count) && count == 1 && board[0].level == 6 &&
+    CHECK(campaign_load(state, &board, &count) && count == 1 && board[0].level == needed_count &&
           board[0].measure[SCORE_TOKENS] == tokens,
           "a finished campaign sums the first result from each room");
     free(board);
     board = NULL;
 
     CHECK(campaign_restart(state, "Other", "Player", 77), "start a second campaign run");
-    for (int level = 1; level <= 6; level++) {
-        room.level = level;
+    for (int i = 0; i < needed_count; i++) {
+        room.level = needed[i];
         room.id = 77;
         room.measure[SCORE_TOKENS] = 5;
         snprintf(room.model, sizeof room.model, "Other");
         ranked = false;
-        CHECK(campaign_note(state, &room, needed, 6, &ranked), "record the shorter campaign");
+        CHECK(campaign_note(state, &room, needed, needed_count, &ranked), "record the shorter campaign");
     }
     CHECK(ranked, "the second campaign is ranked");
 
     menu_to(MENU_CAMPAIGN_BOARD);
     menu_press(KEY_ENTER);
     CHECK(G.menu.leaderboard_open && G.menu.campaign_board && G.menu.score_count == 2 &&
-          G.menu.scores[0].measure[SCORE_TOKENS] == 30 && G.menu.scores[0].rank == 1,
+          G.menu.scores[0].measure[SCORE_TOKENS] == 5 * needed_count && G.menu.scores[0].rank == 1,
           "the campaign board ranks the lower token total first");
     menu_press(KEY_ESCAPE);
 
@@ -2313,6 +2476,7 @@ int main(void)
     test_neuroterm();
     test_keys();
     test_levels();
+    test_script_and_stamp();
     test_phrase_checks();
     test_strawberry();
     test_million_ones();

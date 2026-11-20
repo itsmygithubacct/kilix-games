@@ -9,6 +9,8 @@
 #   puzzllm-sandbox agent-exec -- CMD...    CMD with exactly the agent's mounts
 #   puzzllm-sandbox shell-exec -- CMD...    CMD with exactly the shell's mounts
 #   puzzllm-sandbox count-setup|count-check  install or check the Bash puzzle
+#   puzzllm-sandbox log-setup                install the shell-log puzzle
+#   puzzllm-sandbox script-check NAME        grade one workspace Bash file
 #   puzzllm-sandbox paths                   print the resolved paths and exit
 #
 # The omp and shell sandboxes are bubblewrap containers with every namespace unshared
@@ -238,6 +240,16 @@ count-check)
         --ro-bind "$state/workspace" "$box_home" \
         --ro-bind "$here/puzzllm-count-check" /opt/puzzllm/count-check \
         --chdir "$box_home" --remount-ro / -- bash /opt/puzzllm/count-check
+    ;;
+script-check)
+    name=${1:-}
+    case "$name" in
+        ''|.*|*/*|*' '*) die "script name must be a plain file name" ;;
+    esac
+    exec timeout --kill-after=1s 3s bwrap "${args[@]}" --new-session \
+        --ro-bind "$state/workspace" "$box_home" \
+        --ro-bind "$here/puzzllm-script-check" /opt/puzzllm/script-check \
+        --chdir "$box_home" --remount-ro / -- bash /opt/puzzllm/script-check "$name"
     ;;
 esac
 

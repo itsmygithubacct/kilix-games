@@ -301,5 +301,41 @@ else
     fail "Pi yolo: $(tail -n 8 "$scratch/pi-yolo.log" | tr '\n' ' ')"
 fi
 
+script_state=$scratch/script-state
+rm -rf "$script_state"
+mkdir -p "$script_state/workspace"
+cat > "$script_state/workspace/keep.sh" << 'EOF'
+awk '{
+  for (i = 1; i <= NF; i++) {
+    n = $i + 0
+    if (seen && n > prev) print n
+    prev = n
+    seen = 1
+  }
+}'
+EOF
+if PUZZLLM_STATE=$script_state "$sandbox" script-check keep.sh; then
+    pass "script check accepts a strictly rising keeper"
+else
+    fail "script check rejected a correct keep.sh ($?)"
+fi
+printf 'printf "4\\n9\\n"\n' > "$script_state/workspace/keep.sh"
+if PUZZLLM_STATE=$script_state "$sandbox" script-check keep.sh >/dev/null 2>&1; then
+    fail "script check accepted the sample output"
+else
+    pass "script check rejects a script that only prints the sample"
+fi
+printf 'sleep 30\n' > "$script_state/workspace/keep.sh"
+if PUZZLLM_STATE=$script_state "$sandbox" script-check keep.sh >/dev/null 2>&1; then
+    fail "script check accepted a script that does not finish"
+else
+    pass "script check fails a script that takes too long"
+fi
+if PUZZLLM_STATE=$script_state "$sandbox" script-check ../keep.sh >/dev/null 2>&1; then
+    fail "script check accepted a path"
+else
+    pass "script check rejects a path"
+fi
+
 echo "test-sandbox: $fails failed"
 [ "$fails" -eq 0 ]

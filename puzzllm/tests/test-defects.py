@@ -330,6 +330,13 @@ DEFECTS = [
     ("Pi yolo still asks for approval",
      "libexec/puzzllm-agent-init", "pi_yolo=(--no-approve)",
      "pi_yolo=()", "test-sandbox"),
+    ("stamped-log ignores the filename stamp",
+     "src/levels.c", "int stamp = filename_stamp(space + 1);",
+     "int stamp = 0;", "test-unit"),
+    ("script check accepts a script that drops negatives",
+     "libexec/puzzllm-script-check",
+     "run '-2 -1 0' $'-1\\n0\\n' || exit 13",
+     ": || exit 13", "test-unit"),
 ]
 
 

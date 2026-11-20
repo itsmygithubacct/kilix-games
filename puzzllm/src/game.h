@@ -104,6 +104,7 @@ typedef struct game {
     double ranked_fraction_ms;
     goal_result goal;
     count_puzzle count_check;
+    script_puzzle script_check;
     bool was_met;
     int hints_shown;
     double level_time;

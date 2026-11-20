@@ -408,6 +408,8 @@ goal_result game_check_level(const game *g, int index)
     const level *lv = &g->levels.items[index];
     if (lv->check == CHECK_COUNT_FILES)
         return count_puzzle_check(g->root, g->state, g->workspace);
+    if (lv->check == CHECK_SCRIPT)
+        return script_puzzle_check(g->root, g->state, g->workspace, lv->file);
     if (lv->check != CHECK_CHEST) return levels_check(lv, g->workspace);
 
     goal_result result = {false, "extract key.txt from chest.zip"};
@@ -1540,6 +1542,7 @@ void game_enter_level(game *g, int level)
 {
     if (g->state_lock >= 0) seed_system_files(g);
     count_puzzle_stop(&g->count_check);
+    script_puzzle_stop(&g->script_check);
     scene_enter_room(&g->sc, level);
     restore_ranked_attempt(g);
     g->last_pane = FOCUS_OMP;
@@ -1554,8 +1557,8 @@ void game_enter_level(game *g, int level)
     if (cur_level(g)->check == CHECK_COUNT_FILES && g->state_lock >= 0 &&
         !puzzle_prepare(g->root, g->state, "count-setup"))
         activity_add(&g->act, ACT_ERROR, "Could not install the count_files.sh puzzle.");
-    if (cur_level(g)->check == CHECK_FOLLOW_LOG && g->state_lock >= 0 &&
-        !puzzle_prepare(g->root, g->state, "log-setup"))
+    if ((cur_level(g)->check == CHECK_FOLLOW_LOG || cur_level(g)->check == CHECK_STAMPED_LOG) &&
+        g->state_lock >= 0 && !puzzle_prepare(g->root, g->state, "log-setup"))
         activity_add(&g->act, ACT_ERROR, "Could not install run_check.sh.");
     activity_add(&g->act, ACT_GOAL, "Room %d: %s", level + 1, cur_level(g)->title);
     if (!g->spawn && cur_level(g)->check == CHECK_COUNT_FILES)
@@ -1650,6 +1653,7 @@ void game_shutdown(game *g)
 {
     stop_metrics(&g->metrics);
     count_puzzle_stop(&g->count_check);
+    script_puzzle_stop(&g->script_check);
     pty_stop(&g->omp);
     poll_ranked_attempt(g);
     pty_stop(&g->shell);
@@ -1669,9 +1673,13 @@ void game_shutdown(game *g)
 
 void game_poll_goal(game *g)
 {
-    g->goal = cur_level(g)->check == CHECK_COUNT_FILES ?
-        count_puzzle_poll(&g->count_check, g->root, g->state, g->workspace) :
-        game_check_level(g, g->sc.level);
+    if (cur_level(g)->check == CHECK_COUNT_FILES)
+        g->goal = count_puzzle_poll(&g->count_check, g->root, g->state, g->workspace);
+    else if (cur_level(g)->check == CHECK_SCRIPT)
+        g->goal = script_puzzle_poll(&g->script_check, g->root, g->state, g->workspace,
+                                     cur_level(g)->file);
+    else
+        g->goal = game_check_level(g, g->sc.level);
     g->sc.goal_met = g->goal.met;
     if (g->goal.met && !g->was_met)
         activity_add(&g->act, ACT_GOAL, "GOAL MET: %s. The door opens.", g->goal.why);

@@ -255,7 +255,10 @@ makes a room that is never finished, which is a stub. `require` can be
 `equals TEXT` (ignoring surrounding whitespace), `max-bytes N`,
 `bytes N` (exactly N bytes, up to 16 MiB) or `only CHARS`
 (no other byte anywhere). `room` picks the room's look: `stone`, `brick`, `press`, `archive`,
-`vault`, `dock`, or `soon`. A new level is a new block, not new code. The full format is in
+`vault`, `dock`, or `soon`. A new level is a new block. `check: script NAME` grades
+that Bash file on hidden inputs, and `check: stamped-log` matches the latest
+shell failure plus a stamp counted from the filename. Those two checks are
+code; further rooms that use them are blocks. The full format is in
 [`src/levels.h`](src/levels.h).
 
 The levels so far:
@@ -286,7 +289,12 @@ The levels so far:
    find the latest run ID and failing filename in tmux or `~/shell.log`
    and write them to `~/report.txt`, separated by one space. Rerunning
    the check makes earlier reports stale.
-7. A stub room for the next challenge.
+7. **The seal.** Write `~/seal.txt` by repeating the lowercase letters whose
+   alphabet positions are multiples of 3 until the file is exactly 32 bytes,
+   with no line ending.
+8. **The mirror.** Write `~/mirror.txt` as that 32-byte seal, one comma, then
+   the seal reversed. The file is exactly 65 bytes, with no line ending.
+9. A stub room for the next challenge.
 
 The generated pixel art in `assets/` includes blue stone and red brick walls,
 slate floor tiles, and a sliding wooden door. The sliding leaf reveals a black opening.
@@ -304,8 +312,8 @@ sandboxes started by [`libexec/puzzllm-sandbox`](libexec/puzzllm-sandbox):
   persistent home. Nothing of the host user's home is visible.
 - Two folders are writable, both under `~/.local/share/puzzllm/` (or
   `$PUZZLLM_STATE`), and both survive restarts:
-  - `workspace/`, mounted as `/kilix`. It is both `$HOME` and the working
-    directory of the coding agent and the shell.
+  - `workspace/`, mounted as `/kilix`, the working directory. `$HOME` is
+    `/opt/puzzllm/home`, a symlink to `/kilix`.
   - `agent/` for OMP or `pi/` for Pi, mounted separately at
     `/opt/puzzllm/agent` in the agent sandbox only. It holds configuration and sessions.
 - In the agent sandbox, `puzzllm-agent-init` starts `llama-server` on the

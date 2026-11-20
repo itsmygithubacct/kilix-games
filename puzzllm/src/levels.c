@@ -68,7 +68,7 @@ static bool finish(level *lv, int line, char *err, size_t cap)
 {
     if (lv->title[0] == '\0') { set_err(err, cap, line, "level has no title"); return false; }
     if (lv->goal[0] == '\0') { set_err(err, cap, line, "level has no goal"); return false; }
-    if (lv->check == CHECK_FILE && lv->file[0] == '\0') {
+    if ((lv->check == CHECK_FILE || lv->check == CHECK_SCRIPT) && lv->file[0] == '\0') {
         set_err(err, cap, line, "level has no check");
         return false;
     }
@@ -144,6 +144,15 @@ bool levels_parse(level_list *out, const char *text, char *err, size_t errcap)
                 cur->check = CHECK_COUNT_FILES;
             } else if (strcmp(val, "follow-log") == 0) {
                 cur->check = CHECK_FOLLOW_LOG;
+            } else if (strcmp(val, "stamped-log") == 0) {
+                cur->check = CHECK_STAMPED_LOG;
+            } else if (strcmp(val, "script") == 0 || strncmp(val, "script ", 7) == 0) {
+                char *name = strcmp(val, "script") == 0 ? val + 6 : trim(val + 7);
+                if (!safe_name(name) || !copy_field(cur->file, sizeof cur->file, name)) {
+                    set_err(err, errcap, line_no, "script check needs a plain, visible file name");
+                    return false;
+                }
+                cur->check = CHECK_SCRIPT;
             } else if (strncmp(val, "file ", 5) == 0) {
                 char *name = trim(val + 5);
                 if (!safe_name(name) || !copy_field(cur->file, sizeof cur->file, name)) {
@@ -290,6 +299,20 @@ static long file_cap(const level *lv)
     return cap;
 }
 
+/* Letters whose alphabet position is a multiple of 3. a is 1. Digits and
+ * dots add nothing. A and a are the same letter. */
+static int filename_stamp(const char *name)
+{
+    int count = 0;
+    for (; *name; name++) {
+        unsigned char c = (unsigned char)*name;
+        if (c >= 'A' && c <= 'Z') c = (unsigned char)(c - 'A' + 'a');
+        if (c < 'a' || c > 'z') continue;
+        if (((c - 'a') + 1) % 3 == 0) count++;
+    }
+    return count;
+}
+
 static bool latest_failure(int fd, off_t end, char expected[128])
 {
     const char prefix[] = "PuzzLLM check failed: ";
@@ -331,9 +354,9 @@ static bool latest_failure(int fd, off_t end, char expected[128])
     return false;
 }
 
-static goal_result check_log_report(const char *workspace)
+static goal_result check_log_report(const char *workspace, bool stamped)
 {
-    char path[4096], expected[128], report[128];
+    char path[4096], expected[160], report[160];
     struct stat st;
     snprintf(path, sizeof path, "%s/shell.log", workspace);
     int fd = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
@@ -341,17 +364,36 @@ static goal_result check_log_report(const char *workspace)
                  latest_failure(fd, st.st_size, expected);
     if (fd >= 0) close(fd);
     if (!found) return (goal_result){false, "run ./run_check.sh in the player shell"};
+    if (stamped) {
+        char *space = strchr(expected, ' ');
+        if (space == NULL || space[1] == '\0')
+            return (goal_result){false, "run ./run_check.sh in the player shell"};
+        int stamp = filename_stamp(space + 1);
+        size_t len = strlen(expected);
+        int extra = snprintf(expected + len, sizeof expected - len, " %d", stamp);
+        if (extra < 0 || (size_t)extra >= sizeof expected - len)
+            return (goal_result){false, "run ./run_check.sh in the player shell"};
+    }
 
     snprintf(path, sizeof path, "%s/report.txt", workspace);
     fd = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
-    if (fd < 0) return (goal_result){false, "write the latest run ID and filename to report.txt"};
+    if (fd < 0) {
+        if (stamped)
+            return (goal_result){false, "write the latest run ID, filename, and stamp to report.txt"};
+        return (goal_result){false, "write the latest run ID and filename to report.txt"};
+    }
     ssize_t n = fstat(fd, &st) == 0 && S_ISREG(st.st_mode) &&
                 st.st_size < (off_t)sizeof report ? read(fd, report, sizeof report) : -1;
     close(fd);
     size_t len = strlen(expected);
     if (n > 0 && report[n - 1] == '\n') n--;
-    if (n == (ssize_t)len && !memcmp(expected, report, len))
+    if (n == (ssize_t)len && !memcmp(expected, report, len)) {
+        if (stamped)
+            return (goal_result){true, "the report matches the latest shell run and its stamp"};
         return (goal_result){true, "the report matches the latest shell run"};
+    }
+    if (stamped)
+        return (goal_result){false, "report.txt must be the latest run ID, filename, and stamp"};
     return (goal_result){false, "report.txt must match the latest failure's run ID and filename"};
 }
 
@@ -375,7 +417,10 @@ goal_result levels_check(const level *lv, const char *workspace)
     }
     if (lv->check == CHECK_COUNT_FILES)
         return (goal_result){false, "repair count_files.sh"};
-    if (lv->check == CHECK_FOLLOW_LOG) return check_log_report(workspace);
+    if (lv->check == CHECK_FOLLOW_LOG) return check_log_report(workspace, false);
+    if (lv->check == CHECK_STAMPED_LOG) return check_log_report(workspace, true);
+    if (lv->check == CHECK_SCRIPT)
+        return (goal_result){false, "the script must be a regular file in the workspace"};
     snprintf(path, sizeof path, "%s/%s", workspace, lv->file);
     if (lstat(path, &st) != 0) {
         snprintf(r.why, sizeof r.why, "%.160s does not exist yet", lv->file);

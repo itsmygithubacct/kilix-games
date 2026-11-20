@@ -39,8 +39,8 @@ printf '3\n' > "$scratch/state/workspace/strawberry.txt"
 "$bin" --check-level 2 > "$scratch/out"; rc=$?
 [ $rc -eq 0 ] && grep -q 'level 2: met' "$scratch/out" && pass "level 2 accepts the count" ||
     fail "level 2 correct rc=$rc $(cat "$scratch/out")"
-"$bin" --check-level 9 2>/dev/null; rc=$?
-[ $rc -eq 2 ] && pass "unknown level is an error" || fail "level 9 rc=$rc"
+"$bin" --check-level 99 2>/dev/null; rc=$?
+[ $rc -eq 2 ] && pass "unknown level is an error" || fail "unknown level rc=$rc"
 "$bin" --bogus 2>/dev/null; rc=$?
 [ $rc -eq 2 ] && pass "bad argument is an error" || fail "bad argument rc=$rc"
 "$bin" < /dev/null > /dev/null 2>&1; rc=$?

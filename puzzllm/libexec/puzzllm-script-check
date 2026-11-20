@@ -1,0 +1,27 @@
+#!/bin/bash
+# Grade one workspace script. The workspace is mounted read-only.
+# Hidden inputs only. A script that prints one fixed sample does not pass.
+set -euo pipefail
+name=${1:-}
+[[ -f "$name" && ! -L "$name" ]] || exit 11
+bytes=$(stat -c %s "$name") || exit 11
+[[ "$bytes" -le 65536 ]] || exit 11
+
+run() {
+    local input="$1" expected="$2" output
+    set +e +o pipefail
+    output=$(printf '%s' "$input" | bash --noprofile --norc "./$name" 2>/dev/null | head -c 8192; printf '\001')
+    set -e -o pipefail
+    [[ $output == "${expected}"$'\001' ]]
+}
+
+run '' '' || exit 12
+run '5' '' || exit 12
+run '3 3 3' '' || exit 12
+run '-2 -1 0' $'-1\n0\n' || exit 13
+run '10 1 2 2 3' $'2\n3\n' || exit 13
+seq_in=$(seq -s ' ' 1 100)
+expected=''
+for ((i = 2; i <= 100; i++)); do expected+="$i"$'\n'; done
+run "$seq_in" "$expected" || exit 14
+exit 0
