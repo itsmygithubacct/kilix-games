@@ -53,16 +53,17 @@ aisle through it to reach the next room.
 |---|---|
 | arrows, WASD | walk |
 | Enter, Space, E | use the screen Kilix is next to (the goal pane gives the next hint) |
-| Alt+Left / Alt+Right | focus the coding agent / shell |
-| Alt+Up / Alt+Down | return to the room / refocus the last terminal |
-| F1 / F2 | type into the agent / the shell from anywhere |
-| F10 or Ctrl+] | stop typing and walk again |
+| Alt+Left / Alt+Right | focus the coding agent / shell while walking |
+| Alt+Down | refocus the last terminal while walking |
+| Ctrl+Shift+F1 / Ctrl+Shift+F2 | focus the agent / shell from either pane |
+| Ctrl+Shift+F10 | return to the room |
 | H | next hint |
-| Esc | open or close the game menu from any screen |
+| Esc | open the menu while walking, or go back in the menu |
+| Ctrl+Shift+F12 | open the game menu from a terminal pane |
 | Ctrl+Q | quit (while walking) |
 | mouse click | click a terminal to type into it, the goal for the next hint, or the floor to walk again |
 | mouse wheel | scroll the pane under the pointer |
-| Shift+Page Up / Shift+Page Down | scroll the focused terminal’s history |
+| Ctrl+Shift+Page Up / Ctrl+Shift+Page Down | scroll the focused terminal’s history |
 | left drag | highlight text in any pane and copy it to the primary selection |
 | middle click | paste the primary selection into the agent or shell under the pointer |
 | Ctrl+Alt+C | copy the selection |

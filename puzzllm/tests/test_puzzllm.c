@@ -1188,9 +1188,11 @@ static void test_menu(void)
     CHECK(game_init(&G, ".", state, false, err, sizeof err), "menu game: %s", err);
     G.sc.focus = FOCUS_SHELL;
     ev.action = 1;
-    ev.key = KEY_ESCAPE;
+    ev.key = KEY_F12;
+    ev.mods = MOD_CTRL | MOD_SHIFT;
     game_key(&G, &ev);
-    CHECK(G.menu.open, "escape opens menu from the shell");
+    CHECK(G.menu.open, "the game menu chord opens the menu from the shell");
+    ev.mods = 0;
     double now = G.now;
     game_update(&G, 1.0);
     CHECK(G.now == now, "menu pauses room movement and hints");
@@ -1219,8 +1221,10 @@ static void test_menu(void)
           "selecting a listed model applies it and closes the menu");
     CHECK(G.sc.focus == FOCUS_SHELL && G.sc.level == 0,
           "model choice preserves room and terminal focus");
-    ev.key = KEY_ESCAPE;
+    ev.key = KEY_F12;
+    ev.mods = MOD_CTRL | MOD_SHIFT;
     game_key(&G, &ev);
+    ev.mods = 0;
     ev.key = KEY_DOWN;
     game_key(&G, &ev);
     ev.key = KEY_ENTER;
@@ -1232,6 +1236,10 @@ static void test_menu(void)
 static void menu_press(uint32_t key)
 {
     key_event ev = {.key = key, .action = 1};
+    if (key == KEY_ESCAPE && !G.menu.open && G.sc.focus != FOCUS_ROOM) {
+        ev.key = KEY_F12;
+        ev.mods = MOD_CTRL | MOD_SHIFT;
+    }
     game_key(&G, &ev);
 }
 
@@ -1630,19 +1638,28 @@ static void test_pane_focus(void)
     CHECK(G.sc.focus == FOCUS_SHELL, "Alt+Right focuses shell");
     key.key = KEY_LEFT;
     game_key(&G, &key);
-    CHECK(G.sc.focus == FOCUS_OMP, "Alt+Left focuses the coding session");
+    CHECK(G.sc.focus == FOCUS_SHELL, "Alt-Left stays with the focused shell");
+    key = (key_event){.key = KEY_F1, .mods = MOD_CTRL | MOD_SHIFT, .action = 1};
+    game_key(&G, &key);
+    CHECK(G.sc.focus == FOCUS_OMP, "the game focus chord switches to the agent");
     key.key = KEY_RIGHT;
     key.mods = MOD_ALT | MOD_CTRL;
     game_key(&G, &key);
     CHECK(G.sc.focus == FOCUS_OMP, "modified Alt-arrow stays with the terminal");
-    key = (key_event){.key = KEY_UP, .mods = MOD_ALT, .action = 1};
+    key = (key_event){.key = KEY_F1 + 9, .mods = MOD_CTRL | MOD_SHIFT, .action = 1};
     game_key(&G, &key);
-    CHECK(G.sc.focus == FOCUS_ROOM, "Alt+Up returns to the room");
+    CHECK(G.sc.focus == FOCUS_ROOM, "the game focus chord returns to the room");
+    key = (key_event){.key = KEY_RIGHT, .mods = MOD_ALT, .action = 1};
+    game_key(&G, &key);
     key.mods = 0;
     key.action = 2;
     game_key(&G, &key);
-    CHECK(G.held_until[2] == 0, "a focus chord repeat cannot move Kilix after Alt is released");
+    CHECK(G.held_until[1] == 0, "a focus chord repeat cannot move Kilix after Alt is released");
     key.action = 3;
+    game_key(&G, &key);
+    key = (key_event){.key = KEY_F1, .mods = MOD_CTRL | MOD_SHIFT, .action = 1};
+    game_key(&G, &key);
+    key = (key_event){.key = KEY_F1 + 9, .mods = MOD_CTRL | MOD_SHIFT, .action = 1};
     game_key(&G, &key);
     key = (key_event){.key = KEY_DOWN, .mods = MOD_ALT, .action = 1};
     game_key(&G, &key);
@@ -1748,9 +1765,9 @@ static void test_pane_scroll(void)
         CHECK(G.action_scroll == 0 && G.shell_history.offset == 0,
               "scrolling down past the end returns to live output");
         game_click(&G, omp.x + 10, omp.y + 10);
-        key_event key = {.key = KEY_PAGE_DOWN, .mods = MOD_SHIFT, .action = 1};
+        key_event key = {.key = KEY_PAGE_DOWN, .mods = MOD_CTRL | MOD_SHIFT, .action = 1};
         game_key(&G, &key);
-        CHECK(G.omp_history.offset == 0, "Shift+Page Down returns to the live agent");
+        CHECK(G.omp_history.offset == 0, "the game scroll shortcut returns to the live agent");
     } else {
         CHECK(false, "scroll test canvases initialized");
     }
@@ -1838,6 +1855,23 @@ static void test_pane_clipboard(void)
         n = read(transfer[0], bytes, sizeof bytes);
         CHECK(n == (ssize_t)strlen(expected) && memcmp(bytes, expected, (size_t)n) == 0,
               "native paste joins chunks and strips embedded controls");
+        const key_event terminal_keys[] = {
+            {.key = KEY_ESCAPE, .action = 1},
+            {.key = KEY_LEFT, .mods = MOD_ALT, .action = 1},
+            {.key = KEY_F1, .action = 1},
+            {.key = KEY_F1 + 9, .action = 1},
+            {.key = ']', .mods = MOD_CTRL, .action = 1},
+            {.key = KEY_PAGE_UP, .mods = MOD_SHIFT, .action = 1},
+        };
+        for (size_t i = 0; i < sizeof terminal_keys / sizeof *terminal_keys; i++) {
+            char encoded[128];
+            size_t len = neuroterm_key(&G.shell_vt, &terminal_keys[i], encoded, sizeof encoded);
+            game_key(&G, &terminal_keys[i]);
+            n = read(transfer[0], bytes, sizeof bytes);
+            CHECK(len > 0 && n == (ssize_t)len && memcmp(bytes, encoded, len) == 0 &&
+                  !G.menu.open && G.sc.focus == FOCUS_SHELL,
+                  "terminal key %zu reaches the shell unchanged", i);
+        }
         close(transfer[0]);
         close(transfer[1]);
         G.shell.fd = master;

@@ -1455,7 +1455,8 @@ static int dir_index(uint32_t key)
 void game_key(game *g, const key_event *ev)
 {
     bool press = ev->action != 3;
-    bool ctrl = (ev->mods & MOD_CTRL) != 0;
+    const unsigned game_mod = MOD_CTRL | MOD_SHIFT;
+    bool in_room = g->sc.focus == FOCUS_ROOM;
 
     if (ev->key >= KEY_LEFT && ev->key <= KEY_DOWN) {
         unsigned arrow = 1u << (ev->key - KEY_LEFT);
@@ -1465,7 +1466,7 @@ void game_key(game *g, const key_event *ev)
             if (!press) g->pane_arrows &= ~arrow;
             return;
         }
-        if (ev->mods == MOD_ALT) {
+        if (in_room && ev->mods == MOD_ALT) {
             if (ev->action == 1 && !g->menu.open) {
                 g->pane_arrows |= arrow;
                 switch (ev->key) {
@@ -1479,7 +1480,8 @@ void game_key(game *g, const key_event *ev)
         }
     }
 
-    if (ev->key == KEY_ESCAPE && ev->mods == 0) {
+    if ((ev->key == KEY_ESCAPE && ev->mods == 0 && (in_room || g->menu.open)) ||
+        (ev->key == KEY_F12 && ev->mods == game_mod)) {
         if (press && ev->action != 2) {
             if (g->menu.prompt_edit) g->menu.prompt_edit = false;
             else if (g->menu.leaderboard_open) g->menu.leaderboard_open = false;
@@ -1499,10 +1501,11 @@ void game_key(game *g, const key_event *ev)
         return;
     }
 
-    if ((ev->mods == (MOD_CTRL | MOD_ALT) || ev->mods == (MOD_CTRL | MOD_SHIFT)) &&
-        (ev->key == 'c' || ev->key == 'C' || ev->key == 'v' || ev->key == 'V')) {
+    bool copy = (ev->key == 'c' || ev->key == 'C') && g->selection.active;
+    bool paste = (ev->key == 'v' || ev->key == 'V') && g->clipboard[0] && !in_room;
+    if (ev->mods == (MOD_CTRL | MOD_ALT) && (copy || paste)) {
         if (ev->action == 1) {
-            if (ev->key == 'c' || ev->key == 'C') {
+            if (copy) {
                 view v = game_view(g);
                 char copy[CLIPBOARD_CAP];
                 size_t len = render_copy_selection(&v, copy, sizeof copy);
@@ -1517,22 +1520,28 @@ void game_key(game *g, const key_event *ev)
         return;
     }
 
-    /* keys that work everywhere */
-    if (press && (ev->key == KEY_F1 + 9 || (ctrl && ev->key == ']'))) {
-        focus_screen(g, FOCUS_ROOM);
-        return;
+    if (ev->mods == game_mod) {
+        focus_id target;
+        switch (ev->key) {
+        case KEY_F1: target = FOCUS_OMP; break;
+        case KEY_F1 + 1: target = FOCUS_SHELL; break;
+        case KEY_F1 + 9: target = FOCUS_ROOM; break;
+        default: target = (focus_id)-1; break;
+        }
+        if ((int)target >= 0) {
+            if (ev->action == 1) focus_screen(g, target);
+            return;
+        }
     }
-    if (press && ev->key == KEY_F1) { focus_screen(g, FOCUS_OMP); return; }
-    if (press && ev->key == KEY_F1 + 1) { focus_screen(g, FOCUS_SHELL); return; }
 
-    if (g->sc.focus != FOCUS_ROOM) {
+    if (!in_room) {
         pty_proc *p = g->sc.focus == FOCUS_OMP ? &g->omp : &g->shell;
         neuroterm *t = g->sc.focus == FOCUS_OMP ? &g->omp_vt : &g->shell_vt;
         char buf[256];
         size_t n;
         if (!press) return;
         history *scroll = g->sc.focus == FOCUS_OMP ? &g->omp_history : &g->shell_history;
-        if (ev->mods == MOD_SHIFT && !scroll->alternate &&
+        if (ev->mods == game_mod && !scroll->alternate &&
             (ev->key == KEY_PAGE_UP || ev->key == KEY_PAGE_DOWN)) {
             g->selection.active = false;
             history_scroll(scroll, ev->key == KEY_PAGE_UP ? t->rows : -t->rows);
@@ -1557,14 +1566,15 @@ void game_key(game *g, const key_event *ev)
         uint32_t k = ev->key;
         int d;
         if (k >= 'A' && k <= 'Z') k += 'a' - 'A';
-        d = ctrl ? -1 : dir_index(k);
-        if (d >= 0) {
+        d = dir_index(k);
+        if (d >= 0 && (!press || !(ev->mods & ~MOD_SHIFT))) {
             if (ev->action == 3) g->held_until[d] = 0;
             else g->held_until[d] = g->now + (g->release_events ? 1e9 : 0.2);
             return;
         }
         if (!press) return;
-        if (ctrl && k == 'q') { g->quit = true; return; }
+        if (ev->mods == MOD_CTRL && k == 'q') { g->quit = true; return; }
+        if (ev->mods & ~MOD_SHIFT) return;
         if (k == 'h') { next_hint(g); return; }
         if (k == KEY_ENTER || k == ' ' || k == 'e') {
             screen_id near = scene_near_screen(&g->sc);

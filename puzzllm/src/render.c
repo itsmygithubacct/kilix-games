@@ -676,7 +676,7 @@ void render_frame(sr_canvas *c, const view *v)
                  "Arrows/WASD walk   Alt+Left agent   Alt+Right shell   H hint   Esc menu");
     else
         snprintf(hud, sizeof hud,
-                 "%s focused   Alt+Left agent   Alt+Right shell   Alt+Up room   Esc menu",
+                 "%s focused   Ctrl+Shift: F1 agent / F2 shell / F10 room / F12 menu",
                  s->focus == FOCUS_OMP ? "agent" : "shell");
     draw_text(c, 16, HUD_Y + 2, hud, 0xe6e6e6, 1.0f);
 }
