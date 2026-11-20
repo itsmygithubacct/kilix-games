@@ -198,5 +198,60 @@ PUZZLLM_ROOT="$scratch/root" "$bin" --check-level 1 2> "$scratch/err"; rc=$?
 [ $rc -eq 2 ] && grep -q 'line 4: check file must be a plain' "$scratch/err" &&
     pass "bad level file reported" || fail "bad level file rc=$rc $(cat "$scratch/err")"
 
+# Host downloads. The sandbox is not involved, and a bad name never reaches ollama.
+fetch=$here/libexec/puzzllm-fetch
+models=$scratch/fetch-models
+mkdir -p "$scratch/bin" "$models"
+cat > "$scratch/bin/ollama" <<'EOF'
+#!/bin/sh
+case "$1" in
+    show) exit 1 ;;
+esac
+printf '%s\n' "$2" >> "$PUZZLLM_OLLAMA_LOG"
+exit 0
+EOF
+chmod 755 "$scratch/bin/ollama" "$fetch"
+export PUZZLLM_OLLAMA_LOG=$scratch/ollama.log PATH="$scratch/bin:$PATH"
+"$fetch" ollama 'bad name' > "$scratch/out"; rc=$?
+[ "$rc" -eq 2 ] && [ ! -e "$PUZZLLM_OLLAMA_LOG" ] && grep -q 'Ollama names' "$scratch/out" &&
+    pass "ollama pull rejects a name with a space" || fail "bad ollama name rc=$rc"
+"$fetch" ollama '../evil' > "$scratch/out"; rc=$?
+[ "$rc" -eq 2 ] && [ ! -e "$PUZZLLM_OLLAMA_LOG" ] &&
+    pass "ollama pull rejects a dotted path" || fail "dotted ollama name rc=$rc"
+"$fetch" ollama 'qwen3:0.6b' > "$scratch/out"; rc=$?
+[ "$rc" -eq 0 ] && grep -qx 'pulled qwen3:0.6b' "$scratch/out" &&
+    grep -qx 'qwen3:0.6b' "$PUZZLLM_OLLAMA_LOG" &&
+    pass "ollama pull runs on the host with the typed name" || fail "ollama pull rc=$rc"
+payload=$scratch/payload.gguf
+printf 'puzzllm-fetch-ok\n' > "$payload"
+bytes=$(wc -c < "$payload" | tr -d ' ')
+sha=$(sha256sum "$payload" | awk '{print $1}')
+url=file://$payload
+KILIX_LLM_MODELS_DIR=$models PUZZLLM_FETCH_FIXTURE_ID=fixture \
+    PUZZLLM_FETCH_FIXTURE_FILE=tiny.gguf PUZZLLM_FETCH_FIXTURE_BYTES=$bytes \
+    PUZZLLM_FETCH_FIXTURE_SHA=$sha PUZZLLM_FETCH_FIXTURE_URL=$url \
+    "$fetch" gguf fixture > "$scratch/out"; rc=$?
+[ "$rc" -eq 0 ] && grep -qx 'saved tiny.gguf' "$scratch/out" &&
+    [ "$(cat "$models/tiny.gguf")" = "puzzllm-fetch-ok" ] &&
+    pass "a suggested GGUF is saved into the models folder" || fail "gguf fetch rc=$rc $(cat "$scratch/out")"
+KILIX_LLM_MODELS_DIR=$models PUZZLLM_FETCH_FIXTURE_ID=fixture \
+    PUZZLLM_FETCH_FIXTURE_FILE=tiny.gguf PUZZLLM_FETCH_FIXTURE_BYTES=$bytes \
+    PUZZLLM_FETCH_FIXTURE_SHA=$sha PUZZLLM_FETCH_FIXTURE_URL=$url \
+    "$fetch" gguf fixture > "$scratch/out"; rc=$?
+[ "$rc" -eq 0 ] && grep -qx 'already saved tiny.gguf' "$scratch/out" &&
+    pass "a matching GGUF is not downloaded again" || fail "gguf present rc=$rc"
+printf 'x' >> "$models/tiny.gguf"
+KILIX_LLM_MODELS_DIR=$models PUZZLLM_FETCH_FIXTURE_ID=fixture \
+    PUZZLLM_FETCH_FIXTURE_FILE=tiny.gguf PUZZLLM_FETCH_FIXTURE_BYTES=$bytes \
+    PUZZLLM_FETCH_FIXTURE_SHA=$sha PUZZLLM_FETCH_FIXTURE_URL=$url \
+    "$fetch" gguf fixture > "$scratch/out"; rc=$?
+[ "$rc" -eq 2 ] && grep -q 'does not match' "$scratch/out" &&
+    pass "a different file with the suggested name is left in place" || fail "gguf mismatch rc=$rc"
+"$fetch" gguf nope > "$scratch/out"; rc=$?
+[ "$rc" -eq 2 ] && grep -q 'unknown llama.cpp model' "$scratch/out" &&
+    pass "an unknown GGUF id is refused" || fail "unknown gguf rc=$rc"
+! grep -q 'bwrap' "$fetch" && pass "the fetcher does not enter the sandbox" ||
+    fail "fetcher mentions the sandbox"
+
 echo "test-cli: $fails failed"
 [ $fails -eq 0 ]

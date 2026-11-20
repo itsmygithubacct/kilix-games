@@ -432,10 +432,43 @@ static const char *hosted_agent(const game *g)
     return g->use_codex ? "Codex" : g->use_grok ? "Grok" : g->use_claude ? "Claude" : NULL;
 }
 
-static void model_label_for(bool codex, bool grok, const char *ollama, char out[SCORE_MODEL_CAP])
+static void models_directory(char *out, size_t cap)
+{
+    const char *dir = getenv("KILIX_LLM_MODELS_DIR");
+    const char *gpu = getenv("GPU_TERMINAL_HOME");
+    const char *home = getenv("HOME");
+    int n;
+    if (dir && *dir) n = snprintf(out, cap, "%s", dir);
+    else if (gpu && *gpu) n = snprintf(out, cap, "%s/kilix-llm/models", gpu);
+    else n = snprintf(out, cap, "%s/.local/gpu_terminal/kilix-llm/models", home && *home ? home : ".");
+    if (n < 0 || (size_t)n >= cap) out[0] = 0;
+}
+
+static bool plain_gguf_name(const char *name)
+{
+    size_t n = name ? strlen(name) : 0;
+    unsigned char first;
+    if (n < 6 || n >= OLLAMA_NAME_CAP || strstr(name, "..")) return false;
+    first = (unsigned char)name[0];
+    if (!((first >= 'A' && first <= 'Z') || (first >= 'a' && first <= 'z') ||
+          (first >= '0' && first <= '9') || first == '_'))
+        return false;
+    if (strcmp(name + n - 5, ".gguf") != 0) return false;
+    for (size_t i = 0; i < n; i++) {
+        unsigned char c = (unsigned char)name[i];
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+            c == '.' || c == '_' || c == '-')
+            continue;
+        return false;
+    }
+    return true;
+}
+
+static void model_label_for(bool codex, bool grok, const char *ollama, const char *gguf,
+                            char out[SCORE_MODEL_CAP])
 {
     char model[SCORE_MODEL_CAP];
-    const char *weights = getenv("PUZZLLM_MODEL");
+    const char *weights = gguf && *gguf ? gguf : getenv("PUZZLLM_MODEL");
     const char *leaf = weights ? strrchr(weights, '/') : NULL;
     const char *hosted = codex ? "Codex" : grok ? "Grok" : NULL;
     snprintf(model, sizeof model, "%s%s", hosted ? "" : (ollama && *ollama ? "Ollama/" : "llama.cpp/"),
@@ -450,7 +483,7 @@ static void current_model_label(const game *g, char out[SCORE_MODEL_CAP])
         leaderboard_label(out, SCORE_MODEL_CAP, "Claude");
         return;
     }
-    model_label_for(g->use_codex, g->use_grok, g->ollama_model, out);
+    model_label_for(g->use_codex, g->use_grok, g->ollama_model, g->llama_model, out);
 }
 
 static void player_name(char out[SCORE_PLAYER_CAP])
@@ -485,6 +518,15 @@ static void apply_locked_model(game *g, const char *label)
     g->ollama_model[0] = 0;
     if (!codex && !grok && !claude && strncmp(label, "Ollama/", 7) == 0)
         snprintf(g->ollama_model, sizeof g->ollama_model, "%s", label + 7);
+    if (!codex && !grok && !claude && strncmp(label, "llama.cpp/", 10) == 0 &&
+        plain_gguf_name(label + 10)) {
+        char dir[4096];
+        char path[sizeof g->llama_model];
+        models_directory(dir, sizeof dir);
+        int n = snprintf(path, sizeof path, "%s/%s", dir, label + 10);
+        if (dir[0] && n > 0 && (size_t)n < sizeof path && access(path, R_OK) == 0)
+            memcpy(g->llama_model, path, (size_t)n + 1);
+    }
     if (codex || grok || claude) g->thinking_support = THINK_UNAVAILABLE;
 }
 
@@ -649,9 +691,20 @@ static void spawn_agent_prompt(game *g, const char *prompt)
     char compute_env[32];
     snprintf(compute_env, sizeof compute_env, "PUZZLLM_COMPUTE=%s", compute_name[g->compute]);
     snprintf(yolo_env, sizeof yolo_env, "PUZZLLM_YOLO=%d", g->yolo ? 1 : 0);
-    char *env[] = {st_env, model_env, think_env, compute_env, yolo_env,
-                   g->use_pi ? "PUZZLLM_HARNESS=pi" : "PUZZLLM_HARNESS=omp",
-                   "TERM=xterm-256color", NULL};
+    char *env[9];
+    int en = 0;
+    env[en++] = st_env;
+    env[en++] = model_env;
+    env[en++] = think_env;
+    env[en++] = compute_env;
+    env[en++] = yolo_env;
+    env[en++] = g->use_pi ? "PUZZLLM_HARNESS=pi" : "PUZZLLM_HARNESS=omp";
+    env[en++] = "TERM=xterm-256color";
+    if (!g->use_codex && !g->use_grok && !g->use_claude && !g->ollama_model[0] && g->llama_model[0]) {
+        snprintf(g->gguf_env, sizeof g->gguf_env, "PUZZLLM_MODEL=%s", g->llama_model);
+        env[en++] = g->gguf_env;
+    }
+    env[en] = NULL;
 
     snprintf(sandbox, sizeof sandbox, "%s/libexec/puzzllm-sandbox", g->root);
     snprintf(st_env, sizeof st_env, "PUZZLLM_STATE=%s", g->state);
@@ -1133,7 +1186,7 @@ static bool campaign_choice_allowed(const game *g, bool codex, bool grok, const 
 {
     char label[SCORE_MODEL_CAP];
     if (!g->campaign) return true;
-    model_label_for(codex, grok, name, label);
+    model_label_for(codex, grok, name, g->llama_model, label);
     return campaign_same_model(g->campaign_model, label);
 }
 
@@ -1194,11 +1247,278 @@ static void select_claude(game *g)
     start_play(g);
 }
 
+static const struct {
+    int id;
+    const char *kind;
+    const char *arg;
+} download_catalog[] = {
+    {MENU_DL_GGUF_08, "gguf", "qwen3.5-0.8b"},
+    {MENU_DL_GGUF_4B, "gguf", "qwen3.5-4b-q4"},
+    {MENU_DL_OLLAMA_06, "ollama", "qwen3:0.6b"},
+    {MENU_DL_OLLAMA_4B, "ollama", "qwen3:4b-instruct-2507"},
+};
+
+static bool ollama_pull_name(const char *name)
+{
+    size_t n = name ? strlen(name) : 0;
+    if (n < 1 || n > 128 || strstr(name, "..") || strstr(name, "//")) return false;
+    unsigned char first = (unsigned char)name[0], last = (unsigned char)name[n - 1];
+    if (first == '/' || first == ':' || first == '.' || first == '-' || last == '/' || last == ':')
+        return false;
+    for (size_t i = 0; i < n; i++) {
+        unsigned char c = (unsigned char)name[i];
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+            c == '_' || c == '.' || c == ':' || c == '/' || c == '-')
+            continue;
+        return false;
+    }
+    return true;
+}
+
+static void scan_ggufs(game_menu *menu)
+{
+    char dir[4096];
+    menu->gguf_count = 0;
+    models_directory(dir, sizeof dir);
+    if (!dir[0]) return;
+    DIR *folder = opendir(dir);
+    if (!folder) return;
+    struct dirent *ent;
+    while ((ent = readdir(folder)) != NULL && menu->gguf_count < 32) {
+        char path[4600];
+        struct stat st;
+        int n;
+        if (!plain_gguf_name(ent->d_name)) continue;
+        n = snprintf(path, sizeof path, "%s/%s", dir, ent->d_name);
+        if (n < 0 || (size_t)n >= sizeof path) continue;
+        if (lstat(path, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size <= 0) continue;
+        snprintf(menu->gguf[menu->gguf_count].name, sizeof menu->gguf[0].name, "%s", ent->d_name);
+        menu->gguf[menu->gguf_count].thinking = THINK_UNAVAILABLE;
+        menu->gguf_count++;
+    }
+    closedir(folder);
+    for (int i = 1; i < menu->gguf_count; i++) {
+        model_option item = menu->gguf[i];
+        int j = i;
+        bool item_default = strcmp(item.name, "Qwen3.5-0.8B-Q8_0.gguf") == 0;
+        while (j > 0) {
+            bool earlier_default = strcmp(menu->gguf[j - 1].name, "Qwen3.5-0.8B-Q8_0.gguf") == 0;
+            if (earlier_default || (!item_default && strcmp(menu->gguf[j - 1].name, item.name) <= 0))
+                break;
+            menu->gguf[j] = menu->gguf[j - 1];
+            j--;
+        }
+        menu->gguf[j] = item;
+    }
+}
+
+static bool gguf_path(const game_menu *menu, int index, char *out, size_t cap)
+{
+    char dir[4096];
+    int n;
+    if (index < 0 || index >= menu->gguf_count) return false;
+    models_directory(dir, sizeof dir);
+    n = snprintf(out, cap, "%s/%s", dir, menu->gguf[index].name);
+    return dir[0] && n > 0 && (size_t)n < cap && access(out, R_OK) == 0;
+}
+
+static void start_fetch(game *g, const char *kind, const char *arg)
+{
+    game_menu *menu = &g->menu;
+    const char *override = getenv("PUZZLLM_FETCH");
+    int n;
+    char *argv[4];
+    if (menu->fetching || menu->yesno_running) {
+        snprintf(menu->notice, sizeof menu->notice, "A download is already running.");
+        return;
+    }
+    if (override && *override)
+        n = snprintf(menu->fetch_helper, sizeof menu->fetch_helper, "%s", override);
+    else
+        n = snprintf(menu->fetch_helper, sizeof menu->fetch_helper, "%s/libexec/puzzllm-fetch", g->root);
+    if (n < 0 || (size_t)n >= sizeof menu->fetch_helper) {
+        snprintf(menu->notice, sizeof menu->notice, "Could not start the download.");
+        return;
+    }
+    snprintf(menu->fetch_kind, sizeof menu->fetch_kind, "%s", kind);
+    snprintf(menu->fetch_arg, sizeof menu->fetch_arg, "%s", arg);
+    menu->fetch_line[0] = 0;
+    menu->fetch_line_len = 0;
+    argv[0] = menu->fetch_helper;
+    argv[1] = menu->fetch_kind;
+    argv[2] = menu->fetch_arg;
+    argv[3] = NULL;
+    menu->fetching = pty_spawn(&menu->fetch, argv, NULL, 80, 24);
+    snprintf(menu->notice, sizeof menu->notice, "%s", menu->fetching ?
+             "Downloading on this computer..." : "Could not start the download.");
+}
+
+static void poll_fetch(game_menu *menu)
+{
+    char buf[1024];
+    if (!menu->fetching) return;
+    for (int reads = 0; reads < 8; reads++) {
+        long n = pty_read(&menu->fetch, buf, sizeof buf);
+        if (n > 0) {
+            for (long i = 0; i < n; i++) {
+                if (buf[i] == '\n') {
+                    menu->fetch_line[menu->fetch_line_len] = 0;
+                    if (menu->fetch_line_len)
+                        snprintf(menu->notice, sizeof menu->notice, "%s", menu->fetch_line);
+                    menu->fetch_line_len = 0;
+                } else if (buf[i] != '\r' && menu->fetch_line_len + 1 < sizeof menu->fetch_line) {
+                    menu->fetch_line[menu->fetch_line_len++] = buf[i];
+                }
+            }
+        } else {
+            if (n < 0 && pty_poll_exit(&menu->fetch)) {
+                if (menu->fetch_line_len) {
+                    menu->fetch_line[menu->fetch_line_len] = 0;
+                    snprintf(menu->notice, sizeof menu->notice, "%s", menu->fetch_line);
+                }
+                if (menu->fetch.exit_status != 0 &&
+                    (!menu->notice[0] || strncmp(menu->notice, "Downloading", 11) == 0))
+                    snprintf(menu->notice, sizeof menu->notice, "Download failed.");
+                menu->fetching = false;
+                pty_stop(&menu->fetch);
+            }
+            break;
+        }
+    }
+}
+
+static void poll_yesno(game_menu *menu)
+{
+    char buf[1024];
+    if (!menu->yesno_running) return;
+    for (int reads = 0; reads < 8; reads++) {
+        long n = pty_read(&menu->yesno, buf, sizeof buf);
+        if (n > 0) {
+            for (long i = 0; i < n; i++) {
+                if (buf[i] == '\n') {
+                    menu->yesno_line[menu->yesno_line_len] = 0;
+                    if (menu->yesno_line_len)
+                        snprintf(menu->notice, sizeof menu->notice, "%s", menu->yesno_line);
+                    menu->yesno_line_len = 0;
+                } else if (buf[i] != '\r' && menu->yesno_line_len + 1 < sizeof menu->yesno_line) {
+                    menu->yesno_line[menu->yesno_line_len++] = buf[i];
+                }
+            }
+        } else {
+            if (n < 0 && pty_poll_exit(&menu->yesno)) {
+                if (menu->yesno_line_len) {
+                    menu->yesno_line[menu->yesno_line_len] = 0;
+                    snprintf(menu->notice, sizeof menu->notice, "%s", menu->yesno_line);
+                }
+                if (menu->yesno.exit_status != 0 &&
+                    (!menu->notice[0] || strncmp(menu->notice, "Starting", 8) == 0))
+                    snprintf(menu->notice, sizeof menu->notice, "Kilix yes/no bench stopped.");
+                menu->yesno_running = false;
+                pty_stop(&menu->yesno);
+            }
+            break;
+        }
+    }
+}
+
+static void offer_autotrust(game *g)
+{
+    if (!g->spawn) {
+        snprintf(g->menu.notice, sizeof g->menu.notice,
+                 "autotrust-jev downloads on this computer when the game is running.");
+        return;
+    }
+    start_fetch(g, "ollama", "autotrust-jev");
+}
+
+static void start_yesno(game *g)
+{
+    game_menu *menu = &g->menu;
+    char helper[4096];
+    char *argv[2];
+    int n;
+    if (!g->spawn) {
+        snprintf(menu->notice, sizeof menu->notice,
+                 "Kilix yes/no bench runs autotrust-jev and downloads it when it is missing.");
+        return;
+    }
+    if (menu->fetching || menu->yesno_running) {
+        snprintf(menu->notice, sizeof menu->notice, "Kilix yes/no bench is already running.");
+        return;
+    }
+    n = snprintf(helper, sizeof helper, "%s/libexec/puzzllm-yesno", g->root);
+    if (n < 0 || (size_t)n >= sizeof helper) {
+        snprintf(menu->notice, sizeof menu->notice, "Could not start the Kilix yes/no bench.");
+        return;
+    }
+    argv[0] = helper;
+    argv[1] = NULL;
+    menu->yesno_line_len = 0;
+    menu->yesno_line[0] = 0;
+    menu->yesno_running = pty_spawn(&menu->yesno, argv, NULL, 80, 24);
+    snprintf(menu->notice, sizeof menu->notice, "%s", menu->yesno_running ?
+             "Starting the Kilix yes/no bench with autotrust-jev." :
+             "Could not start the Kilix yes/no bench.");
+}
+
+static void choose_llama(game *g, const char *path)
+{
+    char previous[sizeof g->llama_model];
+    snprintf(previous, sizeof previous, "%s", g->llama_model);
+    if (path) snprintf(g->llama_model, sizeof g->llama_model, "%s", path);
+    else g->llama_model[0] = 0;
+    if (g->campaign && !campaign_choice_allowed(g, false, false, "")) {
+        snprintf(g->llama_model, sizeof g->llama_model, "%s", previous);
+        snprintf(g->menu.notice, sizeof g->menu.notice, "Campaign is locked to %s.", g->campaign_model);
+        return;
+    }
+    select_model(g, false, false, NULL);
+}
+
+static void append_pull_name(game_menu *menu, unsigned char c)
+{
+    size_t n = strlen(menu->pull_name);
+    if (n + 1 >= sizeof menu->pull_name) return;
+    if (c == '-' && n == 0) return;
+    if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+        c == '_' || c == '.' || c == ':' || c == '/' || c == '-') {
+        menu->pull_name[n] = (char)c;
+        menu->pull_name[n + 1] = 0;
+    }
+}
+
+static void name_menu_key(game *g, const key_event *ev)
+{
+    game_menu *menu = &g->menu;
+    if (ev->action != 1) return;
+    if (ev->key == KEY_BACKSPACE || ev->key == KEY_DELETE) {
+        size_t n = strlen(menu->pull_name);
+        if (n) menu->pull_name[n - 1] = 0;
+    } else if (ev->key == KEY_ENTER) {
+        if (!ollama_pull_name(menu->pull_name)) {
+            snprintf(menu->notice, sizeof menu->notice,
+                     "Ollama names use letters, digits, and . _ : / -.");
+            return;
+        }
+        menu->name_edit = false;
+        start_fetch(g, "ollama", menu->pull_name);
+        return;
+    } else if (ev->text_len) {
+        for (int i = 0; i < ev->text_len; i++)
+            if (ev->text[i] < 128) append_pull_name(menu, (unsigned char)ev->text[i]);
+    } else if (ev->key >= 32 && ev->key < 127) {
+        append_pull_name(menu, (unsigned char)ev->key);
+    } else {
+        return;
+    }
+    snprintf(menu->notice, sizeof menu->notice, "Name: %s", menu->pull_name);
+}
+
 static void model_menu_key(game *g, const key_event *ev)
 {
     game_menu *menu = &g->menu;
     bool ollama = menu->model_submenu == MENU_OLLAMA;
-    int count = ollama ? menu->count : 1;
+    int count = ollama ? menu->count : (menu->gguf_count > 0 ? menu->gguf_count : 1);
     if (!count) return;
     switch (ev->key) {
     case KEY_UP:
@@ -1210,8 +1530,20 @@ static void model_menu_key(game *g, const key_event *ev)
     case KEY_HOME: menu->model_selected = 0; break;
     case KEY_END: menu->model_selected = count - 1; break;
     case KEY_ENTER:
-        if (ev->action == 1)
-            select_model(g, false, false, ollama ? &menu->models[menu->model_selected] : NULL);
+        if (ev->action != 1) break;
+        if (ollama) {
+            if (menu->count > 0)
+                select_model(g, false, false, &menu->models[menu->model_selected]);
+        } else if (menu->gguf_count > 0) {
+            char path[sizeof g->llama_model];
+            if (gguf_path(menu, menu->model_selected, path, sizeof path))
+                choose_llama(g, path);
+            else
+                snprintf(menu->notice, sizeof menu->notice,
+                         "That GGUF is no longer in the models folder.");
+        } else {
+            choose_llama(g, NULL);
+        }
         break;
     default: break;
     }
@@ -1340,6 +1672,10 @@ static void menu_key(game *g, const key_event *ev)
         model_menu_key(g, ev);
         return;
     }
+    if (menu->name_edit) {
+        name_menu_key(g, ev);
+        return;
+    }
     switch (ev->key) {
     case KEY_UP:
         menu_move(g, menu_row_index(g) - 1);
@@ -1357,10 +1693,12 @@ static void menu_key(game *g, const key_event *ev)
         if (ev->action == 2) break;
         menu->notice[0] = 0;
         if (menu->selected == MENU_MODEL || menu->selected == MENU_SCORES ||
-            menu->selected == MENU_DISPLAY || menu->selected == MENU_RESETS) {
+            menu->selected == MENU_DISPLAY || menu->selected == MENU_BENCH ||
+            menu->selected == MENU_RESETS) {
             menu->page = menu->selected == MENU_MODEL ? MENU_PAGE_MODEL :
                          menu->selected == MENU_SCORES ? MENU_PAGE_SCORES :
-                         menu->selected == MENU_DISPLAY ? MENU_PAGE_DISPLAY : MENU_PAGE_RESET;
+                         menu->selected == MENU_DISPLAY ? MENU_PAGE_DISPLAY :
+                         menu->selected == MENU_BENCH ? MENU_PAGE_BENCH : MENU_PAGE_RESET;
             menu_move(g, 0);
             break;
         }
@@ -1470,12 +1808,38 @@ static void menu_key(game *g, const key_event *ev)
             refresh_model_details(g);
         }
         if (menu->selected == MENU_LEADERBOARD) open_leaderboard(g);
+        if (menu->selected == MENU_YESNO) start_yesno(g);
+        if (menu->selected == MENU_AUTOTRUST) offer_autotrust(g);
         if (menu->selected == MENU_CODEX) select_model(g, true, false, NULL);
         if (menu->selected == MENU_GROK) select_model(g, false, true, NULL);
         if (menu->selected == MENU_CLAUDE) select_claude(g);
+        if (menu->selected == MENU_DOWNLOADS) {
+            menu->page = MENU_PAGE_DOWNLOAD;
+            menu->name_edit = false;
+            menu_move(g, 0);
+        }
+        if (menu->selected == MENU_DL_NAME) {
+            menu->name_edit = true;
+            menu->pull_name[0] = 0;
+            snprintf(menu->notice, sizeof menu->notice, "Name: ");
+        }
+        for (size_t i = 0; i < sizeof download_catalog / sizeof download_catalog[0]; i++) {
+            if (menu->selected == download_catalog[i].id)
+                start_fetch(g, download_catalog[i].kind, download_catalog[i].arg);
+        }
         if (menu->selected == MENU_LOCAL || menu->selected == MENU_OLLAMA) {
             menu->model_submenu = menu->selected;
             menu->model_selected = 0;
+            if (menu->selected == MENU_LOCAL) {
+                scan_ggufs(menu);
+                if (menu->gguf_count > 0) {
+                    const char *leaf = strrchr(g->llama_model, '/');
+                    leaf = leaf ? leaf + 1 : g->llama_model;
+                    for (int i = 0; i < menu->gguf_count; i++)
+                        if (g->llama_model[0] && strcmp(menu->gguf[i].name, leaf) == 0)
+                            menu->model_selected = i;
+                }
+            }
         }
         break;
     default:
@@ -1594,6 +1958,8 @@ bool game_init(game *g, const char *root, const char *state, bool spawn,
     pty_init(&g->omp);
     pty_init(&g->shell);
     pty_init(&g->menu.discovery);
+    pty_init(&g->menu.fetch);
+    pty_init(&g->menu.yesno);
     pty_init(&g->menu.prompt_counter);
     pty_init(&g->metrics.worker);
     activity_init(&g->act);
@@ -1658,6 +2024,8 @@ void game_shutdown(game *g)
     poll_ranked_attempt(g);
     pty_stop(&g->shell);
     pty_stop(&g->menu.discovery);
+    pty_stop(&g->menu.fetch);
+    pty_stop(&g->menu.yesno);
     pty_stop(&g->menu.prompt_counter);
     clear_models(&g->menu);
     free(g->menu.scores);
@@ -1885,13 +2253,23 @@ void game_key(game *g, const key_event *ev)
                 pty_stop(&g->menu.prompt_counter);
             }
             else if (g->menu.confirm_reset) g->menu.confirm_reset = false;
+            else if (g->menu.name_edit) {
+                g->menu.name_edit = false;
+                g->menu.pull_name[0] = 0;
+                g->menu.notice[0] = 0;
+            }
             else if (g->menu.model_submenu) g->menu.model_submenu = 0;
+            else if (g->menu.open && g->menu.page == MENU_PAGE_DOWNLOAD) {
+                g->menu.page = MENU_PAGE_MODEL;
+                g->menu.selected = MENU_DOWNLOADS;
+            }
             else if (g->menu.open && g->menu.page != MENU_PAGE_MAIN) {
                 int page = g->menu.page;
                 g->menu.page = MENU_PAGE_MAIN;
                 g->menu.selected = page == MENU_PAGE_MODEL ? MENU_MODEL :
                                    page == MENU_PAGE_SCORES ? MENU_SCORES :
-                                   page == MENU_PAGE_DISPLAY ? MENU_DISPLAY : MENU_RESETS;
+                                   page == MENU_PAGE_DISPLAY ? MENU_DISPLAY :
+                                   page == MENU_PAGE_BENCH ? MENU_BENCH : MENU_RESETS;
             }
             else if (!g->menu.open) open_menu(g);
             else if (g->started) g->menu.open = false;
@@ -2145,6 +2523,8 @@ void game_update(game *g, double dt)
 {
     poll_prompt_count(&g->menu);
     poll_models(&g->menu);
+    poll_fetch(&g->menu);
+    poll_yesno(&g->menu);
     if (g->spawn) {
         pump(&g->omp, &g->omp_vt, g->omp_note, sizeof g->omp_note, "the agent");
         pump(&g->shell, &g->shell_vt, g->shell_note, sizeof g->shell_note, "the shell");
@@ -2256,7 +2636,10 @@ static view game_view(const game *g)
         v.next_room = g->levels.items[g->sc.level + 1].number;
     v.omp = &g->omp_vt;
     v.hosted_agent = hosted_agent(g);
-    v.agent_model = v.hosted_agent ? v.hosted_agent : g->ollama_model;
+    const char *leaf = strrchr(g->llama_model, '/');
+    leaf = g->llama_model[0] ? (leaf && leaf[1] ? leaf + 1 : g->llama_model) : "";
+    v.agent_model = v.hosted_agent ? v.hosted_agent :
+                    g->ollama_model[0] ? g->ollama_model : leaf;
     v.pi = g->use_pi;
     v.shell = &g->shell_vt;
     v.omp_history = &g->omp_history;
@@ -2300,14 +2683,16 @@ void game_render(game *g, sr_canvas *c)
         render_leaderboard(c, g->menu.scores, g->menu.score_count, g->menu.score_scroll,
                            g->menu.score_level, g->menu.score_metric, g->menu.model_scores,
                            g->menu.notice, &g->ranked_attempt, g->menu.campaign_board);
-    else if (g->menu.model_submenu)
-        render_model_menu(c, g->menu.model_submenu == MENU_OLLAMA, g->menu.models,
-                          g->menu.count, g->menu.model_selected,
-                          g->menu.loading, g->menu.load_failed, configured_gguf_label());
-    else if (g->menu.open)
+    else if (g->menu.model_submenu) {
+        bool ollama_list = g->menu.model_submenu == MENU_OLLAMA;
+        render_model_menu(c, ollama_list, ollama_list ? g->menu.models : g->menu.gguf,
+                          ollama_list ? g->menu.count : g->menu.gguf_count,
+                          g->menu.model_selected, g->menu.loading, g->menu.load_failed,
+                          configured_gguf_label());
+    } else if (g->menu.open)
         render_menu(c, g->menu.selected, v.agent_model,
                     g->started, g->sc.level + 1, g->menu.confirm_reset, g->menu.notice,
                     g->thinking_support, g->thinking_enabled, v.hosted_agent, g->use_pi,
                     g->compute, g->tooltips, g->room_buttons, g->campaign, g->campaign_model,
-                    g->hints_file, g->yolo, g->menu.page);
+                    g->hints_file, g->yolo, g->menu.page, g->menu.name_edit);
 }

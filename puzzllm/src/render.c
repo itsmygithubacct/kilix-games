@@ -319,11 +319,11 @@ static void room_background(sr_canvas *c, const room_art *art, const char *style
 int menu_page_rows(int page, bool neuronte, int *out, int cap)
 {
     static const int main_rows[] = {
-        MENU_HARNESS, MENU_MODEL, MENU_RESUME, MENU_SCORES, MENU_DISPLAY, MENU_RESETS, MENU_QUIT
+        MENU_HARNESS, MENU_MODEL, MENU_RESUME, MENU_SCORES, MENU_DISPLAY, MENU_BENCH, MENU_RESETS, MENU_QUIT
     };
     static const int model_rows[] = {
         MENU_CODEX, MENU_GROK, MENU_CLAUDE, MENU_LOCAL, MENU_OLLAMA,
-        MENU_MODEL_DETAILS, MENU_THINKING, MENU_COMPUTE, MENU_YOLO
+        MENU_MODEL_DETAILS, MENU_THINKING, MENU_COMPUTE, MENU_YOLO, MENU_DOWNLOADS
     };
     static const int score_rows[] = {
         MENU_LEADERBOARD, MENU_CAMPAIGN, MENU_CAMPAIGN_BOARD, MENU_CLEAR_CAMPAIGN
@@ -332,6 +332,10 @@ int menu_page_rows(int page, bool neuronte, int *out, int cap)
         MENU_TOOLTIPS, MENU_ROOM_BUTTONS, MENU_HINTS_FILE, MENU_NEURONTE
     };
     static const int reset_rows[] = { MENU_RESET_LEVEL, MENU_RESET };
+    static const int download_rows[] = {
+        MENU_DL_GGUF_08, MENU_DL_GGUF_4B, MENU_DL_OLLAMA_06, MENU_DL_OLLAMA_4B, MENU_DL_NAME
+    };
+    static const int bench_rows[] = { MENU_YESNO, MENU_AUTOTRUST };
     const int *rows = main_rows;
     int n = (int)(sizeof main_rows / sizeof main_rows[0]);
     if (page == MENU_PAGE_MODEL) {
@@ -347,6 +351,12 @@ int menu_page_rows(int page, bool neuronte, int *out, int cap)
     } else if (page == MENU_PAGE_RESET) {
         rows = reset_rows;
         n = (int)(sizeof reset_rows / sizeof reset_rows[0]);
+    } else if (page == MENU_PAGE_DOWNLOAD) {
+        rows = download_rows;
+        n = (int)(sizeof download_rows / sizeof download_rows[0]);
+    } else if (page == MENU_PAGE_BENCH) {
+        rows = bench_rows;
+        n = (int)(sizeof bench_rows / sizeof bench_rows[0]);
     }
     if (n > cap) n = cap;
     if (out) for (int i = 0; i < n; i++) out[i] = rows[i];
@@ -356,7 +366,8 @@ int menu_page_rows(int page, bool neuronte, int *out, int cap)
 void render_menu(sr_canvas *c, int selected, const char *active_model,
                  bool started, int level, bool confirm_reset, const char *notice, int support, bool thinking_enabled, const char *hosted_agent,
                  bool pi, compute_mode compute, bool tooltips, bool room_buttons,
-                 bool campaign, const char *campaign_model, bool hints_file, bool yolo, int page)
+                 bool campaign, const char *campaign_model, bool hints_file, bool yolo, int page,
+                 bool naming)
 {
     static const char *const actions[] = {
         [MENU_QUIT] = "Exit game", [MENU_RESET] = "Reset Game",
@@ -370,6 +381,15 @@ void render_menu(sr_canvas *c, int selected, const char *active_model,
         [MENU_CLAUDE] = "Claude Code (Anthropic)",
         [MENU_LOCAL] = "llama.cpp models >",
         [MENU_OLLAMA] = "Ollama models >",
+        [MENU_DOWNLOADS] = "Downloads >",
+        [MENU_DL_GGUF_08] = "Download Qwen3.5-0.8B Q8_0",
+        [MENU_DL_GGUF_4B] = "Download Qwen3.5-4B Q4_K_M",
+        [MENU_DL_OLLAMA_06] = "Download Ollama qwen3:0.6b",
+        [MENU_DL_OLLAMA_4B] = "Download Ollama qwen3:4b-instruct-2507",
+        [MENU_DL_NAME] = "Pull another Ollama model",
+        [MENU_BENCH] = "Bench >",
+        [MENU_YESNO] = "Kilix yes/no bench",
+        [MENU_AUTOTRUST] = "Model: autotrust-jev",
         [MENU_MODEL] = "Model >",
         [MENU_SCORES] = "Scores >",
         [MENU_DISPLAY] = "Display >",
@@ -411,7 +431,9 @@ void render_menu(sr_canvas *c, int selected, const char *active_model,
     const char *title = page == MENU_PAGE_MODEL ? "Model" :
                         page == MENU_PAGE_SCORES ? "Scores" :
                         page == MENU_PAGE_DISPLAY ? "Display" :
-                        page == MENU_PAGE_RESET ? "Reset" : "Game menu";
+                        page == MENU_PAGE_RESET ? "Reset" :
+                        page == MENU_PAGE_DOWNLOAD ? "Downloads" :
+                        page == MENU_PAGE_BENCH ? "Bench" : "Game menu";
     draw_text(c, x + 18, y + 13, title, 0xffde8c, 1);
     snprintf(label, sizeof label, "Agent model: %s", *active_model ? active_model : "Qwen 3.5 (llama.cpp)");
     text_line(c, x + 18, y + 39, label, 0xbccadb, (width - 36) / CELL_W);
@@ -465,6 +487,7 @@ void render_menu(sr_canvas *c, int selected, const char *active_model,
     if (*notice)
         text_line(c, x + 18, y + height - 48, notice, 0xa6b5c6, (width - 36) / CELL_W);
     draw_text(c, x + 18, y + height - 26,
+              naming ? "Type an Ollama name    Enter pull    Esc cancel" :
               page != MENU_PAGE_MAIN ? "Up/Down move    Enter select    Esc back" :
               started ? "Up/Down move    Enter select    Esc close" : "Up/Down move    Enter select",
               0xbccadb, 1);
@@ -475,7 +498,7 @@ void render_model_menu(sr_canvas *c, bool ollama, const model_option *models,
                        const char *llama_model)
 {
     int width = 560, row_h = 27;
-    int options = ollama ? count : 1;
+    int options = count > 0 ? count : (ollama ? 0 : 1);
     int rows = (c->h - 180) / row_h;
     if (rows > 14) rows = 14;
     if (rows > options) rows = options;
@@ -491,7 +514,7 @@ void render_model_menu(sr_canvas *c, bool ollama, const model_option *models,
             draw_fill(c, x + 11, row_y, width - 22, row_h - 2, 0x354356, 1);
             draw_fill(c, x + 11, row_y, 3, row_h - 2, 0xe0c070, 1);
         }
-        text_line(c, x + 20, row_y + 5, ollama ? models[i].name : llama_model,
+        text_line(c, x + 20, row_y + 5, count > 0 ? models[i].name : llama_model,
                   0xf2efeb, (width - 40) / CELL_W);
     }
     if (ollama && !count) {

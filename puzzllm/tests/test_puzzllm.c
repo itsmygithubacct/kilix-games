@@ -27,6 +27,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 static int failures, checks;
@@ -1458,7 +1459,7 @@ static void menu_press(uint32_t key)
 
 static int menu_item_page(int item)
 {
-    for (int page = MENU_PAGE_MAIN; page <= MENU_PAGE_RESET; page++) {
+    for (int page = MENU_PAGE_MAIN; page <= MENU_PAGE_BENCH; page++) {
         int rows[12];
         int n = menu_page_rows(page, draw_neuronte_available(), rows, 12);
         for (int i = 0; i < n; i++) if (rows[i] == item) return page;
@@ -1469,18 +1470,26 @@ static int menu_item_page(int item)
 static void menu_to(int item)
 {
     if (!G.menu.open) menu_press(KEY_ESCAPE);
-    if (G.menu.prompt_edit || G.menu.details_open || G.menu.leaderboard_open ||
+    if (G.menu.prompt_edit || G.menu.name_edit || G.menu.details_open || G.menu.leaderboard_open ||
         G.menu.confirm_reset || G.menu.model_submenu)
         menu_press(KEY_ESCAPE);
     int page = menu_item_page(item);
-    if (G.menu.page != MENU_PAGE_MAIN && G.menu.page != page)
+    for (int guard = 0; guard < 4 && G.menu.page != MENU_PAGE_MAIN && G.menu.page != page &&
+         !(page == MENU_PAGE_DOWNLOAD && G.menu.page == MENU_PAGE_MODEL); guard++)
         menu_press(KEY_ESCAPE);
     if (G.menu.page == MENU_PAGE_MAIN && page != MENU_PAGE_MAIN) {
-        int group = page == MENU_PAGE_MODEL ? MENU_MODEL :
+        int group = page == MENU_PAGE_MODEL || page == MENU_PAGE_DOWNLOAD ? MENU_MODEL :
                     page == MENU_PAGE_SCORES ? MENU_SCORES :
-                    page == MENU_PAGE_DISPLAY ? MENU_DISPLAY : MENU_RESETS;
+                    page == MENU_PAGE_DISPLAY ? MENU_DISPLAY :
+                    page == MENU_PAGE_BENCH ? MENU_BENCH : MENU_RESETS;
         menu_press(KEY_HOME);
         for (int guard = 0; G.menu.selected != group && guard < 12; guard++)
+            menu_press(KEY_DOWN);
+        menu_press(KEY_ENTER);
+    }
+    if (page == MENU_PAGE_DOWNLOAD && G.menu.page != MENU_PAGE_DOWNLOAD) {
+        menu_press(KEY_HOME);
+        for (int guard = 0; G.menu.selected != MENU_DOWNLOADS && guard < 12; guard++)
             menu_press(KEY_DOWN);
         menu_press(KEY_ENTER);
     }
@@ -1492,10 +1501,10 @@ static void menu_to(int item)
 static void menu_close(void)
 {
     if (!G.menu.open) return;
-    if (G.menu.prompt_edit || G.menu.details_open || G.menu.leaderboard_open ||
+    if (G.menu.prompt_edit || G.menu.name_edit || G.menu.details_open || G.menu.leaderboard_open ||
         G.menu.confirm_reset || G.menu.model_submenu)
         menu_press(KEY_ESCAPE);
-    if (G.menu.open && G.menu.page != MENU_PAGE_MAIN)
+    for (int guard = 0; guard < 3 && G.menu.open && G.menu.page != MENU_PAGE_MAIN; guard++)
         menu_press(KEY_ESCAPE);
     if (G.menu.open && G.started)
         menu_press(KEY_ESCAPE);
@@ -1546,6 +1555,29 @@ static void test_menu(void)
     menu_to(MENU_QUIT);
     menu_press(KEY_ENTER);
     CHECK(G.quit, "exit game uses normal quit path");
+    game_shutdown(&G);
+}
+
+static void test_bench_menu(void)
+{
+    char err[256], state[2300];
+    sub(state, sizeof state, "bench-menu");
+    CHECK(game_init(&G, ".", state, false, err, sizeof err), "bench menu: %s", err);
+    menu_to(MENU_YESNO);
+    CHECK(G.menu.open && G.menu.page == MENU_PAGE_BENCH && G.menu.selected == MENU_YESNO,
+          "Bench opens on the Kilix yes/no bench");
+    menu_press(KEY_DOWN);
+    CHECK(G.menu.selected == MENU_AUTOTRUST, "autotrust-jev is offered as the bench model");
+    menu_press(KEY_ENTER);
+    CHECK(!G.menu.fetching && strstr(G.menu.notice, "autotrust-jev") != NULL,
+          "choosing autotrust-jev offers to download it");
+    menu_press(KEY_UP);
+    menu_press(KEY_ENTER);
+    CHECK(!G.menu.yesno_running && strstr(G.menu.notice, "yes/no") != NULL,
+          "the yes/no bench offers to run autotrust-jev");
+    menu_press(KEY_ESCAPE);
+    CHECK(G.menu.page == MENU_PAGE_MAIN && G.menu.selected == MENU_BENCH,
+          "Escape returns from Bench to its main-menu row");
     game_shutdown(&G);
 }
 
@@ -1821,6 +1853,115 @@ static void test_codex_menu(void)
     CHECK(!G.use_codex && !G.act.codex && !G.use_grok && !G.act.grok &&
           !G.use_claude && !G.act.claude,
           "the bundled model switches back from a hosted agent");
+    game_shutdown(&G);
+}
+
+static void type_name(const char *text)
+{
+    for (const char *p = text; *p; p++) {
+        key_event ev = {.key = (uint32_t)(unsigned char)*p, .action = 1};
+        game_key(&G, &ev);
+    }
+}
+
+static void wait_fetch(void)
+{
+    for (int i = 0; i < 100 && G.menu.fetching; i++) {
+        struct timespec pause = {.tv_nsec = 20000000};
+        game_update(&G, 0.05);
+        if (!G.menu.fetching) break;
+        nanosleep(&pause, NULL);
+    }
+}
+
+static void test_downloads(void)
+{
+    char err[256], state[2300], models[2400], helper[2400], log[2400], file[2500];
+    int rows[12], n, page;
+    const char *script =
+        "#!/bin/bash\n"
+        "printf '%s\\n' \"$@\" >> \"$PUZZLLM_FETCH_LOG\"\n"
+        "if [ \"$1\" = gguf ]; then\n"
+        "  mkdir -p -- \"$KILIX_LLM_MODELS_DIR\"\n"
+        "  printf x > \"$KILIX_LLM_MODELS_DIR/Qwen3.5-0.8B-Q8_0.gguf\"\n"
+        "  printf 'saved Qwen3.5-0.8B-Q8_0.gguf\\n'\n"
+        "  exit 0\n"
+        "fi\n"
+        "if [ \"$1\" = ollama ]; then\n"
+        "  printf 'pulled %s\\n' \"$2\"\n"
+        "  exit 0\n"
+        "fi\n"
+        "printf 'unexpected\\n'\n"
+        "exit 1\n";
+    n = menu_page_rows(MENU_PAGE_MODEL, false, rows, 12);
+    CHECK(n >= 2 && n <= 12 && rows[n - 1] == MENU_DOWNLOADS && rows[n - 2] == MENU_YOLO &&
+          MENU_DOWNLOADS > MENU_YOLO && MENU_DL_NAME > MENU_DOWNLOADS,
+          "download ids are appended and Downloads is the last model row");
+    page = menu_item_page(MENU_DL_GGUF_08);
+    CHECK(page == MENU_PAGE_DOWNLOAD, "suggested downloads live on their own page");
+
+    sub(state, sizeof state, "downloads");
+    CHECK(game_init(&G, ".", state, false, err, sizeof err), "download menu: %s", err);
+    snprintf(models, sizeof models, "%s/models", state);
+    snprintf(helper, sizeof helper, "%s/fetch", state);
+    snprintf(log, sizeof log, "%s/fetch.log", state);
+    snprintf(file, sizeof file, "%s/Qwen3.5-0.8B-Q8_0.gguf", models);
+    mkdir(models, 0700);
+    write_file(helper, script, strlen(script));
+    chmod(helper, 0755);
+    setenv("KILIX_LLM_MODELS_DIR", models, 1);
+    setenv("PUZZLLM_FETCH", helper, 1);
+    setenv("PUZZLLM_FETCH_LOG", log, 1);
+
+    menu_to(MENU_DL_GGUF_08);
+    CHECK(G.menu.open && G.menu.page == MENU_PAGE_DOWNLOAD && G.menu.selected == MENU_DL_GGUF_08,
+          "the model menu opens the download list");
+    menu_press(KEY_ENTER);
+    wait_fetch();
+    CHECK(!G.menu.fetching && strstr(G.menu.notice, "saved Qwen3.5-0.8B-Q8_0.gguf") &&
+          access(file, R_OK) == 0,
+          "a suggested GGUF downloads into the models folder (fetching=%d notice=%s)",
+          G.menu.fetching, G.menu.notice);
+    {
+        char body[128] = {0};
+        FILE *f = fopen(log, "r");
+        if (f) { fread(body, 1, sizeof body - 1, f); fclose(f); }
+        CHECK(strcmp(body, "gguf\nqwen3.5-0.8b\n") == 0, "the host fetcher receives the GGUF id");
+    }
+
+    menu_to(MENU_DL_NAME);
+    menu_press(KEY_ENTER);
+    type_name("..");
+    menu_press(KEY_ENTER);
+    CHECK(G.menu.name_edit && strstr(G.menu.notice, "Ollama names") && access(log, R_OK) == 0,
+          "a dotted name is refused before a pull");
+    menu_press(KEY_ESCAPE);
+    menu_to(MENU_DL_NAME);
+    menu_press(KEY_ENTER);
+    type_name("qwen3:0.6b");
+    menu_press(KEY_ENTER);
+    wait_fetch();
+    {
+        char body[256] = {0};
+        FILE *f = fopen(log, "r");
+        if (f) { fread(body, 1, sizeof body - 1, f); fclose(f); }
+        CHECK(!G.menu.fetching && strstr(G.menu.notice, "pulled qwen3:0.6b") &&
+              strstr(body, "ollama\nqwen3:0.6b\n") && !strstr(body, "sandbox"),
+              "a typed Ollama name is pulled on the host");
+    }
+
+    menu_to(MENU_LOCAL);
+    menu_press(KEY_ENTER);
+    CHECK(G.menu.model_submenu == MENU_LOCAL && G.menu.gguf_count == 1 &&
+          strcmp(G.menu.gguf[0].name, "Qwen3.5-0.8B-Q8_0.gguf") == 0,
+          "llama.cpp lists the GGUF that was downloaded");
+    menu_press(KEY_ENTER);
+    CHECK(!G.use_codex && !G.ollama_model[0] && strstr(G.llama_model, "/Qwen3.5-0.8B-Q8_0.gguf"),
+          "choosing the downloaded GGUF keeps llama.cpp on that file");
+
+    unsetenv("KILIX_LLM_MODELS_DIR");
+    unsetenv("PUZZLLM_FETCH");
+    unsetenv("PUZZLLM_FETCH_LOG");
     game_shutdown(&G);
 }
 
@@ -2454,12 +2595,14 @@ int main(void)
     }
     snprintf(scratch, sizeof scratch, "%s", dir);
     test_menu();
+    test_bench_menu();
     test_pane_focus();
     test_goal_and_action_panes();
     test_pane_scroll();
     test_pane_clipboard();
     test_thinking_menu();
     test_codex_menu();
+    test_downloads();
     test_yolo_menu();
     test_leaderboard();
     test_campaign();

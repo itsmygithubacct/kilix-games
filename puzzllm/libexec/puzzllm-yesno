@@ -1,0 +1,34 @@
+#!/bin/bash
+# puzzllm-yesno - run the Kilix yes/no bench with autotrust-jev.
+# The Ollama model is downloaded only when it is missing. Host only.
+set -euo pipefail
+
+MODEL=autotrust-jev
+
+die() {
+    printf '%s\n' "$1"
+    exit 2
+}
+
+command -v ollama >/dev/null 2>&1 || die "ollama is not installed"
+if ollama show "$MODEL" >/dev/null 2>&1; then
+    printf 'already installed %s\n' "$MODEL"
+else
+    printf 'downloading %s\n' "$MODEL"
+    if ! ollama pull "$MODEL" >/dev/null 2>&1; then
+        printf 'could not pull %s\n' "$MODEL"
+        exit 1
+    fi
+    printf 'pulled %s\n' "$MODEL"
+fi
+
+root=${PUZZLLM_YESNO_BENCH:-/home/pleb/gpu_terminal/worktrees/024-binary-bench}
+if [ ! -f "$root/src/kilix_bench/onebit/__init__.py" ]; then
+    die "Kilix yes/no bench is not installed"
+fi
+export PYTHONPATH="$root/src${PYTHONPATH:+:$PYTHONPATH}"
+printf 'running Kilix yes/no bench with %s\n' "$MODEL"
+cd "$root"
+exec python3 -m kilix_bench --suite onebit --backend chat \
+    --endpoint http://127.0.0.1:11434 --model "$MODEL" --flavor ollama \
+    --split dev --label "$MODEL" --sizer-command off
