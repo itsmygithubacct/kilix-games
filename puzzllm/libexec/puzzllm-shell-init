@@ -11,9 +11,28 @@ umask 077
 export SHELL=/bin/bash
 touch -- "$log"
 
+# Keep the tmux server below the shell pane's broker. A daemonized server
+# loses that ancestry, so Kilix cannot verify commands from its player shell.
+if tmux -N has-session -t '=shell' 2>/dev/null; then
+    exec tmux -N attach-session -t '=shell'
+fi
+setsid tmux -D -f /dev/null </dev/null >/dev/null 2>&1 &
+server=$!
+for ((i = 0; i < 100; i++)); do
+    tmux -N show-options -s >/dev/null 2>&1 && break
+    kill -0 "$server" 2>/dev/null || { wait "$server"; exit 1; }
+    sleep 0.02
+done
+if ! tmux -N show-options -s >/dev/null 2>&1; then
+    kill "$server" 2>/dev/null || true
+    wait "$server" 2>/dev/null || true
+    printf 'PuzzLLM could not start the player shell.\n' >&2
+    exit 1
+fi
 # Wait to start Bash until its output pipe is hooked up, including the prompt.
-exec tmux -f /dev/null new-session -d -s shell -n shell -c "$HOME" \
+exec tmux -N new-session -d -s shell -n shell -c "$HOME" \
     'tmux wait-for puzzllm-shell-log && exec /bin/bash --rcfile /opt/puzzllm/shellrc -i' \
+    \; set-option -s exit-empty on \
     \; set-option -g status off \
     \; set-option -g mouse on \
     \; select-pane -t shell:shell.0 -T shell \

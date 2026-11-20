@@ -85,6 +85,12 @@ try:
     mouse = agent_tmux("show-options", "-gv", "mouse")
     assert mouse.returncode == 0 and mouse.stdout.strip() == "on"
 
+    os.write(master,
+             b"server=$(tmux display-message -p '#{pid}'); client=$(tmux display-message -p '#{client_pid}'); "
+             b"test \"$(awk '/^PPid:/ {print $2}' /proc/$server/status)\" = \"$client\" && "
+             b"printf 'puzzllm-%s\\n' pane-owned-server\r")
+    wait_for_log(b"puzzllm-pane-owned-server")
+
     for yolo in (False, True):
         capture = grok_tmux(yolo)
         assert capture.returncode == 0 and "kilix@sandbox" in capture.stdout, (

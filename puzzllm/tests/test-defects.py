@@ -370,6 +370,8 @@ DEFECTS = [
      "libexec/puzzllm-kilix.conf", "tab_bar_style hidden", "tab_bar_style powerline", "test-kilix-display"),
     ("the goal checker exits successfully for unfinished work",
      "src/main.c", "return result.met ? 0 : 1;", "return 0;", "test-cli"),
+    ("the shell loses its Kilix broker when tmux daemonizes",
+     "libexec/puzzllm-shell-init", "setsid tmux -D -f /dev/null", "tmux -f /dev/null start-server", "test-sandbox"),
 ]
 
 
