@@ -7,6 +7,10 @@ if [ "${0##*/}" = kitten ]; then
     # The desktop launcher's password is for a different engine.
     if [ "${1:-}" = @ ]; then
         shift
+        if [ "${PUZZLLM_FILE_CONTROLS:-}" = 1 ]; then
+            if [ "${1:-}" = --password-file ]; then shift 2; fi
+            exec python3 -I /opt/puzzllm/bin/puzzllm_ipc.py controls "$@"
+        fi
         exec /opt/puzzllm/bin/kitten @ --to "$KITTY_LISTEN_ON" --use-password=never "$@"
     fi
     exec /opt/puzzllm/bin/kitten "$@"

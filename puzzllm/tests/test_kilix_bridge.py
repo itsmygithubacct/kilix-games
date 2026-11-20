@@ -11,6 +11,17 @@ import puzzllm_kilix_bridge as bridge
 
 
 class PrivateDisplayTest(unittest.TestCase):
+    def test_restricted_coding_tools_can_observe_and_focus_a_specific_pane(self):
+        with patch.object(bridge.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, b"shell text")) as run:
+            read = ["get-text", "--match", "id:2", "--extent=screen"]
+            self.assertEqual(bridge.restricted_control("kitten", read), (0, b"shell text"))
+            self.assertEqual(run.call_args.args[0], ["kitten", "@", "--to", bridge.listen, *read])
+            self.assertEqual(bridge.restricted_control("kitten", ["focus-window", "--match", "id:1"])[0], 0)
+            run.reset_mock()
+            for argv in (["launch", "/bin/sh"], ["get-text", "--match", "all"], ["ls", "--all-env-vars"]):
+                self.assertEqual(bridge.restricted_control("kitten", argv)[0], 2)
+            run.assert_not_called()
+
     def test_private_windows_start_without_terminal_bars(self):
         with patch.dict(bridge.os.environ), patch("builtins.open", mock_open()), \
              patch.object(bridge.subprocess, "Popen", side_effect=RuntimeError("captured")) as launch:

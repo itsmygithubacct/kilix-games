@@ -17,6 +17,8 @@ kilix pane read pane:2 --extent all
 
 Omit `--submit` to leave the text at the prompt for editing. The shell transcript is also available at `~/shell.log`. An agent that restarts can get a new pane ID. Run `kilix` again to find it.
 
+Codex's restricted command shell can list, read and focus the game panes. Type commands directly in the player shell or use the local coding agent when you want to send text between panes.
+
 For a direct remote-control command, the game assigns each pane a stable role. This reads the player shell by role.
 
 ```sh

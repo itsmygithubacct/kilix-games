@@ -356,6 +356,10 @@ if PUZZLLM_STATE="$goal_state" "$sandbox" agent-exec -- sh -c \
         grep -qx COMPLETE "$scratch/status.out"; then
     pass "the agent can grade its edit immediately"
 else fail "goal checker did not report the agent's completed goal"; fi
+if PUZZLLM_STATE="$goal_state" "$sandbox" agent-exec -- env PUZZLLM_FILE_CONTROLS=1 sh -c '~/check_goal_status.sh' \
+        > "$scratch/status.out" && grep -qx COMPLETE "$scratch/status.out"; then
+    pass "a network-isolated coding tool can read a fresh goal check through the pipe"
+else fail "file-based goal check unavailable"; fi
 rm "$goal_state/workspace/hello_world.txt"
 report agent; rc=$?
 [ "$rc" = 1 ] && grep -qx 'Remaining work' "$scratch/status.out" &&

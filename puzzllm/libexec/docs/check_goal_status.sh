@@ -1,5 +1,8 @@
 #!/bin/sh
 # Query the running game's grader. Exit 0 for complete, 1 for work remaining, 2 for unavailable.
+if [ "${PUZZLLM_FILE_CONTROLS:-}" = 1 ]; then
+    exec python3 -I /opt/puzzllm/bin/puzzllm_ipc.py goals
+fi
 exec python3 -I -c '
 import socket, sys
 try:

@@ -9,6 +9,7 @@ import socket
 import stat
 import subprocess
 import sys
+from puzzllm_ipc import Mailbox
 
 
 def check(binary, env):
@@ -50,12 +51,27 @@ def serve(pid, root, state, binary):
         server.bind(str(path))
         resources.callback(path.unlink, missing_ok=True)
         server.listen(8)
+        mailbox = Mailbox(".")
+        resources.callback(mailbox.close)
         ready = resources.enter_context(selectors.DefaultSelector())
         ready.register(lifetime, selectors.EVENT_READ)
         ready.register(server, selectors.EVENT_READ)
+        ready.register(mailbox.fd, selectors.EVENT_READ)
+
+        def grade(args):
+            if args != []:
+                return 2, b"Unexpected goal arguments.\n"
+            code, message = check(binary, env).split(b"\n", 1)
+            return int(code), message
+
         while True:
-            if any(key.fd == lifetime for key, _ in ready.select()):
+            events = {key.fd for key, _ in ready.select()}
+            if lifetime in events:
                 return
+            if mailbox.fd in events:
+                mailbox.respond(grade)
+            if server.fileno() not in events:
+                continue
             conn, _ = server.accept()
             with conn:
                 conn.settimeout(1)

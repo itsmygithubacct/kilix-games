@@ -1,5 +1,6 @@
 """Capture and route input for the two windows on the game's private display."""
-import base64, binascii, os, select, signal, socket, stat, subprocess, sys, time
+import base64, binascii, json, os, re, select, signal, socket, stat, subprocess, sys, time
+from puzzllm_ipc import Mailbox
 
 root = "/opt/puzzllm/kx"
 listen = "unix:/opt/puzzllm/kx/listen.sock"
@@ -16,6 +17,41 @@ def window_id(kind):
 
 def pane_match(role):
     return "env:^PUZZLLM_PANE$=^" + role + "$"
+
+def restricted_control(kitten, args):
+    """Expose pane inspection and focus to the network-isolated coding tool."""
+    denied = (2, b"Restricted game controls support listing, reading and focusing the game panes.\n")
+    if not isinstance(args, list) or not args or not all(isinstance(a, str) for a in args):
+        return denied
+    cmd, *options = args
+    if cmd not in ("ls", "get-text", "focus-window", "focus-tab"):
+        return denied
+    match = None
+    if len(options) >= 2 and options[0] == "--match":
+        match, options = options[1], options[2:]
+        if not re.fullmatch(r"id:[1-9][0-9]*", match) and match not in (pane_match("agent"), pane_match("shell")):
+            return denied
+    if cmd != "ls" and match is None:
+        return denied
+    if options and (cmd != "get-text" or any(o not in ("--extent=screen", "--extent=all",
+                                                       "--ansi", "--add-cursor") for o in options)):
+        return denied
+    try:
+        result = subprocess.run([kitten, "@", "--to", listen, *args], stdin=subprocess.DEVNULL,
+                                capture_output=True, timeout=2)
+        if result.returncode:
+            return 1, result.stderr[:4096]
+        if cmd == "ls":
+            data = json.loads(result.stdout)
+            for window in (w for oswin in data for tab in oswin["tabs"] for w in tab["windows"]):
+                env = window.get("env", {})
+                window["env"] = {k: env[k] for k in ("PUZZLLM_PANE",) if k in env}
+            return 0, json.dumps(data).encode() + b"\n"
+        if len(result.stdout) > 262144:
+            return 2, b"Pane text exceeds the read limit. Request the visible screen.\n"
+        return 0, result.stdout
+    except (ValueError, KeyError, TypeError, OSError, subprocess.TimeoutExpired):
+        return 2, b"The private game panes are unavailable.\n"
 
 def launch_agent(kitten):
     subprocess.run(
@@ -210,6 +246,7 @@ def main(kitty_bin, kitten, xvfb_pid):
     server.listen(4)
     server.setblocking(False)
     clients = {}
+    controls = Mailbox(root + "/controls")
 
     sizes = {"agent": (960, 700), "shell": (640, 360)}
     placed = {}
@@ -219,8 +256,11 @@ def main(kitty_bin, kitten, xvfb_pid):
             open(root + "/error", "w").write(
                 "Kilix exited %s\n" % (kitty.returncode,))
             stop(kitty.returncode or 1)
-        readable, _, _ = select.select([server, *clients], [], [], 0.1)
+        readable, _, _ = select.select([server, controls.fd, *clients], [], [], 0.1)
         for sock in readable:
+            if sock == controls.fd:
+                controls.respond(lambda args: restricted_control(kitten, args))
+                continue
             if sock is server:
                 conn, _ = server.accept()
                 conn.setblocking(False)
