@@ -93,8 +93,12 @@ start a new one.
 
 The game opens on its menu in this order: **Harness**, **Model**, then
 **Start game** (or resume, or continue a saved level). Below those are
-**Scores**, **Display**, **Reset**, and **Exit game**. Enter opens a group.
+**Scores**, **Display**, **Bench**, **Reset**, and **Exit game**. Enter opens a group.
 Escape steps back one page, and closes the menu once play has started.
+
+**Bench** holds **Kilix yes/no bench**. That row runs the OneBit yes/no
+suite with **autotrust-jev**. The model row offers the same Ollama model
+and downloads it when it is not already installed.
 
 **Harness** toggles between OMP and Pi for a local model. **Model** chooses
 Codex, Grok, Claude, llama.cpp, or Ollama, and holds the prompt, thinking,
@@ -185,6 +189,8 @@ Turning it on restarts the agent and skips that harness's approval prompts:
 Codex keeps its game permission profile, Grok keeps its strict sandbox
 with access to the player tmux server,
 Claude and OMP ask, and Pi asks instead of skipping approval.
+
+**Downloads** is the last row on the Model page. It downloads on this computer, not inside the sandbox. Suggested llama.cpp files are saved in the Kilix LLM models folder (`KILIX_LLM_MODELS_DIR`, or `GPU_TERMINAL_HOME/kilix-llm/models`, or `~/.local/gpu_terminal/kilix-llm/models`), which is the folder the game already searches for `Qwen3.5-0.8B-Q8_0.gguf`. Suggested Ollama models, and any other Ollama name you type, are pulled with `ollama pull`. A GGUF is not imported into Ollama. llama.cpp stays selectable beside Ollama. The sandbox bind-mounts the chosen GGUF read-only.
 
 PuzzLLM requests **32,768 context tokens** from Ollama for every turn.
 `PUZZLLM_CTX` changes the requested limit. The game checks the model's
@@ -409,9 +415,11 @@ key releases, so he starts on the press and stops on the release.
   newer `neuronte-split-vN` files, `neuronte-term-*` bundles, and
   `neuronte-emoji-vN` from the weight file's directory and the usual
   Neuronte weight directories, and draw each glyph from the first file
-  trained on it. Bundles from split-v9 onward need a Neuronte that opens
-  tiled members. When `~/projects/neuronte` is older and a checkout of
-  its `origin/main` is visible, the Makefile builds that checkout.
+  trained on it. That opener is `libneuronte-sdk`. Bundles from split-v9
+  onward need a Neuronte that opens tiled members. When
+  `~/projects/neuronte` is older and a checkout of its `origin/main` is
+  visible, the Makefile links that checkout's `libneuronte` instead of
+  compiling `neuronte.c` into the game.
 - **System font**, the default. Fontconfig selects the system monospace
   font and FreeType draws it in the game's terminal cells. Building needs
   the Fontconfig and FreeType development packages, and running needs an

@@ -27,11 +27,13 @@ include third_party/neuroterm/embed.mk
 CORE_OBJ := $(CORE:%=$(O)/%.o) $(O)/kilix_assets.o $(NEUROTERM_OBJECTS)
 override CPPFLAGS += $(NEUROTERM_CPPFLAGS) -I$(KILIX_ASSETS)/include
 
-# The renderer. zell-neuronte's Neuronte renderer is built when a Neuronte
-# checkout (github.com/itsmygithubacct/neuronte) is at NEURONTE; its two
-# library sources are compiled here. RENDER=raster builds without it;
-# RENDER=neuronte insists on it. At run time PUZZLLM_NEURONTE_WEIGHTS names
-# the weight file, and the game draws with soft-raster if it does not open.
+# The renderer. zell-neuronte's Neuronte renderer is linked when a Neuronte
+# checkout (github.com/itsmygithubacct/neuronte) is at NEURONTE. The game
+# links that tree's libneuronte and neuronte-sdk's libneuronte-sdk. It does
+# not compile neuronte.c or the terminal opener. RENDER=raster builds
+# without them; RENDER=neuronte insists on them. At run time
+# PUZZLLM_NEURONTE_WEIGHTS names the weight file, and the game draws with
+# soft-raster if it does not open.
 NEURONTE ?= $(HOME)/projects/neuronte
 NEURONTE_SDK ?= $(HOME)/gpu_terminal/kilix-modules/neuronte-sdk
 # Split-v9 has a tiled member, so it opens only on a Neuronte that has
@@ -66,16 +68,28 @@ ifeq ($(USE_NEURONTE),yes)
 ifeq ($(wildcard $(NEURONTE_SDK)/include/neuronte_sdk_terminal.h),)
 $(error NEURONTE_SDK '$(NEURONTE_SDK)' has no include/neuronte_sdk_terminal.h)
 endif
-NEURONTE_OBJ := $(O)/neuronte/neuronte.o $(O)/neuronte/utf8.o $(O)/nsdk_terminal.o
-CORE_OBJ += $(NEURONTE_OBJ)
+SDK_BUILD := $(abspath $(B)/neuronte-sdk)
+SDK_LIB := $(SDK_BUILD)/libneuronte-sdk.a
+NEURONTE_LIB := $(NEURONTE)/build/libneuronte.a
 DRAW_CPPFLAGS := -I$(NEURONTE)/include -I$(NEURONTE_SDK)/include -DPUZZLLM_NEURONTE \
-	-DPUZZLLM_NEURONTE_WEIGHTS_DEFAULT='"$(NEURONTE_WEIGHTS)"' \
-	-DNSDK_TERMINAL_EXTRA_DIR='"$(TERMINAL_WEIGHTS_DIR)"'
-ifneq ($(shell grep -q neuronte_set_untrained $(NEURONTE)/include/neuronte.h && echo yes || true),)
-DRAW_CPPFLAGS += -DNSDK_HAVE_UNTRAINED
-endif
-DRAW_DEPS := $(NEURONTE_SDK)/include/neuronte_sdk_terminal.h
-LDLIBS += -lm
+	-DPUZZLLM_NEURONTE_WEIGHTS_DEFAULT='"$(NEURONTE_WEIGHTS)"'
+DRAW_DEPS := $(NEURONTE_SDK)/include/neuronte_sdk_terminal.h $(SDK_LIB) $(NEURONTE_LIB)
+LDLIBS += $(SDK_LIB) $(NEURONTE_LIB) -lm
+
+$(NEURONTE_LIB): $(NEURONTE)/src/neuronte.c $(NEURONTE)/src/utf8.c \
+		$(NEURONTE)/src/video.c $(NEURONTE)/src/bits.c $(NEURONTE)/src/cells.c \
+		$(NEURONTE)/include/neuronte.h
+	$(MAKE) -C $(NEURONTE) build/libneuronte.a
+
+$(SDK_LIB): $(NEURONTE_SDK)/src/nsdk_terminal.c $(NEURONTE_SDK)/src/neuronte_sdk.c \
+		$(NEURONTE_SDK)/include/neuronte_sdk_terminal.h $(NEURONTE_SDK)/include/neuronte_sdk.h \
+		$(NEURONTE_SDK)/Makefile $(NEURONTE)/include/neuronte.h
+	$(MAKE) -C $(NEURONTE_SDK) \
+		BUILD_DIR=$(SDK_BUILD) \
+		NEURONTE=$(abspath $(NEURONTE)) \
+		NEURONTE_INCLUDE=$(abspath $(NEURONTE)/include) \
+		NSDK_TERMINAL_EXTRA_DIR='$(TERMINAL_WEIGHTS_DIR)' \
+		$(SDK_LIB)
 endif
 GAME_OBJ := $(CORE_OBJ) $(O)/termio.o $(O)/main.o
 BIN      := $(B)/puzzllm
@@ -114,16 +128,6 @@ $(RENDER_STAMP): FORCE | $(O)
 
 $(O)/draw.o: src/draw.c $(RENDER_STAMP) $(DRAW_DEPS) | $(O)
 	$(CC) $(CPPFLAGS) $(DRAW_CPPFLAGS) $(DEPFLAGS) $(CFLAGS) -c -o $@ $<
-
-$(O)/nsdk_terminal.o: $(NEURONTE_SDK)/src/nsdk_terminal.c \
-		$(NEURONTE_SDK)/include/neuronte_sdk_terminal.h $(RENDER_STAMP) | $(O)
-	$(CC) $(CPPFLAGS) $(DRAW_CPPFLAGS) $(DEPFLAGS) $(CFLAGS) -c -o $@ $<
-
-$(O)/neuronte:
-	mkdir -p $@
-
-$(O)/neuronte/%.o: $(NEURONTE)/src/%.c $(NEURONTE)/include/neuronte.h | $(O)/neuronte
-	$(CC) -std=c11 -O3 -I$(NEURONTE)/include -c -o $@ $<
 
 # A Neuronte build's tests insist that Neuronte draws.
 $(O)/test_puzzllm.o: tests/test_puzzllm.c $(RENDER_STAMP) | $(O)
