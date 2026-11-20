@@ -324,6 +324,7 @@ void render_menu(sr_canvas *c, int selected, const char *active_model,
         [MENU_QUIT] = "Exit game", [MENU_RESET] = "Reset Game",
         [MENU_RESET_LEVEL] = "Reset Level",
         [MENU_MODEL_DETAILS] = "Model prompt and tools",
+        [MENU_LEADERBOARD] = "Leaderboard",
         [MENU_CODEX] = "Codex (OpenAI)",
         [MENU_LOCAL] = "llama.cpp models >",
         [MENU_OLLAMA] = "Ollama models >",
@@ -417,6 +418,61 @@ void render_model_menu(sr_canvas *c, bool ollama, const model_option *models,
         text_line(c, x + 18, y + 42, status, 0xa6b5c6, (width - 36) / CELL_W);
     }
     draw_text(c, x + 18, y + height - 26, "Up/Down move    Enter select    Esc back", 0xbccadb, 1);
+}
+
+static void score_value(char out[32], long long value, int metric)
+{
+    if (metric == SCORE_TIME)
+        snprintf(out, 32, "%.2fs", (double)value / 1000.0);
+    else if (metric == SCORE_CPU || metric == SCORE_GPU)
+        snprintf(out, 32, "%lld%%", value);
+    else if (metric == SCORE_RAM || metric == SCORE_VRAM || metric == SCORE_DISK)
+        snprintf(out, 32, "%.2f MiB%s", (double)value / 1048576.0, metric == SCORE_DISK ? "/s" : "");
+    else
+        snprintf(out, 32, "%lld", value);
+}
+
+int render_leaderboard(sr_canvas *c, const score_entry *scores, int count,
+                       int scroll, int level, int metric, bool models, const char *notice)
+{
+    int width = CANVAS_W < 1000 ? CANVAS_W - 76 : 900;
+    int height = CANVAS_H - 100, x = (CANVAS_W - width) / 2, y = 50;
+    int rows = (height - 116) / CELL_H;
+    int visible = 0;
+    for (int i = 0; i < count; i++) if (scores[i].rank) visible++;
+    int limit = visible > rows ? visible - rows : 0;
+    if (!c) return limit;
+    if (scroll > limit) scroll = limit;
+    char text[512];
+    int cols = (width - 40) / CELL_W;
+    draw_fill(c, 0, 0, CANVAS_W, CANVAS_H, 0x0c1018, 0.72f);
+    draw_fill(c, x, y, width, height, 0x151d29, 1);
+    draw_stroke(c, x, y, width, height, 2, 0x826b47, 1);
+    draw_text(c, x + 20, y + 13, models ? "Model leaderboard" : "Player leaderboard", 0xffde8c, 1);
+    int measure = models ? metric : SCORE_TOKENS;
+    snprintf(text, sizeof text, "Room %d   %s", level, leaderboard_metric[measure]);
+    text_line(c, x + 20, y + 38, text, 0xbccadb, cols);
+    if (*notice || !visible) {
+        text_line(c, x + 20, y + 70, *notice ? notice : "No completed runs with this measurement.",
+                  0xa6b5c6, cols);
+    }
+    int row_number = 0;
+    for (int i = 0; i < count && row_number < scroll + rows; i++) {
+        const score_entry *entry = &scores[i];
+        if (!entry->rank) continue;
+        int row = row_number++ - scroll;
+        if (row < 0) continue;
+        int row_y = y + 69 + row * CELL_H;
+        char value[32];
+        score_value(value, entry->measure[measure], measure);
+        snprintf(text, sizeof text, "%3d  %-16.16s  %-51.51s  %s",
+                 entry->rank, value, entry->model, entry->player);
+        text_line(c, x + 20, row_y, text, entry->rank == 1 ? 0xffdf94 : 0xd0d4dc, cols);
+    }
+    draw_text(c, x + 20, y + height - 26,
+              "Left/Right room    M metric    Tab switch board    Up/Down scroll    Esc back",
+              0xbccadb, 1);
+    return limit;
 }
 
 static void details_block(pane_text *pane, const char *text)

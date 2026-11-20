@@ -1098,6 +1098,8 @@ static void test_render_and_flow(void)
     CHECK(pty_spawn(&G.omp, idle, NULL, OMP_COLS, OMP_ROWS), "start a test agent");
     CHECK(pty_spawn(&G.shell, idle, NULL, SHELL_COLS, SHELL_ROWS), "start a test shell");
     pid_t agent_pid = G.omp.pid, shell_pid = G.shell.pid;
+    G.ranked_attempt = (score_entry){.level = 1, .id = 110, .measure = {1250, 2300, 75, 10485760, -1, -1, 0},
+                                     .model = "Ollama/test", .player = "Player"};
     /* walk up through the door: room 2, progress saved */
     {
         key_event up;
@@ -1109,6 +1111,12 @@ static void test_render_and_flow(void)
         for (int i = 0; i < 600 && G.sc.level == 0; i++) game_update(&G, 1.0 / 60);
     }
     CHECK(G.sc.level == 1, "walked into room 2");
+    score_entry *scores = NULL;
+    int score_count = 0;
+    CHECK(leaderboard_load(state, &scores, &score_count) && score_count == 1 &&
+          scores[0].measure[SCORE_TOKENS] == 1250,
+          "finishing a measured room records its token total");
+    free(scores);
     CHECK(agent_pid > 0 && G.omp.pid == 0 && waitpid(agent_pid, NULL, WNOHANG) < 0 &&
           errno == ECHILD, "leaving the room stops and reaps its agent");
     CHECK(shell_pid > 0 && G.shell.pid == shell_pid && !pty_poll_exit(&G.shell),
@@ -1225,6 +1233,43 @@ static void menu_press(uint32_t key)
 {
     key_event ev = {.key = key, .action = 1};
     game_key(&G, &ev);
+}
+
+static void test_leaderboard(void)
+{
+    char err[256], state[2300];
+    sub(state, sizeof state, "leaderboard-state");
+    CHECK(game_init(&G, ".", state, false, err, sizeof err), "leaderboard state: %s", err);
+    score_entry runs[] = {
+        {.level = 1, .id = 1, .measure = {400, 3000, 21, 1000, -1, -1, -1}, .model = "A", .player = "one"},
+        {.level = 1, .id = 2, .measure = {200, 4000, 25, 1200, -1, -1, -1}, .model = "A", .player = "two"},
+        {.level = 1, .id = 3, .measure = {300, 1000, 32, 800, -1, -1, -1}, .model = "B", .player = "one"},
+        {.level = 2, .id = 4, .measure = {100, 100, 5, 500, -1, -1, -1}, .model = "C", .player = "one"},
+    };
+    for (size_t i = 0; i < sizeof runs / sizeof *runs; i++)
+        CHECK(leaderboard_submit(state, &runs[i]), "save leaderboard run %zu", i);
+    CHECK(leaderboard_submit(state, &runs[0]), "submission is idempotent");
+    menu_press(KEY_ESCAPE);
+    for (int i = 0; i < MENU_LEADERBOARD; i++) menu_press(KEY_DOWN);
+    menu_press(KEY_ENTER);
+    CHECK(G.menu.leaderboard_open && G.menu.score_count == 4 && G.menu.scores[0].id == 2 &&
+          G.menu.scores[0].rank == 1 && G.menu.scores[1].id == 3,
+          "models rank by the best token total for this room");
+    menu_press('m');
+    CHECK(G.menu.score_metric == SCORE_TIME && G.menu.scores[0].id == 3,
+          "time ranking uses the best time for each model");
+    menu_press('m');
+    menu_press('m');
+    CHECK(G.menu.score_metric == SCORE_RAM && G.menu.scores[0].id == 3,
+          "peak RAM ranks independently of tokens and time");
+    menu_press(KEY_TAB);
+    CHECK(!G.menu.model_scores && G.menu.scores[0].id == 2 && G.menu.scores[1].id == 1 &&
+          G.menu.scores[1].rank == 2 && G.menu.scores[2].rank == 1,
+          "player rankings start at one for each model");
+    menu_press(KEY_RIGHT);
+    CHECK(G.menu.score_level == 2 && G.menu.scores[3].rank == 1,
+          "the leaderboard switches rooms");
+    game_shutdown(&G);
 }
 
 static void test_codex_menu(void)
@@ -1817,6 +1862,7 @@ int main(void)
     test_pane_clipboard();
     test_thinking_menu();
     test_codex_menu();
+    test_leaderboard();
     test_room_art();
     test_pane_sprite_layer();
     test_compute_menu();

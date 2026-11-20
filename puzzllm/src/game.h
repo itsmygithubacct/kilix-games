@@ -9,6 +9,7 @@
 #include "art.h"
 #include "count_puzzle.h"
 #include "keys.h"
+#include "leaderboard.h"
 #include "levels.h"
 #include "pty.h"
 #include "scene.h"
@@ -38,6 +39,10 @@ typedef struct game_menu {
     bool load_failed;
     bool confirm_reset;
     bool details_open;
+    bool leaderboard_open;
+    score_entry *scores;
+    int score_count, score_scroll, score_level, score_metric;
+    bool model_scores;
     int model_submenu;          /* zero or the main menu's backend row */
     int model_selected;
     model_details_tab details_tab;
@@ -91,6 +96,10 @@ typedef struct game {
     pty_proc omp, shell;
     agent_metrics metrics;
     activity act;
+    score_entry ranked_attempt;
+    unsigned long long ranked_session_tokens;
+    char ranked_session_path[4096], ranked_session_model[SCORE_MODEL_CAP];
+    double ranked_fraction_ms;
     goal_result goal;
     count_puzzle count_check;
     bool was_met;

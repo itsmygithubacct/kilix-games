@@ -38,6 +38,7 @@ typedef struct activity {
     bool pi;
     bool tokens_reported;
     unsigned long long tokens_used;
+    char codex_model[128];
     act_line lines[ACT_LINES];
     int head, count;               /* ring buffer */
     char session_path[4096];

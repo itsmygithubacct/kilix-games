@@ -198,6 +198,11 @@ void activity_session_line(activity *a, const char *line, size_t len)
     if (a->codex) {
         if (type && strcmp(type, "response_item") == 0)
             codex_item(a, &d, json_get(&d, root, "payload"));
+        else if (type && strcmp(type, "turn_context") == 0) {
+            int payload = json_get(&d, root, "payload");
+            const char *model = json_str(&d, json_get(&d, payload, "model"));
+            if (model) snprintf(a->codex_model, sizeof a->codex_model, "%s", model);
+        }
         else if (type && strcmp(type, "event_msg") == 0) {
             int payload = json_get(&d, root, "payload");
             const char *event = json_str(&d, json_get(&d, payload, "type"));
@@ -261,6 +266,7 @@ void activity_begin_session(activity *a, const char *state)
     struct stat st;
     a->tokens_used = 0;
     a->tokens_reported = false;
+    a->codex_model[0] = 0;
     a->partial_len = 0;
     a->status[0] = 0;
     a->session_path[0] = 0;
@@ -291,6 +297,7 @@ static void poll_session(activity *a, const char *state)
     if (strcmp(path, a->session_path) != 0) {
         a->tokens_used = 0;
         a->tokens_reported = false;
+        a->codex_model[0] = 0;
         snprintf(a->session_path, sizeof a->session_path, "%s", path);
         a->session_offset = 0;
         a->partial_len = 0;

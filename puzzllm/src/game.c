@@ -6,6 +6,8 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
+#include <pwd.h>
 #include <sys/file.h>
 #include <sys/random.h>
 #include <sys/wait.h>
@@ -116,6 +118,19 @@ static int lock_state(const char *state)
     return fd;
 }
 
+static void rank_attempt_name(char name[32], int level)
+{
+    snprintf(name, 32, "rank-attempt-%d", level + 1);
+}
+
+static bool clear_rank_attempt(const char *state, int level)
+{
+    char path[4096], name[32];
+    rank_attempt_name(name, level);
+    snprintf(path, sizeof path, "%s/%s", state, name);
+    return unlink(path) == 0 || errno == ENOENT;
+}
+
 /* The caller holds the state lock. */
 static bool reset_progress(const char *state)
 {
@@ -145,6 +160,7 @@ static bool reset_progress(const char *state)
         snprintf(path, sizeof path, "%s/progress", state);
         ok = unlink(path) == 0 || errno == ENOENT;
     }
+    for (int i = 0; ok && i < LEVEL_MAX; i++) ok = clear_rank_attempt(state, i);
     if (ok) ok = make_dirs(workspace);
     int error = errno;
     if (made_backup) rmdir(backup);  /* only removes an empty backup */
@@ -421,8 +437,10 @@ static void start_metrics(game *g)
         snprintf(g->metrics.summary, sizeof g->metrics.summary, "Resource data unavailable");
 }
 
-static void pump_metrics(agent_metrics *metrics, pty_proc *agent)
+static void pump_metrics(game *g)
 {
+    agent_metrics *metrics = &g->metrics;
+    pty_proc *agent = &g->omp;
     if (metrics->worker.fd < 0) return;
     if (pty_poll_exit(agent)) {
         stop_metrics(metrics);
@@ -444,6 +462,17 @@ static void pump_metrics(agent_metrics *metrics, pty_proc *agent)
             char *separator = strchr(metrics->partial, '|');
             if (!separator || strncmp(metrics->partial, "STAT ", 5) != 0) continue;
             *separator = 0;
+            char *sample = strchr(separator + 1, '|');
+            if (sample) {
+                *sample++ = 0;
+                long long values[5];
+                if (g->ranked_attempt.id &&
+                    sscanf(sample, "%lld %lld %lld %lld %lld",
+                           &values[0], &values[1], &values[2], &values[3], &values[4]) == 5)
+                    for (int j = 0; j < 5; j++)
+                        if (values[j] > g->ranked_attempt.measure[SCORE_CPU + j])
+                            g->ranked_attempt.measure[SCORE_CPU + j] = values[j];
+            }
             snprintf(metrics->summary, sizeof metrics->summary, "%.127s", metrics->partial + 5);
             snprintf(metrics->devices, sizeof metrics->devices, "%.127s", separator + 1);
         }
@@ -454,9 +483,103 @@ static void pump_metrics(agent_metrics *metrics, pty_proc *agent)
     }
 }
 
+static void restore_ranked_attempt(game *g)
+{
+    g->ranked_attempt = (score_entry){0};
+    g->ranked_session_tokens = 0;
+    g->ranked_session_path[0] = g->ranked_session_model[0] = 0;
+    g->ranked_fraction_ms = 0;
+    char path[4096], name[32], line[SCORE_LINE_CAP];
+    rank_attempt_name(name, g->sc.level);
+    snprintf(path, sizeof path, "%s/%s", g->state, name);
+    int fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+    if (fd < 0) return;
+    FILE *file = fdopen(fd, "r");
+    if (!file) { close(fd); return; }
+    score_entry saved = {0};
+    if (fgets(line, sizeof line, file) && score_parse(line, &saved) &&
+        saved.level == cur_level(g)->number)
+        g->ranked_attempt = saved;
+    fclose(file);
+}
+
+static void checkpoint_ranked_attempt(game *g)
+{
+    score_entry *score = &g->ranked_attempt;
+    if (!score->id || g->state_lock < 0) return;
+    if (strcmp(g->ranked_session_path, g->act.session_path)) {
+        snprintf(g->ranked_session_path, sizeof g->ranked_session_path, "%s", g->act.session_path);
+        g->ranked_session_tokens = 0;
+    }
+    if (g->ranked_session_model[0] && g->act.tokens_reported &&
+        g->act.tokens_used >= g->ranked_session_tokens) {
+        unsigned long long delta = g->act.tokens_used - g->ranked_session_tokens;
+        g->ranked_session_tokens = g->act.tokens_used;
+        if (delta && g->act.codex && g->act.codex_model[0]) {
+            char model[SCORE_MODEL_CAP], label[SCORE_MODEL_CAP];
+            snprintf(model, sizeof model, "Codex/%s", g->act.codex_model);
+            leaderboard_label(label, sizeof label, model);
+            if (!strcmp(score->model, "Codex"))
+                snprintf(score->model, sizeof score->model, "%s", label);
+            else if (strcmp(score->model, label))
+                snprintf(score->model, sizeof score->model, "*");
+        }
+        unsigned long long room = (unsigned long long)(LLONG_MAX - score->measure[SCORE_TOKENS]);
+        score->measure[SCORE_TOKENS] += (long long)(delta < room ? delta : room);
+    }
+    char name[32], line[SCORE_LINE_CAP];
+    rank_attempt_name(name, g->sc.level);
+    score_format(line, score);
+    save_state_line(g->state, name, line);
+}
+
+static void begin_ranked_agent(game *g)
+{
+    score_entry *score = &g->ranked_attempt;
+    char model[SCORE_MODEL_CAP], clean[SCORE_MODEL_CAP];
+    const char *weights = getenv("PUZZLLM_MODEL");
+    const char *leaf = weights ? strrchr(weights, '/') : NULL;
+    snprintf(model, sizeof model, "%s%s", g->use_codex ? "" :
+             (g->ollama_model[0] ? "Ollama/" : "llama.cpp/"),
+             g->use_codex ? "Codex" : g->ollama_model[0] ? g->ollama_model :
+             weights && *weights ? (leaf ? leaf + 1 : weights) : "Qwen3.5-0.8B-Q8_0.gguf");
+    leaderboard_label(clean, sizeof clean, model);
+    bool same = !strcmp(score->model, clean) ||
+                (g->use_codex && !strncmp(score->model, "Codex/", 6));
+    if ((!score->id || (!score->measure[SCORE_TOKENS] && !same)) &&
+        !g->sc.goal_met) {
+        *score = (score_entry){.level = cur_level(g)->number};
+        if (getrandom(&score->id, sizeof score->id, 0) != sizeof score->id) score->id = 0;
+        const char *player = getenv("PUZZLLM_PLAYER");
+        if (!player || !*player) {
+            struct passwd *account = getpwuid(getuid());
+            player = account ? account->pw_name : "Player";
+        }
+        leaderboard_label(score->player, sizeof score->player, player);
+        if (!score->player[0]) snprintf(score->player, sizeof score->player, "Player");
+        snprintf(score->model, sizeof score->model, "%s", clean);
+        for (int j = SCORE_CPU; j < SCORE_METRICS; j++) score->measure[j] = -1;
+    } else if (score->id && !same) {
+        snprintf(score->model, sizeof score->model, "*");
+    }
+    snprintf(g->ranked_session_model, sizeof g->ranked_session_model, "%s", clean);
+    g->ranked_session_tokens = 0;
+    g->ranked_session_path[0] = 0;
+}
+
+static void poll_ranked_attempt(game *g)
+{
+    if (g->ranked_session_model[0]) {
+        activity_poll(&g->act, g->state);
+        checkpoint_ranked_attempt(g);
+    }
+}
+
 static void spawn_agent(game *g)
 {
+    poll_ranked_attempt(g);
     activity_begin_session(&g->act, g->state);
+    begin_ranked_agent(g);
     char sandbox[4096], st_env[2100], model_env[OLLAMA_NAME_CAP + 32];
     char *argv[] = {sandbox, g->use_codex ? "codex" : "agent", NULL};
     char *think_env = g->thinking_enabled ? "PUZZLLM_THINK=1" : "PUZZLLM_THINK=0";
@@ -485,6 +608,8 @@ static void stop_room_agent(game *g)
 {
     stop_metrics(&g->metrics);
     pty_stop(&g->omp);
+    poll_ranked_attempt(g);
+    g->ranked_session_model[0] = 0;
     pty_init(&g->omp);
     neuroterm_feed(&g->omp_vt, "\033c", 2);
     history_clear(&g->omp_history);
@@ -602,6 +727,8 @@ static void reset_from_menu(game *g)
     bool was_started = g->started;
     stop_metrics(&g->metrics);
     pty_stop(&g->omp);
+    poll_ranked_attempt(g);
+    g->ranked_session_model[0] = 0;
     pty_stop(&g->shell);
     pty_init(&g->omp);
     pty_init(&g->shell);
@@ -622,6 +749,7 @@ static void reset_from_menu(game *g)
     g->omp_note[0] = g->shell_note[0] = 0;
     g->transition_pending = false;
     g->tick_debt = g->poll_timer = 0;
+    if (level_only) clear_rank_attempt(g->state, level);
     game_enter_level(g, level);
     g->menu.selected = MENU_RESUME;
     if (level_only) start_play(g);
@@ -920,6 +1048,8 @@ static void select_model(game *g, bool codex, const model_option *model)
         g->thinking_support = support;
         snprintf(g->ollama_model, sizeof g->ollama_model, "%s", name);
         if (g->use_codex != codex) {
+            poll_ranked_attempt(g);
+            g->ranked_session_model[0] = 0;
             g->use_codex = codex;
             g->act.codex = codex;
             activity_begin_room(&g->act, g->state, g->workspace);
@@ -955,9 +1085,57 @@ static void model_menu_key(game *g, const key_event *ev)
     }
 }
 
+static void rank_menu_refresh(game_menu *menu)
+{
+    leaderboard_rank(menu->scores, menu->score_count, menu->score_level,
+                     menu->score_metric, menu->model_scores);
+    menu->score_scroll = 0;
+}
+
+static void rank_menu_key(game *g, const key_event *ev)
+{
+    game_menu *menu = &g->menu;
+    int step = 0;
+    switch (ev->key) {
+    case KEY_LEFT:
+    case KEY_RIGHT: {
+        int room = menu->score_level + (ev->key == KEY_LEFT ? -1 : 1);
+        if (room >= 1 && room <= g->levels.count) {
+            menu->score_level = room;
+            rank_menu_refresh(menu);
+        }
+        return;
+    }
+    case KEY_TAB:
+        if (ev->action == 1) {
+            menu->model_scores = !menu->model_scores;
+            rank_menu_refresh(menu);
+        }
+        return;
+    case 'm': case 'M':
+        if (ev->action == 1 && menu->model_scores) {
+            menu->score_metric = (menu->score_metric + 1) % SCORE_METRICS;
+            rank_menu_refresh(menu);
+        }
+        return;
+    case KEY_UP: step = -1; break;
+    case KEY_DOWN: step = 1; break;
+    case KEY_PAGE_UP: step = -12; break;
+    case KEY_PAGE_DOWN: step = 12; break;
+    default: return;
+    }
+    int limit = render_leaderboard(NULL, menu->scores, menu->score_count, 0, 0, 0, false, "");
+    int next = menu->score_scroll + step;
+    menu->score_scroll = next < 0 ? 0 : next > limit ? limit : next;
+}
+
 static void menu_key(game *g, const key_event *ev)
 {
     game_menu *menu = &g->menu;
+    if (menu->leaderboard_open) {
+        rank_menu_key(g, ev);
+        return;
+    }
     if (menu->details_open) {
         if (menu->prompt_edit) prompt_editor_key(g, ev);
         else if (ev->key == KEY_ENTER && ev->action == 1 && menu->details_tab != DETAILS_CODEX) {
@@ -1000,6 +1178,8 @@ static void menu_key(game *g, const key_event *ev)
             bool pi = !g->use_pi;
             if (g->state_lock >= 0 && save_state_line(g->state, "harness", pi ? "pi" : "omp")) {
                 pty_stop(&g->omp);
+                poll_ranked_attempt(g);
+                g->ranked_session_model[0] = 0;
                 g->use_pi = g->act.pi = pi;
                 activity_begin_room(&g->act, g->state, g->workspace);
                 if (g->spawn && g->started && !g->transition_pending) spawn_agent(g);
@@ -1034,6 +1214,16 @@ static void menu_key(game *g, const key_event *ev)
                                 g->ollama_model[0] ? DETAILS_OLLAMA : DETAILS_LLAMA;
             refresh_model_details(g);
         }
+        if (menu->selected == MENU_LEADERBOARD) {
+            free(menu->scores);
+            if (!leaderboard_load(g->state, &menu->scores, &menu->score_count))
+                snprintf(menu->notice, sizeof menu->notice, "Could not load the local leaderboard.");
+            menu->leaderboard_open = true;
+            menu->model_scores = true;
+            menu->score_level = cur_level(g)->number;
+            menu->score_metric = SCORE_TOKENS;
+            rank_menu_refresh(menu);
+        }
         if (menu->selected == MENU_CODEX) select_model(g, true, NULL);
         if (menu->selected == MENU_LOCAL || menu->selected == MENU_OLLAMA) {
             menu->model_submenu = menu->selected;
@@ -1050,6 +1240,7 @@ void game_enter_level(game *g, int level)
     if (g->state_lock >= 0) seed_system_files(g);
     count_puzzle_stop(&g->count_check);
     scene_enter_room(&g->sc, level);
+    restore_ranked_attempt(g);
     g->last_pane = FOCUS_OMP;
     g->hints_shown = cur_level(g)->nhints > 0 ? 1 : 0;
     g->goal_scroll = g->action_scroll = 0;
@@ -1135,10 +1326,13 @@ void game_shutdown(game *g)
     stop_metrics(&g->metrics);
     count_puzzle_stop(&g->count_check);
     pty_stop(&g->omp);
+    poll_ranked_attempt(g);
     pty_stop(&g->shell);
     pty_stop(&g->menu.discovery);
     pty_stop(&g->menu.prompt_counter);
     clear_models(&g->menu);
+    free(g->menu.scores);
+    g->menu.scores = NULL;
     art_free_room(&g->room);
     history_clear(&g->omp_history);
     history_clear(&g->shell_history);
@@ -1288,6 +1482,7 @@ void game_key(game *g, const key_event *ev)
     if (ev->key == KEY_ESCAPE && ev->mods == 0) {
         if (press && ev->action != 2) {
             if (g->menu.prompt_edit) g->menu.prompt_edit = false;
+            else if (g->menu.leaderboard_open) g->menu.leaderboard_open = false;
             else if (g->menu.details_open) {
                 g->menu.details_open = false;
                 pty_stop(&g->menu.prompt_counter);
@@ -1531,7 +1726,13 @@ void game_update(game *g, double dt)
     if (g->spawn) {
         pump(&g->omp, &g->omp_vt, g->omp_note, sizeof g->omp_note, "the agent");
         pump(&g->shell, &g->shell_vt, g->shell_note, sizeof g->shell_note, "the shell");
-        pump_metrics(&g->metrics, &g->omp);
+        pump_metrics(g);
+    }
+    if (g->started && g->ranked_attempt.id && g->ranked_session_model[0] && !g->transition_pending) {
+        g->ranked_fraction_ms += dt * 1000.0;
+        long long ms = (long long)g->ranked_fraction_ms;
+        g->ranked_attempt.measure[SCORE_TIME] += ms;
+        g->ranked_fraction_ms -= (double)ms;
     }
     if (g->menu.open) return;
     if (g->transition_pending) {
@@ -1549,6 +1750,7 @@ void game_update(game *g, double dt)
     if (g->poll_timer <= 0) {
         g->poll_timer = 0.5;
         activity_poll(&g->act, g->state);
+        checkpoint_ranked_attempt(g);
         game_poll_goal(g);
     }
     /* hints arrive on their own as time passes, never faster than H */
@@ -1582,6 +1784,11 @@ void game_update(game *g, double dt)
                 if (move.direction < 0) g->sc.y = CANVAS_H - 2;
             } else {
                 stop_room_agent(g);
+                score_entry *score = &g->ranked_attempt;
+                if (move.direction > 0 && g->sc.goal_met && score->id &&
+                    score->measure[SCORE_TOKENS] > 0 && strcmp(score->model, "*") &&
+                    !leaderboard_submit(g->state, score))
+                    activity_add(&g->act, ACT_ERROR, "Could not save the leaderboard result.");
                 if (finish_transition(g, move)) {
                     arrive_in_room(g, move);
                 } else {
@@ -1657,6 +1864,10 @@ void game_render(game *g, sr_canvas *c)
         render_model_details(c, g->menu.details_tab, g->menu.details_scroll,
                              g->menu.prompt, g->menu.write_schema,
                              g->menu.prompt_count);
+    else if (g->menu.leaderboard_open)
+        render_leaderboard(c, g->menu.scores, g->menu.score_count, g->menu.score_scroll,
+                           g->menu.score_level, g->menu.score_metric, g->menu.model_scores,
+                           g->menu.notice);
     else if (g->menu.model_submenu)
         render_model_menu(c, g->menu.model_submenu == MENU_OLLAMA, g->menu.models,
                           g->menu.count, g->menu.model_selected,

@@ -92,6 +92,19 @@ The resource bar shows the running token total reported by the current
 agent session. It resets when a new session starts. A dash means usage has
 yet to be reported.
 
+**Leaderboard** saves local results in
+`~/.local/share/puzzllm/leaderboard.tsv` (or the configured game state
+directory). A run is recorded once when the player walks through the
+unlocked door. The boards use runs with reported token usage from one
+model. Set `PUZZLLM_PLAYER` to enter a display name. It defaults to the
+local account name. Resetting the game or a level preserves past scores.
+
+Use Left and Right to change rooms. In the model leaderboard, press M
+to compare each model's best result by tokens, elapsed time, or peak
+CPU, RAM, GPU, VRAM, or disk throughput. Unavailable resource samples
+are omitted for that metric. Tab switches to player runs ranked by tokens
+within each model.
+
 **Harness** toggles between OMP and [Pi](https://pi.dev/) for the selected
 Ollama or llama.cpp model. If Pi is missing, the game installs it on first
 launch into `runtime/pi/` under the game state. That launch needs internet
