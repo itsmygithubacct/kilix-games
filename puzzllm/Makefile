@@ -38,7 +38,8 @@ NEURONTE ?= $(HOME)/projects/neuronte
 NEURONTE_SDK ?= $(HOME)/gpu_terminal/kilix-modules/neuronte-sdk
 # Split-v9 has a tiled member, so it opens only on a Neuronte that has
 # neuronte_set_untrained. An explicit NEURONTE= is kept. The default tree
-# is replaced only when it is older and a checkout of origin/main is visible.
+# is replaced only when it is older and a checkout that contains origin/main
+# is visible. The closest such checkout is used.
 ifeq ($(origin NEURONTE), file)
 ifeq ($(shell grep -q 'neuronte_set_untrained' $(NEURONTE)/include/neuronte.h && echo yes || true),)
 DISCOVERED_NEURONTE := $(shell python3 $(NEURONTE_SDK)/scripts/discover_neuronte_src.py 2>/dev/null || true)
@@ -83,7 +84,7 @@ $(NEURONTE_LIB): $(NEURONTE)/src/neuronte.c $(NEURONTE)/src/utf8.c \
 
 $(SDK_LIB): $(NEURONTE_SDK)/src/nsdk_terminal.c $(NEURONTE_SDK)/src/neuronte_sdk.c \
 		$(NEURONTE_SDK)/include/neuronte_sdk_terminal.h $(NEURONTE_SDK)/include/neuronte_sdk.h \
-		$(NEURONTE_SDK)/Makefile $(NEURONTE)/include/neuronte.h
+		$(NEURONTE_SDK)/Makefile $(NEURONTE)/include/neuronte.h $(RENDER_STAMP)
 	$(MAKE) -C $(NEURONTE_SDK) \
 		BUILD_DIR=$(SDK_BUILD) \
 		NEURONTE=$(abspath $(NEURONTE)) \
