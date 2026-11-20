@@ -1,0 +1,27 @@
+#!/bin/bash
+set -euo pipefail
+umask 077
+fd=${1:?usage: puzzllm-install-fd PATH}
+directory=$(dirname "$fd")
+mkdir -p "$directory"
+exec 9>"$directory/.fd-install.lock"
+flock 9
+[ ! -x "$fd" ] || exit 0
+
+arch=$(uname -m)
+case "$arch" in
+    x86_64) sha=2b6bfaae8c48f12050813c2ffe1884c61ea26e750d803df9c9114550a314cd14 ;;
+    aarch64) sha=996b9b1366433b211cb3bbedba91c9dbce2431842144d925428ead0adf32020b ;;
+    *) exit 2 ;;
+esac
+release=fd-v10.3.0-$arch-unknown-linux-musl
+stage=$(mktemp -d "$directory/.fd-install.XXXXXX")
+trap 'rm -rf -- "$stage"' EXIT
+trap 'exit 143' HUP INT TERM
+printf '[puzzllm] Installing fd for Pi.\n'
+curl -fsSL --connect-timeout 5 --max-time 20 \
+    "https://github.com/sharkdp/fd/releases/download/v10.3.0/$release.tar.gz" -o "$stage/archive"
+(cd "$stage" && printf '%s  archive\n' "$sha" | sha256sum -c -)
+tar -xzf "$stage/archive" -C "$stage" "$release/fd"
+"$stage/$release/fd" --version
+mv -T -- "$stage/$release/fd" "$fd"

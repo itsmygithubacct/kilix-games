@@ -97,6 +97,8 @@ Ollama or llama.cpp model. If Pi is missing, the game installs it on first
 launch into `runtime/pi/` under the game state. That launch needs internet
 access. The installer uses npm and supplies a private Node.js runtime on
 x86-64 and ARM64 Linux when a compatible Node.js and npm are unavailable.
+For Pi sessions, the game uses host `fd` or `fdfind` when available.
+Otherwise it installs a private copy of `fd` before starting the offline sandbox.
 Switching restarts the agent in the same workspace. The choice is saved,
 and Pi stores its game configuration and session history under `pi/`.
 

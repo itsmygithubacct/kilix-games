@@ -64,8 +64,18 @@ find_omp() {
     [ -x "$HOME/.local/bin/omp" ] && printf '%s\n' "$HOME/.local/bin/omp"
 }
 
+run_pi_setup() {
+    local install_pid result=0
+    setsid "$@" </dev/null &
+    install_pid=$!
+    trap 'kill -TERM -- "-$install_pid" 2>/dev/null || kill -TERM "$install_pid" 2>/dev/null || true; exit 143' HUP INT TERM
+    wait "$install_pid" || result=$?
+    trap - HUP INT TERM
+    return "$result"
+}
+
 mount_pi() {
-    local entry managed version modules node install_pid
+    local entry managed version modules node fd
     local runtime=$state/runtime/pi
     entry=${PUZZLLM_PI:-$(command -v pi || true)}
     if [ -n "${PUZZLLM_PI:-}" ] && [ ! -x "$entry" ]; then
@@ -78,11 +88,8 @@ mount_pi() {
         entry=$runtime/node_modules/.bin/pi
         if [ ! -x "$entry" ]; then
             [ "$mode" = agent ] || return 0
-            setsid "$here/puzzllm-install-pi" "$runtime" </dev/null &
-            install_pid=$!
-            trap 'kill -TERM -- "-$install_pid" 2>/dev/null || kill -TERM "$install_pid" 2>/dev/null || true; exit 143' HUP INT TERM
-            wait "$install_pid" || die "Pi installation failed. Press Enter in the agent pane to retry."
-            trap - HUP INT TERM
+            run_pi_setup "$here/puzzllm-install-pi" "$runtime" ||
+                die "Pi installation failed. Press Enter in the agent pane to retry."
         fi
         if [ -x "$runtime/node/bin/node" ]; then
             node=$runtime/node/bin/node
@@ -119,6 +126,17 @@ mount_pi() {
         args+=(--ro-bind "$(readlink -f "$node")" /opt/puzzllm/bin/node)
     fi
     args+=(--setenv PUZZLLM_PI_COMMAND "$pi_command")
+    fd=$(command -v fd || command -v fdfind || true)
+    if [ -z "$fd" ]; then
+        fd=$state/runtime/bin/fd
+        if [ "$mode" = agent ] && [ ! -x "$fd" ]; then
+            run_pi_setup "$here/puzzllm-install-fd" "$fd" ||
+                printf '[puzzllm] Could not install fd. Pi can still use find.\n' >&2
+        fi
+    fi
+    if [ -x "$fd" ]; then
+        args+=(--ro-bind "$(readlink -f "$fd")" /opt/puzzllm/bin/fd)
+    fi
 }
 
 find_llama() {
