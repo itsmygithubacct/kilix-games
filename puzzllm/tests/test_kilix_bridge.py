@@ -27,7 +27,7 @@ class PrivateDisplayTest(unittest.TestCase):
         environments = {role: {"PUZZLLM_PANE": role, "PUZZLLM_PANE_INIT": "/opt/puzzllm/bin/puzzllm-agent-init"}
                         for role in ("agent", "shell")}
         with patch.object(bridge, "window_id", return_value="101"), \
-             patch.object(bridge.subprocess, "run") as run:
+             patch.object(bridge.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as run:
             for line, expected in (("type agent eA==", "agent"), ("type shell eA==", "shell"), ("close-agent", "agent")):
                 bridge.handle(line, "kitten", {})
                 cmd = run.call_args.args[0]
