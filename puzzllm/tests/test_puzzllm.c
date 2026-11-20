@@ -1490,8 +1490,7 @@ static void menu_to(int item)
         int group = page == MENU_PAGE_MODEL || page == MENU_PAGE_DOWNLOAD ? MENU_MODEL :
                     page == MENU_PAGE_SCORES ? MENU_SCORES :
                     page == MENU_PAGE_DISPLAY ? MENU_DISPLAY :
-                    page == MENU_PAGE_BETWEEN ? MENU_BETWEEN :
-                    page == MENU_PAGE_BENCH ? MENU_BENCH : MENU_RESETS;
+                    page == MENU_PAGE_BETWEEN ? MENU_BETWEEN : MENU_RESETS;
         menu_press(KEY_HOME);
         for (int guard = 0; G.menu.selected != group && guard < 12; guard++)
             menu_press(KEY_DOWN);
@@ -1576,21 +1575,74 @@ static void test_bench_menu(void)
     char err[256], state[2300];
     sub(state, sizeof state, "bench-menu");
     CHECK(game_init(&G, ".", state, false, err, sizeof err), "bench menu: %s", err);
-    menu_to(MENU_YESNO);
-    CHECK(G.menu.open && G.menu.page == MENU_PAGE_BENCH && G.menu.selected == MENU_YESNO,
-          "Bench opens on the Kilix yes/no bench");
-    menu_press(KEY_DOWN);
-    CHECK(G.menu.selected == MENU_AUTOTRUST, "autotrust-jev is offered as the bench model");
+    menu_to(MENU_BENCH);
     menu_press(KEY_ENTER);
-    CHECK(!G.menu.fetching && strstr(G.menu.notice, "autotrust-jev") != NULL,
-          "choosing autotrust-jev offers to download it");
-    menu_press(KEY_UP);
-    menu_press(KEY_ENTER);
-    CHECK(!G.menu.yesno_running && strstr(G.menu.notice, "yes/no") != NULL,
-          "the yes/no bench offers to run autotrust-jev");
+    CHECK(G.bench.open && G.bench.page == BENCH_WATCH && G.bench.provider == -1,
+          "Bench opens a standalone monitor before starting a run");
+    rect pick = yesno_button_rect(L.w, L.h, BENCH_MODEL);
+    game_pointer(&G, pick.x + 3, pick.y + 3, POINTER_DOWN);
+    CHECK(G.bench.page == BENCH_PROVIDERS && yesno_options(&G.bench) == 5,
+          "mouse opens all five providers");
+    for (int i = 0; i < 5; i++) {
+        menu_press(KEY_HOME);
+        for (int j = 0; j < i; j++) menu_press(KEY_DOWN);
+        menu_press(KEY_ENTER);
+        CHECK(G.bench.page == BENCH_MODELS && G.bench.picking == i, "provider %d opens its model choices", i);
+        menu_press(KEY_ENTER);
+        if (i < 2) {
+            const char *name = i ? "/models/my model.gguf" : "library/example:tag";
+            game_paste(&G, (const unsigned char *)name, strlen(name), true);
+            menu_press(KEY_ENTER);
+            CHECK(!strcmp(G.bench.model, name), "bench accepts an arbitrary model name or GGUF path");
+        }
+        CHECK(G.bench.provider == i && G.bench.page == BENCH_WATCH &&
+              !G.use_codex && !G.use_grok && !G.use_claude, "bench model choice is independent of the room");
+        menu_press('m');
+    }
     menu_press(KEY_ESCAPE);
-    CHECK(G.menu.page == MENU_PAGE_MAIN && G.menu.selected == MENU_BENCH,
-          "Escape returns from Bench to its main-menu row");
+    sr_canvas canvas;
+    CHECK(sr_canvas_init(&canvas, L.w, L.h), "allocate bench canvas");
+    game_render(&G, &canvas);
+    CHECK(canvas.px[0] == 0xff101821 && canvas.px[10*canvas.w+canvas.w/2] == 0xff101821,
+          "the monitor replaces the room and its doorway");
+    sr_canvas_free(&canvas);
+    char journal[2300];
+    sub(journal, sizeof journal, "bench-events");
+    const char *events =
+        "{\"event\":\"begin\",\"provider\":\"ollama\",\"model\":\"trial\",\"file\":\"run.jsonl\"}\n"
+        "{\"event\":\"size\",\"total\":3}\n"
+        "{\"event\":\"answer\",\"n\":1,\"question\":\"Is two even?\",\"band\":\"maths\",\"verdict\":\"correct\",\"reply\":\"YES\",\"expected\":\"YES\"}\n"
+        "{\"event\":\"answer\",\"n\":2,\"question\":\"Is this green?\",\"band\":\"reading\",\"verdict\":\"wrong\",\"reply\":\"NO\",\"expected\":\"YES\"}\n"
+        "{\"event\":\"answer\",\"n\":3,\"question\":\"Are the values equal?\",\"band\":\"logic\",\"verdict\":\"invalid\",\"reply\":\"Probably.\",\"expected\":\"NO\"}\n"
+        "{\"event\":\"end\"}\n";
+    write_file(journal, events, strlen(events));
+    char *args[] = {"cat", journal, NULL};
+    CHECK(pty_spawn(&G.bench.worker.process, args, NULL, 80, 24), "run benchmark event source");
+    menu_press(KEY_ESCAPE);
+    const struct timespec nap = {0, 5000000};
+    for (int i = 0; i < 200 && G.bench.worker.process.pid; i++) {
+        game_update(&G, 0.01);
+        nanosleep(&nap, NULL);
+    }
+    CHECK(!G.bench.open && G.bench.status == BENCH_COMPLETE && G.bench.count == 3 &&
+          G.bench.total == 3 && G.bench.correct == 1 && G.bench.wrong == 1 && G.bench.invalid == 1,
+          "the monitor consumes and grades an entire run while closed");
+    menu_press(KEY_ENTER);
+    menu_press('f');
+    CHECK(G.bench.misses && G.bench.selected == 2 && G.bench.follow,
+          "filter includes the latest invalid answer");
+    game_scroll(&G, 100, 250, -1);
+    CHECK(G.bench.selected == 1 && !G.bench.follow, "scrolling misses selects the wrong answer");
+    menu_press('l');
+    CHECK(G.bench.selected == 2 && G.bench.follow, "Latest follows incoming answers");
+    menu_press('f');
+    rect history = yesno_history_rect(L.w, L.h);
+    game_pointer(&G, history.x+8, history.y+2, POINTER_DOWN);
+    CHECK(G.bench.selected == 0 && !strcmp(G.bench.answers[0].question, "Is two even?"),
+          "clicking a result inspects that question");
+    menu_press(KEY_ESCAPE);
+    CHECK(!G.bench.open && G.menu.open && G.menu.selected == MENU_BENCH,
+          "leaving the bench returns to its main-menu row");
     game_shutdown(&G);
 }
 

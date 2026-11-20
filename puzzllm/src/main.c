@@ -120,7 +120,7 @@ static pid_t start_goal_service(const char *root, const char *state)
     return child;
 }
 
-static int play(const char *root, const char *state)
+static int play(const char *root, const char *state, bool bench_only)
 {
     char err[512];
     sr_canvas canvas;
@@ -138,7 +138,17 @@ static int play(const char *root, const char *state)
         fprintf(stderr, "puzzllm: run it in a terminal (Kilix or Kitty)\n");
         return 1;
     }
-    if (!game_init(&the_game, root, state, true, err, sizeof err)) {
+    if (bench_only) {
+        snprintf(the_game.root, sizeof the_game.root, "%s", root);
+        snprintf(the_game.state, sizeof the_game.state, "%s", state);
+        the_game.spawn = true;
+        the_game.bench.standalone = true;
+        layout_set(LAYOUT_DEFAULT_W, LAYOUT_DEFAULT_H);
+        pty_init(&the_game.omp);
+        pty_init(&the_game.shell);
+        yesno_init(&the_game.bench);
+        yesno_open(&the_game);
+    } else if (!game_init(&the_game, root, state, true, err, sizeof err)) {
         fprintf(stderr, "puzzllm: %s\n", err);
         return 1;
     }
@@ -168,7 +178,7 @@ static int play(const char *root, const char *state)
     snapshot = getenv("PUZZLLM_SNAPSHOT");
     if (getenv("PUZZLLM_STATS") != NULL && getenv("PUZZLLM_STATS")[0] != '\0')
         stats = fopen(getenv("PUZZLLM_STATS"), "a");
-    pid_t goal_service = start_goal_service(root, state);
+    pid_t goal_service = bench_only ? 0 : start_goal_service(root, state);
     last = now_s();
     st_start = last;
     next_frame = last;
@@ -397,6 +407,7 @@ int main(int argc, char **argv)
     char root[2048], state[2048];
     default_paths(root, sizeof root, state, sizeof state);
 
+    if (argc == 2 && !strcmp(argv[1], "--yesno")) return play(root, state, true);
     if (argc == 2 && !strcmp(argv[1], "--goal-status")) return current_goal_status(root, state);
     if (argc == 2 && strcmp(argv[1], "--reset-progress") == 0) {
         if (!game_reset_progress(state)) {
@@ -422,12 +433,12 @@ int main(int argc, char **argv)
     if (argc == 3 && strcmp(argv[1], "--check-level") == 0)
         return check_level(root, state, argv[2]);
     if (argc == 2 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0)) {
-        printf("usage: puzzllm [--version | --render DIR | --check-level N | --goal-status | --reset-progress | --bench [WxH] | --renderer]\n");
+        printf("usage: puzzllm [--version | --yesno | --render DIR | --check-level N | --goal-status | --reset-progress | --bench [WxH] | --renderer]\n");
         return 0;
     }
     if (argc != 1) {
-        fprintf(stderr, "usage: puzzllm [--version | --render DIR | --check-level N | --goal-status | --reset-progress | --bench [WxH] | --renderer]\n");
+        fprintf(stderr, "usage: puzzllm [--version | --yesno | --render DIR | --check-level N | --goal-status | --reset-progress | --bench [WxH] | --renderer]\n");
         return 2;
     }
-    return play(root, state);
+    return play(root, state, false);
 }

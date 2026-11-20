@@ -372,6 +372,12 @@ DEFECTS = [
      "src/main.c", "return result.met ? 0 : 1;", "return 0;", "test-cli"),
     ("the shell loses its Kilix broker when tmux daemonizes",
      "libexec/puzzllm-shell-init", "setsid tmux -D -f /dev/null", "tmux -f /dev/null start-server", "test-sandbox"),
+    ("extra prose is scored as a valid benchmark reply",
+     "libexec/puzzllm-yesno", 'if reply not in ("YES", "NO"):',
+     'if not reply.startswith(("YES", "NO")):', "test-yesno"),
+    ("the bench draws the puzzle doorway behind its monitor",
+     "src/game.c", 'if (g->bench.open) { yesno_draw(c, &g->bench); return; }',
+     'if (g->bench.open) yesno_draw(c, &g->bench);', "test-unit"),
 ]
 
 

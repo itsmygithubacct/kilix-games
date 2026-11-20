@@ -335,7 +335,6 @@ int menu_page_rows(int page, bool neuronte, int *out, int cap)
     static const int download_rows[] = {
         MENU_DL_GGUF_08, MENU_DL_GGUF_4B, MENU_DL_OLLAMA_06, MENU_DL_OLLAMA_4B, MENU_DL_NAME
     };
-    static const int bench_rows[] = { MENU_YESNO, MENU_AUTOTRUST };
     static const int between_rows[] = { MENU_LEVEL_SESSION, MENU_LEVEL_CLEANUP, MENU_CLEAN_DISK };
     const int *rows = main_rows;
     int n = (int)(sizeof main_rows / sizeof main_rows[0]);
@@ -358,9 +357,6 @@ int menu_page_rows(int page, bool neuronte, int *out, int cap)
     } else if (page == MENU_PAGE_BETWEEN) {
         rows = between_rows;
         n = (int)(sizeof between_rows / sizeof between_rows[0]);
-    } else if (page == MENU_PAGE_BENCH) {
-        rows = bench_rows;
-        n = (int)(sizeof bench_rows / sizeof bench_rows[0]);
     }
     if (n > cap) n = cap;
     if (out) for (int i = 0; i < n; i++) out[i] = rows[i];
@@ -391,9 +387,7 @@ void render_menu(sr_canvas *c, int selected, const char *active_model,
         [MENU_DL_OLLAMA_06] = "Download Ollama qwen3:0.6b",
         [MENU_DL_OLLAMA_4B] = "Download Ollama qwen3:4b-instruct-2507",
         [MENU_DL_NAME] = "Pull another Ollama model",
-        [MENU_BENCH] = "Bench >",
-        [MENU_YESNO] = "Kilix yes/no bench",
-        [MENU_AUTOTRUST] = "Model: autotrust-jev",
+        [MENU_BENCH] = "Yes/No Bench",
         [MENU_MODEL] = "Model >",
         [MENU_SCORES] = "Scores >",
         [MENU_DISPLAY] = "Display >",
@@ -439,8 +433,7 @@ void render_menu(sr_canvas *c, int selected, const char *active_model,
                         page == MENU_PAGE_DISPLAY ? "Display" :
                         page == MENU_PAGE_RESET ? "Reset" :
                         page == MENU_PAGE_DOWNLOAD ? "Downloads" :
-                        page == MENU_PAGE_BETWEEN ? "Between levels" :
-                        page == MENU_PAGE_BENCH ? "Bench" : "Game menu";
+                        page == MENU_PAGE_BETWEEN ? "Between levels" : "Game menu";
     draw_text(c, x + 18, y + 13, title, 0xffde8c, 1);
     snprintf(label, sizeof label, "Agent model: %s", *active_model ? active_model : "Qwen 3.5 (llama.cpp)");
     text_line(c, x + 18, y + 39, label, 0xbccadb, (width - 36) / CELL_W);

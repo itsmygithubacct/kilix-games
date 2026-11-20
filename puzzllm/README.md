@@ -104,7 +104,7 @@ start a new one.
 
 The game opens on its menu in this order: **Harness**, **Model**, then
 **Start game** (or resume, or continue a saved level). Below those are
-**Campaign**, **Scores**, **Display**, **Bench**, **Auto**, **Reset**, and **Exit game**.
+**Campaign**, **Scores**, **Display**, **Yes/No Bench**, **Auto**, **Reset**, and **Exit game**.
 Enter opens a group. Escape steps back one page, and closes the menu once
 play has started.
 
@@ -116,9 +116,32 @@ room and that room starts again. Auto stops in the last playable room.
 An eligible campaign is ranked there as soon as the door opens and the
 agent reports token use. The setting is remembered.
 
-**Bench** holds **Kilix yes/no bench**. That row runs the OneBit yes/no
-suite with **autotrust-jev**. The model row offers the same Ollama model
-and downloads it when it is not already installed.
+**Yes/No Bench** opens a progress monitor. Press **M** or click **Model** to
+choose an Ollama tag, a llama.cpp GGUF, Codex, Grok, or Claude. For a local
+model, choose from the installed list or enter a tag or file path. Ollama
+pulls a missing tag when you start. For a hosted CLI, use its configured
+default or enter a model ID. The bench has its own selection, independent
+of the coding session and campaign.
+
+Press **R** or click **Start** to run the OneBit development questions. Each
+question is a fresh request with the instruction `Respond with only YES or NO.`
+After trimming surrounding whitespace, only uppercase `YES` and `NO` count
+as valid. The monitor shows correct, wrong and invalid answers separately.
+Accuracy counts every answered question. A provider failure ends the run
+and preserves its partial results.
+
+The player stays beside the controls at the bottom. Click an answer or use
+the arrow keys or wheel to inspect it, **F** to filter misses, and **L** to
+follow the latest answer again. **Esc** returns to the game. The benchmark
+continues even if you close the tab. Reopen **Yes/No Bench**, or launch
+`bin/puzzllm --yesno` in a separate terminal, to watch the same run. Use
+**Stop** to end it. Each run saves its questions, replies, keys, timings,
+and outcomes in `bench/yesno/*.jsonl` under the game state directory.
+
+The bench uses the OneBit data from the installed `kilix-bench` package
+or the checkout named by `PUZZLLM_YESNO_BENCH`. Ollama uses `OLLAMA_HOST`.
+GGUF discovery uses `KILIX_LLM_MODELS_DIR` and `PUZZLLM_MODEL`. A selected
+GGUF runs on a private llama-server for the duration of the benchmark.
 
 **Harness** toggles between OMP and Pi for a local model. **Model** chooses
 Codex, Grok, Claude, llama.cpp, or Ollama, and holds the prompt, thinking,

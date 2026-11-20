@@ -16,6 +16,7 @@
 #include "scene.h"
 #include "soft_raster.h"
 #include "render.h"
+#include "yesno.h"
 
 #include <stdbool.h>
 
@@ -73,10 +74,6 @@ typedef struct game_menu {
     char fetch_line[320];
     size_t fetch_line_len;
     char pull_name[OLLAMA_NAME_CAP];
-    pty_proc yesno;
-    bool yesno_running;
-    char yesno_line[320];
-    size_t yesno_line_len;
     pty_proc discovery;
     char line[OLLAMA_NAME_CAP + 1];
     size_t line_length;
@@ -133,6 +130,7 @@ typedef struct game {
     bool release_events;    /* the terminal reports key releases */
     bool quit;
     game_menu menu;
+    yesno_bench bench;
     char ollama_model[OLLAMA_NAME_CAP];
     char llama_model[4096];
     char gguf_env[4608];

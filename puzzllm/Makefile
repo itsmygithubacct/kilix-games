@@ -20,7 +20,7 @@ DEPFLAGS := -MMD -MP
 B        := build
 O        := $(B)/obj
 CORE     := count_puzzle history keys pty levels workspace json activity leaderboard layout scene draw art render game \
-	kilix_art damage kilix_embed
+	kilix_art damage kilix_embed yesno yesno_draw
 KILIX_ASSETS := third_party/kilix-game-sdk/kilix-assets
 NEUROTERM_BUILD_DIR := $(O)/neuroterm
 include third_party/neuroterm/embed.mk
@@ -98,7 +98,7 @@ TEST_BIN := $(B)/test-puzzllm
 # Test scratch stays inside the build directory, never in /tmp (a RAM disk).
 SCRATCH  := $(CURDIR)/$(B)/test-scratch
 
-.PHONY: all test test-unit test-cli test-sandbox test-defects test-live test-kilix-display \
+.PHONY: all test test-unit test-cli test-sandbox test-defects test-live test-kilix-display test-yesno \
 	render bench renderer clean
 
 all: $(BIN)
@@ -155,7 +155,11 @@ test-defects: $(BIN) $(TEST_BIN)
 test-kilix-display:
 	@python3 -B tests/test_kilix_bridge.py
 
-test: test-unit test-cli test-sandbox test-kilix-display test-defects
+test-yesno:
+	@mkdir -p $(SCRATCH)/yesno
+	@TMPDIR=$(SCRATCH)/yesno python3 -B tests/test_yesno.py
+
+test: test-unit test-cli test-sandbox test-kilix-display test-yesno test-defects
 
 # Not part of `make test`: needs omp, a llama-server and the Qwen 3.5
 # weights on this machine, and runs the real model.

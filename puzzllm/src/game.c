@@ -1340,7 +1340,7 @@ static void start_fetch(game *g, const char *kind, const char *arg)
     const char *override = getenv("PUZZLLM_FETCH");
     int n;
     char *argv[4];
-    if (menu->fetching || menu->yesno_running) {
+    if (menu->fetching) {
         snprintf(menu->notice, sizeof menu->notice, "A download is already running.");
         return;
     }
@@ -1397,80 +1397,6 @@ static void poll_fetch(game_menu *menu)
             break;
         }
     }
-}
-
-static void poll_yesno(game_menu *menu)
-{
-    char buf[1024];
-    if (!menu->yesno_running) return;
-    for (int reads = 0; reads < 8; reads++) {
-        long n = pty_read(&menu->yesno, buf, sizeof buf);
-        if (n > 0) {
-            for (long i = 0; i < n; i++) {
-                if (buf[i] == '\n') {
-                    menu->yesno_line[menu->yesno_line_len] = 0;
-                    if (menu->yesno_line_len)
-                        snprintf(menu->notice, sizeof menu->notice, "%s", menu->yesno_line);
-                    menu->yesno_line_len = 0;
-                } else if (buf[i] != '\r' && menu->yesno_line_len + 1 < sizeof menu->yesno_line) {
-                    menu->yesno_line[menu->yesno_line_len++] = buf[i];
-                }
-            }
-        } else {
-            if (n < 0 && pty_poll_exit(&menu->yesno)) {
-                if (menu->yesno_line_len) {
-                    menu->yesno_line[menu->yesno_line_len] = 0;
-                    snprintf(menu->notice, sizeof menu->notice, "%s", menu->yesno_line);
-                }
-                if (menu->yesno.exit_status != 0 &&
-                    (!menu->notice[0] || strncmp(menu->notice, "Starting", 8) == 0))
-                    snprintf(menu->notice, sizeof menu->notice, "Kilix yes/no bench stopped.");
-                menu->yesno_running = false;
-                pty_stop(&menu->yesno);
-            }
-            break;
-        }
-    }
-}
-
-static void offer_autotrust(game *g)
-{
-    if (!g->spawn) {
-        snprintf(g->menu.notice, sizeof g->menu.notice,
-                 "autotrust-jev downloads on this computer when the game is running.");
-        return;
-    }
-    start_fetch(g, "ollama", "autotrust-jev");
-}
-
-static void start_yesno(game *g)
-{
-    game_menu *menu = &g->menu;
-    char helper[4096];
-    char *argv[2];
-    int n;
-    if (!g->spawn) {
-        snprintf(menu->notice, sizeof menu->notice,
-                 "Kilix yes/no bench runs autotrust-jev and downloads it when it is missing.");
-        return;
-    }
-    if (menu->fetching || menu->yesno_running) {
-        snprintf(menu->notice, sizeof menu->notice, "Kilix yes/no bench is already running.");
-        return;
-    }
-    n = snprintf(helper, sizeof helper, "%s/libexec/puzzllm-yesno", g->root);
-    if (n < 0 || (size_t)n >= sizeof helper) {
-        snprintf(menu->notice, sizeof menu->notice, "Could not start the Kilix yes/no bench.");
-        return;
-    }
-    argv[0] = helper;
-    argv[1] = NULL;
-    menu->yesno_line_len = 0;
-    menu->yesno_line[0] = 0;
-    menu->yesno_running = pty_spawn(&menu->yesno, argv, NULL, 80, 24);
-    snprintf(menu->notice, sizeof menu->notice, "%s", menu->yesno_running ?
-             "Starting the Kilix yes/no bench with autotrust-jev." :
-             "Could not start the Kilix yes/no bench.");
 }
 
 static void choose_llama(game *g, const char *path)
@@ -1752,13 +1678,12 @@ static void menu_key(game *g, const key_event *ev)
         if (ev->action == 2) break;
         menu->notice[0] = 0;
         if (menu->selected == MENU_MODEL || menu->selected == MENU_SCORES ||
-            menu->selected == MENU_DISPLAY || menu->selected == MENU_BENCH ||
+            menu->selected == MENU_DISPLAY ||
             menu->selected == MENU_BETWEEN || menu->selected == MENU_RESETS) {
             menu->page = menu->selected == MENU_MODEL ? MENU_PAGE_MODEL :
                          menu->selected == MENU_SCORES ? MENU_PAGE_SCORES :
                          menu->selected == MENU_DISPLAY ? MENU_PAGE_DISPLAY :
-                         menu->selected == MENU_BETWEEN ? MENU_PAGE_BETWEEN :
-                         menu->selected == MENU_BENCH ? MENU_PAGE_BENCH : MENU_PAGE_RESET;
+                         menu->selected == MENU_BETWEEN ? MENU_PAGE_BETWEEN : MENU_PAGE_RESET;
             menu_move(g, 0);
             break;
         }
@@ -1883,8 +1808,7 @@ static void menu_key(game *g, const key_event *ev)
             refresh_model_details(g);
         }
         if (menu->selected == MENU_LEADERBOARD) open_leaderboard(g);
-        if (menu->selected == MENU_YESNO) start_yesno(g);
-        if (menu->selected == MENU_AUTOTRUST) offer_autotrust(g);
+        if (menu->selected == MENU_BENCH) yesno_open(g);
         if (menu->selected == MENU_CODEX) select_model(g, true, false, NULL);
         if (menu->selected == MENU_GROK) select_model(g, false, true, NULL);
         if (menu->selected == MENU_CLAUDE) select_claude(g);
@@ -2023,7 +1947,7 @@ bool game_init(game *g, const char *root, const char *state, bool spawn,
     pty_init(&g->shell);
     pty_init(&g->menu.discovery);
     pty_init(&g->menu.fetch);
-    pty_init(&g->menu.yesno);
+    yesno_init(&g->bench);
     pty_init(&g->menu.prompt_counter);
     pty_init(&g->metrics.worker);
     activity_init(&g->act);
@@ -2099,6 +2023,7 @@ bool game_init(game *g, const char *root, const char *state, bool spawn,
 
 void game_shutdown(game *g)
 {
+    if (g->bench.standalone) { yesno_close(&g->bench); return; }
     stop_metrics(&g->metrics);
     count_puzzle_stop(&g->count_check);
     script_puzzle_stop(&g->script_check);
@@ -2108,7 +2033,7 @@ void game_shutdown(game *g)
     kilix_embed_stop(&g->embed);
     pty_stop(&g->menu.discovery);
     pty_stop(&g->menu.fetch);
-    pty_stop(&g->menu.yesno);
+    yesno_close(&g->bench);
     pty_stop(&g->menu.prompt_counter);
     clear_models(&g->menu);
     free(g->menu.scores);
@@ -2178,7 +2103,9 @@ void game_paste(game *g, const unsigned char *text, size_t len, bool final)
         g->paste_len += len;
     }
     if (final) {
-        if (!g->paste_overflow && g->menu.prompt_edit) {
+        if (!g->paste_overflow && g->bench.open) {
+            yesno_paste(&g->bench, g->paste, g->paste_len);
+        } else if (!g->paste_overflow && g->menu.prompt_edit) {
             char clean[CLIPBOARD_CAP];
             size_t n = 0;
             for (size_t i = 0; i < g->paste_len; i++) {
@@ -2317,6 +2244,7 @@ static void press_room_button(game *g, room_button button)
 
 void game_key(game *g, const key_event *ev)
 {
+    if (g->bench.open) { yesno_key(g, ev); return; }
     bool press = ev->action != 3;
     const unsigned game_mod = MOD_CTRL | MOD_SHIFT;
     bool in_room = g->sc.focus == FOCUS_ROOM;
@@ -2372,8 +2300,7 @@ void game_key(game *g, const key_event *ev)
                 g->menu.selected = page == MENU_PAGE_MODEL ? MENU_MODEL :
                                    page == MENU_PAGE_SCORES ? MENU_SCORES :
                                    page == MENU_PAGE_DISPLAY ? MENU_DISPLAY :
-                                   page == MENU_PAGE_BETWEEN ? MENU_BETWEEN :
-                                   page == MENU_PAGE_BENCH ? MENU_BENCH : MENU_RESETS;
+                                   page == MENU_PAGE_BETWEEN ? MENU_BETWEEN : MENU_RESETS;
             }
             else if (!g->menu.open) open_menu(g);
             else if (g->started) g->menu.open = false;
@@ -2485,6 +2412,7 @@ static bool inside(rect r, int x, int y)
 
 void game_click(game *g, int x, int y)
 {
+    if (g->bench.open) { yesno_click(g, x, y); return; }
     if (g->menu.open) return;
     room_button button = scene_room_button_at((float)x, (float)y);
     if (g->room_buttons && button != BUTTON_NONE) {
@@ -2516,6 +2444,10 @@ static int pointer_cell(rect r, int x, int y)
 
 void game_pointer(game *g, int x, int y, pointer_action action)
 {
+    if (g->bench.open) {
+        if (action == POINTER_DOWN) yesno_click(g, x, y);
+        return;
+    }
     pane_selection *s = &g->selection;
     if (g->menu.open) {
         s->dragging = false;
@@ -2585,6 +2517,7 @@ void game_pointer(game *g, int x, int y, pointer_action action)
 
 void game_scroll(game *g, int x, int y, int rows)
 {
+    if (g->bench.open) { yesno_scroll(&g->bench, rows); return; }
     if (!rows) return;
     if (g->menu.details_open) {
         model_details_scroll(&g->menu, rows);
@@ -2801,10 +2734,11 @@ static void arrive_in_room(game *g, room_transition move)
 
 void game_update(game *g, double dt)
 {
+    yesno_poll(&g->bench);
+    if (g->bench.standalone) return;
     poll_prompt_count(&g->menu);
     poll_models(&g->menu);
     poll_fetch(&g->menu);
-    poll_yesno(&g->menu);
     bool agent_busy = false;
     if (g->spawn) {
         if (g->embed.proc.pid > 0) {
@@ -2920,6 +2854,7 @@ bool game_resize(game *g, int w, int h)
 {
     layout old = L;
     if (!layout_set(w, h)) return false;
+    if (g->bench.standalone) return true;
     g->selection = (pane_selection){0};
     if (neuroterm_resize(&g->omp_vt, OMP_COLS, OMP_ROWS)) pty_resize(&g->omp, OMP_COLS, OMP_ROWS);
     if (neuroterm_resize(&g->shell_vt, SHELL_COLS, SHELL_ROWS))
@@ -2983,6 +2918,7 @@ static const char *configured_gguf_label(void)
 
 void game_render(game *g, sr_canvas *c)
 {
+    if (g->bench.open) { yesno_draw(c, &g->bench); return; }
     view v = game_view(g);
     render_frame(c, &v);
     if (g->menu.prompt_edit)

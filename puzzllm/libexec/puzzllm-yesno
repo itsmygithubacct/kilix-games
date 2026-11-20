@@ -1,34 +1,406 @@
-#!/bin/bash
-# puzzllm-yesno - run the Kilix yes/no bench with autotrust-jev.
-# The Ollama model is downloaded only when it is missing. Host only.
-set -euo pipefail
+#!/usr/bin/env python3
+"""Run one independent YES/NO trial per OneBit dev question and stream its results."""
+import argparse
+import fcntl
+from contextlib import contextmanager
+from datetime import datetime, timezone
+import json
+import os
+from pathlib import Path
+import select
+import shutil
+import signal
+import socket
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+from urllib.error import HTTPError
+from urllib.parse import urlsplit
+from urllib.request import Request, urlopen
+import uuid
 
-MODEL=autotrust-jev
+INSTRUCTION = "Respond with only YES or NO."
+PROVIDERS = ("ollama", "llama.cpp", "codex", "grok", "claude")
+HERE = Path(__file__).resolve().parent
 
-die() {
-    printf '%s\n' "$1"
-    exit 2
-}
 
-command -v ollama >/dev/null 2>&1 || die "ollama is not installed"
-if ollama show "$MODEL" >/dev/null 2>&1; then
-    printf 'already installed %s\n' "$MODEL"
-else
-    printf 'downloading %s\n' "$MODEL"
-    if ! ollama pull "$MODEL" >/dev/null 2>&1; then
-        printf 'could not pull %s\n' "$MODEL"
-        exit 1
-    fi
-    printf 'pulled %s\n' "$MODEL"
-fi
+def emit(event, **fields):
+    print(json.dumps(dict(event=event, **fields), ensure_ascii=True), flush=True)
 
-root=${PUZZLLM_YESNO_BENCH:-/home/pleb/gpu_terminal/worktrees/024-binary-bench}
-if [ ! -f "$root/src/kilix_bench/onebit/__init__.py" ]; then
-    die "Kilix yes/no bench is not installed"
-fi
-export PYTHONPATH="$root/src${PYTHONPATH:+:$PYTHONPATH}"
-printf 'running Kilix yes/no bench with %s\n' "$MODEL"
-cd "$root"
-exec python3 -m kilix_bench --suite onebit --backend chat \
-    --endpoint http://127.0.0.1:11434 --model "$MODEL" --flavor ollama \
-    --split dev --label "$MODEL" --sizer-command off
+
+def ollama_url():
+    host = os.environ.get("OLLAMA_HOST") or "127.0.0.1:11434"
+    if "://" not in host:
+        host = "http://" + host
+    url = urlsplit(host)
+    if url.port is None and not url.path.strip("/"):
+        return host.rstrip("/") + ":11434"
+    return host.rstrip("/")
+
+
+def request(url, body=None, timeout=5):
+    data = None if body is None else json.dumps(body).encode()
+    return urlopen(Request(url, data=data, headers={"Content-Type": "application/json"}), timeout=timeout)
+
+
+def local_models(provider):
+    if provider == "ollama":
+        with request(ollama_url() + "/api/tags") as response:
+            return sorted({entry["name"] for entry in json.load(response)["models"]})
+    home = Path(os.environ.get("GPU_TERMINAL_HOME") or Path.home() / ".local/gpu_terminal")
+    folder = Path(os.environ.get("KILIX_LLM_MODELS_DIR") or home / "kilix-llm/models")
+    configured = os.environ.get("PUZZLLM_MODEL")
+    paths = {str(p.absolute()) for p in folder.rglob("*") if p.suffix.lower() == ".gguf" and p.is_file()}
+    if configured and Path(configured).expanduser().is_file():
+        paths.add(str(Path(configured).expanduser().absolute()))
+    return sorted(paths, key=lambda p: (Path(p).name.casefold(), p))
+
+
+def ensure_ollama(model, status):
+    url = ollama_url()
+    try:
+        with request(url + "/api/show", {"model": model}):
+            return
+    except HTTPError as error:
+        if error.code != 404:
+            raise
+    status("Pulling " + model)
+    with request(url + "/api/pull", {"model": model, "stream": True}, timeout=180) as response:
+        for line in response:
+            part = json.loads(line)
+            if part.get("error"):
+                raise RuntimeError(part["error"])
+            if part.get("status") == "success":
+                return
+    raise RuntimeError("Model download ended before Ollama reported success.")
+
+
+def stop_child(process):
+    # Headless agents may start helpers. Each invocation owns a process group.
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+        process.wait(timeout=0.35)
+    except subprocess.TimeoutExpired:
+        pass
+    except ProcessLookupError:
+        pass
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    process.wait()
+
+
+@contextmanager
+def llama_server(model, scratch, status):
+    path = Path(model).expanduser().resolve(strict=True)
+    if not path.is_file() or path.suffix.lower() != ".gguf":
+        raise ValueError("Choose a readable GGUF model file.")
+    settings = subprocess.check_output([HERE / "puzzllm-sandbox", "paths"], text=True)
+    binary = dict(line.split("=", 1) for line in settings.splitlines() if "=" in line)["llama_server"]
+    if not binary:
+        raise RuntimeError("Install llama-server or set PUZZLLM_LLAMA_SERVER.")
+    alias = "yesno-" + uuid.uuid4().hex
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    url = f"http://127.0.0.1:{port}"
+    env = {**os.environ, "LD_LIBRARY_PATH": os.pathsep.join(filter(None, (
+        str(Path(binary).resolve().parent), os.environ.get("LD_LIBRARY_PATH"))))}
+    args = [binary, "--model", str(path), "--alias", alias, "--host", "127.0.0.1",
+            "--port", str(port), "--parallel", "1", "--ctx-size", "4096", "--jinja", "--no-webui"]
+    status("Loading " + path.name)
+    with (scratch / "server.log").open("w+") as log:
+        server = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+                                  env=env, start_new_session=True)
+        try:
+            deadline = time.monotonic() + 240
+            while time.monotonic() < deadline:
+                if server.poll() is not None:
+                    log.seek(0)
+                    lines = log.read().strip().splitlines()
+                    raise RuntimeError("llama-server stopped. " + (lines[-1] if lines else "Check the model file."))
+                try:
+                    with request(url + "/v1/models", timeout=2) as response:
+                        if any(row.get("id") == alias for row in json.load(response)["data"]):
+                            break
+                except (OSError, ValueError):
+                    pass
+                time.sleep(0.15)
+            else:
+                raise RuntimeError("Timed out loading the GGUF model.")
+            yield url, alias
+        finally:
+            stop_child(server)
+
+
+def hosted_answer(provider, model, question, scratch):
+    binary = os.environ.get("PUZZLLM_" + provider.upper()) or provider
+    if not shutil.which(binary):
+        raise RuntimeError(f"{provider} is not installed or is missing from PATH.")
+    model_args = ["--model", model] if model else []
+    last = scratch / "last-message"
+    prompt = question
+    if provider == "codex":
+        last.unlink(missing_ok=True)
+        args = ["exec", "--ephemeral", "--skip-git-repo-check", "--sandbox", "read-only",
+                "-c", "mcp_servers={}", "-c", "features.shell_tool=false",
+                "-c", "web_search=\"disabled\"", *model_args, "-o", str(last), "-"]
+        prompt = INSTRUCTION + "\n\n" + question
+    elif provider == "grok":
+        args = ["--single", question, "--system-prompt-override", INSTRUCTION, "--tools", "",
+                "--disable-web-search", "--no-subagents", "--max-turns", "1",
+                "--output-format", "plain", *model_args]
+        prompt = ""
+    else:
+        args = ["--print", "--system-prompt", INSTRUCTION, "--tools", "", "--strict-mcp-config",
+                "--no-session-persistence", "--output-format", "text", *model_args]
+    process = subprocess.Popen([binary, *args], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, text=True, errors="replace",
+                               cwd=scratch, start_new_session=True)
+    try:
+        stdout, stderr = process.communicate(prompt, timeout=180)
+        if process.returncode:
+            detail = (stderr.strip() or stdout.strip()).splitlines()
+            raise RuntimeError(f"{provider} exited {process.returncode}. " + (detail[-1][:300] if detail else ""))
+        return last.read_text() if provider == "codex" else stdout
+    finally:
+        stop_child(process)
+
+
+def onebit():
+    checkout = os.environ.get("PUZZLLM_YESNO_BENCH")
+    if checkout:
+        sys.path.insert(0, str(Path(checkout) / "src"))
+    else:
+        sys.path.append(str(Path.home() / "gpu_terminal/worktrees/024-binary-bench/src"))
+    try:
+        from kilix_bench.onebit import contract, items
+        from kilix_bench.onebit.backends.chat import ChatBackend
+    except ImportError as error:
+        raise RuntimeError("Install kilix-bench with OneBit or set PUZZLLM_YESNO_BENCH to its checkout.") from error
+    return contract, items, ChatBackend
+
+
+@contextmanager
+def answerer(provider, model, scratch, chat_backend, status):
+    if provider == "ollama":
+        ensure_ollama(model, status)
+        url = ollama_url() + "/api/chat"
+        thinking = {"think": False}
+
+        def ask_ollama(question):
+            body = {"model": model, "messages": messages(question), "stream": False,
+                    "options": {"temperature": 0}, **thinking}
+            try:
+                response = request(url, body, timeout=180)
+            except HTTPError as error:
+                detail = error.read().decode("utf-8", "replace")
+                if thinking and error.code == 400 and "think" in detail.lower():
+                    thinking.clear()
+                    del body["think"]
+                    response = request(url, body, timeout=180)
+                else:
+                    raise RuntimeError(f"Ollama returned HTTP {error.code}. {detail[:250]}") from error
+            with response:
+                data = json.load(response)
+                if data.get("error"):
+                    raise RuntimeError(data["error"])
+                return data["message"].get("content") or ""
+        yield ask_ollama
+    elif provider == "llama.cpp":
+        with llama_server(model, scratch, status) as (url, alias):
+            backend = chat_backend(url, alias, flavor="llama-server", max_tokens=256, logprobs=False)
+            yield lambda question: backend.ask(messages(question), "raw").get("reply") or ""
+    else:
+        yield lambda question: hosted_answer(provider, model, question, scratch)
+
+
+def messages(question):
+    return [{"role": "system", "content": INSTRUCTION}, {"role": "user", "content": question}]
+
+
+def display(record):
+    # Keep PTY messages bounded. The saved record retains the full question and reply.
+    fields = dict(record)
+    for key in ("question", "reply", "text", "context", "rationale"):
+        if key in fields:
+            fields[key] = " ".join(fields[key].split())[:600]
+    emit(**fields)
+
+
+def perform(provider, model, output, path):
+    def record(event, **fields):
+        output.write(json.dumps(dict(event=event, **fields), ensure_ascii=False) + "\n")
+        output.flush()
+
+    stop_file = path.with_suffix(".stop")
+    finished = threading.Event()
+
+    def check_stop():
+        while not finished.wait(0.2):
+            if stop_file.exists():
+                os.kill(os.getpid(), signal.SIGTERM)
+                return
+
+    record("begin", provider=provider, model=model, total=0,
+           file=path.name, instruction=INSTRUCTION, split="dev")
+    monitor = threading.Thread(target=check_stop, daemon=True)
+    monitor.start()
+    try:
+        contract, itemset, chat_backend = onebit()
+        questions = itemset.load(split="dev")
+        record("size", total=len(questions))
+        if not questions:
+            raise RuntimeError("OneBit contains no development questions.")
+        def status(text):
+            record("status", text=text)
+        with tempfile.TemporaryDirectory(dir=path.parent) as temporary, \
+                answerer(provider, model, Path(temporary), chat_backend, status) as ask:
+            for n, item in enumerate(questions, 1):
+                info = dict(n=n, band=item["band"], question=item["prompt"])
+                record("question", **info)
+                started = time.monotonic()
+                reply = ask(contract.user_message(item)).strip()
+                expected = ("YES", "NO")[item["answer"]]
+                if reply not in ("YES", "NO"):
+                    verdict = "invalid"
+                else:
+                    verdict = "correct" if reply == expected else "wrong"
+                record("answer", **info, id=item["id"], context=item.get("context", ""),
+                       rationale=item["rationale"], reply=reply, expected=expected,
+                       verdict=verdict, seconds=round(time.monotonic() - started, 3))
+        record("end")
+    except KeyboardInterrupt:
+        record("stopped", text="Stopped. Answered questions are saved.")
+    except Exception as error:
+        record("error", text=str(error))
+    finally:
+        finished.set()
+        monitor.join()
+        stop_file.unlink(missing_ok=True)
+
+
+def follow(path):
+    # An exclusive lock on the journal lives with its writer, even if every
+    # display closes. Read complete lines and then wait for the next one.
+    last = None
+    input_open = True
+    announced = False
+    with path.open("rb") as source:
+        pending = b""
+        while True:
+            try:
+                fcntl.flock(source, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                live = False
+            except BlockingIOError:
+                live = True
+            if live and not announced:
+                emit("attached")
+                announced = True
+            chunk = source.read(65536)
+            if chunk:
+                lines = (pending + chunk).split(b"\n")
+                pending = lines.pop()
+                for line in lines:
+                    row = json.loads(line)
+                    display(row)
+                    last = row["event"]
+                continue
+            if not live:
+                break
+            if input_open and select.select([0], [], [], 0)[0]:
+                command = os.read(0, 256)
+                input_open = bool(command)
+                if b"stop" in command.splitlines():
+                    path.with_suffix(".stop").touch()
+            time.sleep(0.08)
+    if last not in ("end", "error", "stopped"):
+        emit("stopped", text="Interrupted. Showing saved answers.")
+    return 1 if last == "error" else 0
+
+
+def latest(folder):
+    path = max(folder.glob("*.jsonl"), default=None)
+    return follow(path) if path else 0
+
+
+def run(provider, model, folder):
+    folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+    # Only publication of the journal is serialized. The child keeps the run
+    # lock, and every display opens its own read handle after setup returns.
+    with (folder / ".start.lock").open("a") as setup:
+        fcntl.flock(setup, fcntl.LOCK_EX)
+        with (folder / ".run.lock").open("a+") as gate:
+            try:
+                fcntl.flock(gate, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                gate.seek(0)
+                name = gate.read()
+                if Path(name).name != name or not name.endswith(".jsonl"):
+                    raise RuntimeError("The running benchmark has no readable journal.")
+                path = folder / name
+            else:
+                start = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+                path = folder / f"{start}-{uuid.uuid4().hex[:8]}.jsonl"
+                with path.with_suffix(".starting").open("x", encoding="utf-8") as output:
+                    fcntl.flock(output, fcntl.LOCK_EX)
+                    os.rename(output.name, path)
+                    gate.seek(0)
+                    gate.truncate()
+                    gate.write(path.name)
+                    gate.flush()
+                    if os.fork() == 0:
+                        try:
+                            setup.close()
+                            os.setsid()
+                            with open(os.devnull, "r+b", buffering=0) as null:
+                                for fd in (0, 1, 2):
+                                    os.dup2(null.fileno(), fd)
+                            perform(provider, model, output, path)
+                        finally:
+                            os._exit(0)
+    return follow(path)
+
+
+def interrupt(_signal, _frame):
+    raise KeyboardInterrupt
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="action", required=True)
+    sub.add_parser("models").add_argument("provider", choices=PROVIDERS[:2])
+    sub.add_parser("latest").add_argument("state", type=Path)
+    start = sub.add_parser("run")
+    start.add_argument("state", type=Path)
+    start.add_argument("provider", choices=PROVIDERS)
+    start.add_argument("model", nargs="?", default="")
+    args = parser.parse_args()
+    os.umask(0o077)
+    signal.signal(signal.SIGTERM, interrupt)
+    signal.signal(signal.SIGHUP, interrupt)
+    try:
+        if args.action == "models":
+            for model in local_models(args.provider):
+                emit("model", model=model)
+        else:
+            folder = args.state / "bench" / "yesno"
+            if args.action == "latest":
+                return latest(folder)
+            else:
+                if args.provider in PROVIDERS[:2] and not args.model:
+                    parser.error("a local model is required")
+                return run(args.provider, args.model, folder)
+    except KeyboardInterrupt:
+        return 130
+    except Exception as error:
+        emit("error", text=str(error))
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
