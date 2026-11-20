@@ -13,7 +13,7 @@ typedef struct count_puzzle {
     goal_result result;
 } count_puzzle;
 
-bool count_puzzle_prepare(const char *root, const char *state);
+bool puzzle_prepare(const char *root, const char *state, const char *action);
 goal_result count_puzzle_check(const char *root, const char *state, const char *workspace);
 goal_result count_puzzle_poll(count_puzzle *puzzle, const char *root, const char *state,
                               const char *workspace);

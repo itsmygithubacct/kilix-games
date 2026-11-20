@@ -64,6 +64,15 @@ hint: Run man unzip in the shell to see the command options.
 check: chest
 
 level: 6
+title: Follow the log
+room: brick
+goal: Run ./run_check.sh in the player shell. Ask the agent to read the latest failure and write its run ID and failing filename to ~/report.txt, separated by one space.
+hint: Use the Shell log button to give the agent the path to the shell transcript.
+hint: The agent can also read the player shell with tmux capture-pane -p -S - -t shell.
+hint: Every run creates a new ID. Copy the ID and filename from the same failure line.
+check: follow-log
+
+level: 7
 title: Next challenge coming
 room: stone
 goal: This room is still being built. Come back for the next challenge.

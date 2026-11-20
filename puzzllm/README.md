@@ -237,7 +237,11 @@ The levels so far:
    `chest.zip` to open the door. The game uses `zip` to create the chest,
    and you can open it with `unzip` in the shell. Run `man unzip` in the
    sandbox to see the command reference. Resuming keeps the same chest.
-6. A stub room for the next challenge.
+6. **Follow the log.** Run `./run_check.sh` in the shell. Ask the agent to
+   find the latest run ID and failing filename in tmux or `~/shell.log`
+   and write them to `~/report.txt`, separated by one space. Rerunning
+   the check makes earlier reports stale.
+7. A stub room for the next challenge.
 
 The generated pixel art in `assets/` includes blue stone and red brick walls,
 slate floor tiles, and a sliding wooden door. The sliding leaf reveals a black opening.

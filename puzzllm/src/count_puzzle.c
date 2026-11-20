@@ -33,10 +33,10 @@ static pid_t reap(pid_t pid, int *status, int flags)
     return done;
 }
 
-bool count_puzzle_prepare(const char *root, const char *state)
+bool puzzle_prepare(const char *root, const char *state, const char *action)
 {
     int status;
-    return reap(launch(root, state, "count-setup"), &status, 0) > 0 &&
+    return reap(launch(root, state, action), &status, 0) > 0 &&
            WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 

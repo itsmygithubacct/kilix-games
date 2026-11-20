@@ -142,6 +142,8 @@ bool levels_parse(level_list *out, const char *text, char *err, size_t errcap)
                 cur->check = CHECK_CHEST;
             } else if (strcmp(val, "count-files") == 0) {
                 cur->check = CHECK_COUNT_FILES;
+            } else if (strcmp(val, "follow-log") == 0) {
+                cur->check = CHECK_FOLLOW_LOG;
             } else if (strncmp(val, "file ", 5) == 0) {
                 char *name = trim(val + 5);
                 if (!safe_name(name) || !copy_field(cur->file, sizeof cur->file, name)) {
@@ -150,7 +152,7 @@ bool levels_parse(level_list *out, const char *text, char *err, size_t errcap)
                 }
                 cur->check = CHECK_FILE;
             } else {
-                set_err(err, errcap, line_no, "check must be 'file NAME', 'chest', 'count-files' or 'none'");
+                set_err(err, errcap, line_no, "invalid check type");
                 return false;
             }
             have_check = true;
@@ -288,6 +290,71 @@ static long file_cap(const level *lv)
     return cap;
 }
 
+static bool latest_failure(int fd, off_t end, char expected[128])
+{
+    const char prefix[] = "PuzzLLM check failed: ";
+    static const char *const names[] = {"inventory.csv", "rooms.json", "assets.manifest", "routes.txt"};
+    char block[8192], line[128];
+    size_t start = sizeof line - 1;
+    bool complete = false, overflow = false;
+    line[start] = 0;
+    while (end > 0) {
+        size_t n = end < (off_t)sizeof block ? (size_t)end : sizeof block;
+        end -= (off_t)n;
+        if (pread(fd, block, n, end) != (ssize_t)n) return false;
+        while (n > 0) {
+            char ch = block[--n];
+            if (ch != '\n') {
+                if (complete && start) line[--start] = ch;
+                else if (complete) overflow = true;
+                if (end || n || !complete) continue;
+            }
+            if (complete && !overflow) {
+                if (line[sizeof line - 2] == '\r') line[sizeof line - 2] = 0;
+                const char *value = line + start;
+                if (!strncmp(value, prefix, sizeof prefix - 1)) {
+                    value += sizeof prefix - 1;
+                    if (strspn(value, "0123456789abcdef") == 24 && value[24] == ' ')
+                        for (size_t i = 0; i < sizeof names / sizeof *names; i++)
+                            if (!strcmp(value + 25, names[i])) {
+                                snprintf(expected, 128, "%s", value);
+                                return true;
+                            }
+                }
+            }
+            complete = true;
+            overflow = false;
+            start = sizeof line - 1;
+            line[start] = 0;
+        }
+    }
+    return false;
+}
+
+static goal_result check_log_report(const char *workspace)
+{
+    char path[4096], expected[128], report[128];
+    struct stat st;
+    snprintf(path, sizeof path, "%s/shell.log", workspace);
+    int fd = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
+    bool found = fd >= 0 && fstat(fd, &st) == 0 && S_ISREG(st.st_mode) &&
+                 latest_failure(fd, st.st_size, expected);
+    if (fd >= 0) close(fd);
+    if (!found) return (goal_result){false, "run ./run_check.sh in the player shell"};
+
+    snprintf(path, sizeof path, "%s/report.txt", workspace);
+    fd = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
+    if (fd < 0) return (goal_result){false, "write the latest run ID and filename to report.txt"};
+    ssize_t n = fstat(fd, &st) == 0 && S_ISREG(st.st_mode) &&
+                st.st_size < (off_t)sizeof report ? read(fd, report, sizeof report) : -1;
+    close(fd);
+    size_t len = strlen(expected);
+    if (n > 0 && report[n - 1] == '\n') n--;
+    if (n == (ssize_t)len && !memcmp(expected, report, len))
+        return (goal_result){true, "the report matches the latest shell run"};
+    return (goal_result){false, "report.txt must match the latest failure's run ID and filename"};
+}
+
 goal_result levels_check(const level *lv, const char *workspace)
 {
     goal_result r;
@@ -308,6 +375,7 @@ goal_result levels_check(const level *lv, const char *workspace)
     }
     if (lv->check == CHECK_COUNT_FILES)
         return (goal_result){false, "repair count_files.sh"};
+    if (lv->check == CHECK_FOLLOW_LOG) return check_log_report(workspace);
     snprintf(path, sizeof path, "%s/%s", workspace, lv->file);
     if (lstat(path, &st) != 0) {
         snprintf(r.why, sizeof r.why, "%.160s does not exist yet", lv->file);

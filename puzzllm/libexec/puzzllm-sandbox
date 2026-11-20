@@ -207,10 +207,12 @@ gpu=${PUZZLLM_GPU:-}
 if [ "$compute" = cpu ]; then gpu=; fi
 
 case "$mode" in
-count-setup)
+count-setup|log-setup)
+    fixture=count-files
+    [ "$mode" != log-setup ] || fixture=follow-log
     exec bwrap "${args[@]}" --new-session \
         --bind "$state/workspace" "$box_home" \
-        --ro-bind "$here/../levels/count-files" /opt/puzzllm/fixture \
+        --ro-bind "$here/../levels/$fixture" /opt/puzzllm/fixture \
         --chdir "$box_home" --remount-ro / -- cp -an /opt/puzzllm/fixture/. .
     ;;
 count-check)

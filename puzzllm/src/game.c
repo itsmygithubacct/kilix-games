@@ -1268,8 +1268,11 @@ void game_enter_level(game *g, int level)
     if (cur_level(g)->check == CHECK_CHEST && g->state_lock >= 0 && !prepare_chest(g))
         activity_add(&g->act, ACT_ERROR, "Could not prepare chest.zip (requires zip).");
     if (cur_level(g)->check == CHECK_COUNT_FILES && g->state_lock >= 0 &&
-        !count_puzzle_prepare(g->root, g->state))
+        !puzzle_prepare(g->root, g->state, "count-setup"))
         activity_add(&g->act, ACT_ERROR, "Could not install the count_files.sh puzzle.");
+    if (cur_level(g)->check == CHECK_FOLLOW_LOG && g->state_lock >= 0 &&
+        !puzzle_prepare(g->root, g->state, "log-setup"))
+        activity_add(&g->act, ACT_ERROR, "Could not install run_check.sh.");
     activity_add(&g->act, ACT_GOAL, "Room %d: %s", level + 1, cur_level(g)->title);
     if (!g->spawn && cur_level(g)->check == CHECK_COUNT_FILES)
         g->goal = levels_check(cur_level(g), g->workspace);

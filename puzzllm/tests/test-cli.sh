@@ -166,6 +166,27 @@ printf 'level 4\n' > "$PUZZLLM_STATE/transition"
 [ "$rc" -eq 1 ] && [ "$(sha256sum < "$workspace/chest.zip")" = "$chest_sum" ] &&
     pass "returning to room 5 restores the original encrypted archive" || fail "room 5 restore rc=$rc"
 
+# Room 6 uses the latest complete failure in the player shell transcript.
+printf 'level 6\n' > "$PUZZLLM_STATE/progress"
+"$bin" --check-level 6 > "$scratch/out"; rc=$?
+[ "$rc" -eq 1 ] && [ -x "$workspace/run_check.sh" ] &&
+    pass "room 6 installs the shell check" || fail "room 6 setup rc=$rc"
+run_report() {
+    "$here/libexec/puzzllm-sandbox" shell-exec -- ./run_check.sh >> "$workspace/shell.log" &&
+        sed -n 's/^PuzzLLM check failed: //p' "$workspace/shell.log" | tail -1
+}
+first=$(run_report)
+printf '%s\n' "$first" > "$workspace/report.txt"
+"$bin" --check-level 6 > "$scratch/out"; rc=$?
+[ "$rc" -eq 0 ] && pass "room 6 accepts the latest shell report" || fail "room 6 report rc=$rc"
+second=$(run_report)
+"$bin" --check-level 6 > "$scratch/out"; rc=$?
+[ "$rc" -eq 1 ] && [ "$first" != "$second" ] &&
+    pass "room 6 rejects a stale report after another check" || fail "room 6 stale report rc=$rc"
+printf '%s\n' "$second" > "$workspace/report.txt"
+"$bin" --check-level 6 > "$scratch/out"; rc=$?
+[ "$rc" -eq 0 ] && pass "room 6 accepts the updated report" || fail "room 6 updated report rc=$rc"
+
 # a broken level file is reported with its line
 mkdir -p "$scratch/root/levels"
 printf 'level: 1\ntitle: t\ngoal: g\ncheck: file ../escape\n' > "$scratch/root/levels/levels.txt"
