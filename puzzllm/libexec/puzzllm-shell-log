@@ -1,0 +1,23 @@
+#!/usr/bin/python3 -I
+"""Append live tmux output to the current shell.log."""
+
+import os
+import stat
+import sys
+
+path = sys.argv[1]
+flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_NONBLOCK
+while data := os.read(0, 65536):
+    try:
+        fd = os.open(path, flags, 0o600)
+    except OSError:
+        continue
+    try:
+        if stat.S_ISREG(os.fstat(fd).st_mode):
+            pending = memoryview(data)
+            while pending:
+                pending = pending[os.write(fd, pending):]
+    except OSError:
+        pass
+    finally:
+        os.close(fd)

@@ -41,6 +41,15 @@ def agent_tmux(*args):
                           capture_output=True, text=True, timeout=2, env=env)
 
 
+def wait_for_log(marker):
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and proc.poll() is None:
+        drain()
+        if log.exists() and marker in log.read_bytes():
+            return
+    raise AssertionError(f"live transcript did not receive {marker!r}")
+
+
 try:
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline and proc.poll() is None:
@@ -64,10 +73,23 @@ try:
 
     mouse = agent_tmux("show-options", "-gv", "mouse")
     assert mouse.returncode == 0 and mouse.stdout.strip() == "on"
+
+    old = log.with_suffix(".log.old")
+    log.replace(old)
+    log.write_bytes(b"replacement\n")
+    os.write(master, b"\x0cprintf 'puzzllm-tmux-%s\\n' replaced\r")
+    wait_for_log(b"puzzllm-tmux-replaced")
+    assert log.read_bytes().startswith(b"replacement\n")
+    assert b"puzzllm-tmux-replaced" not in old.read_bytes()
+    assert b"puzzllm-tmux-ready" in old.read_bytes()
+    log.unlink()
+    os.write(master, b"printf 'puzzllm-tmux-%s\\n' recreated\r")
+    wait_for_log(b"puzzllm-tmux-recreated")
+
     os.write(master, b"exit\r")
     proc.wait(timeout=5)
     assert agent_tmux("has-session", "-t", "shell").returncode != 0
-    assert b"puzzllm-tmux-ready" in log.read_bytes()
+    assert b"puzzllm-tmux-recreated" in log.read_bytes()
 finally:
     if proc.poll() is None:
         proc.terminate()

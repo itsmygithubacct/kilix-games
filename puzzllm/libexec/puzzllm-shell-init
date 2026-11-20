@@ -17,6 +17,6 @@ exec tmux -f /dev/null new-session -d -s shell -n shell -c "$HOME" \
     \; set-option -g status off \
     \; set-option -g mouse on \
     \; select-pane -t shell:shell.0 -T shell \
-    \; pipe-pane -O -t shell:shell.0 'exec cat >> "$HOME/shell.log"' \
+    \; pipe-pane -O -t shell:shell.0 'exec /opt/puzzllm/bin/puzzllm-shell-log "$HOME/shell.log"' \
     \; wait-for -S puzzllm-shell-log \
     \; attach-session -t shell

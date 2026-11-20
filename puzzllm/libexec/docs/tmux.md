@@ -13,5 +13,6 @@ To include tmux scrollback, run:
 tmux capture-pane -p -S - -t shell
 ```
 
-The shell also records its output in `~/shell.log`. Use
+The shell appends live output to `~/shell.log` across rooms and display
+clears. If the file is removed, new output recreates it. Use
 `tail -n 100 ~/shell.log` to see recent output after it scrolls out of view.

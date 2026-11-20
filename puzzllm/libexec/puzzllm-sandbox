@@ -304,6 +304,7 @@ shell|shell-exec)
     args+=(--bind "$state/workspace" "$box_home"
            --chdir "$box_home"
            --ro-bind "$here/puzzllm-shellrc" /opt/puzzllm/shellrc
+           --ro-bind "$here/puzzllm-shell-log" /opt/puzzllm/bin/puzzllm-shell-log
            --ro-bind "$here/puzzllm-shell-init" /opt/puzzllm/bin/puzzllm-shell-init)
     ;;
 *)
