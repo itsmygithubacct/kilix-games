@@ -46,11 +46,12 @@ typedef enum compute_mode { COMPUTE_AUTO, COMPUTE_CPU, COMPUTE_GPU } compute_mod
 
 enum { MENU_RESUME, MENU_QUIT, MENU_RESET, MENU_RESET_LEVEL, MENU_THINKING, MENU_COMPUTE, MENU_TOOLTIPS, MENU_MODEL_DETAILS, MENU_HARNESS, MENU_CODEX, MENU_LOCAL, MENU_FIRST_OLLAMA };
 
-enum { MODEL_SPEC_CAP = 4096 };
+enum { MODEL_SPEC_CAP = 16384 };
 typedef enum model_details_tab { DETAILS_OLLAMA, DETAILS_LLAMA, DETAILS_CODEX, DETAILS_PI, DETAILS_COUNT } model_details_tab;
 
 int render_model_details(sr_canvas *c, model_details_tab tab, int scroll,
-                         const char *prompt, const char *schema);
+                         const char *prompt, const char *schema, const char *count);
+void render_prompt_editor(sr_canvas *c, const char *draft, size_t cursor, const char *notice);
 
 struct model_option;
 void render_menu(sr_canvas *c, const struct model_option *models, int count, int selected,

@@ -9,6 +9,7 @@ import re
 import signal
 import socket
 import socketserver
+import stat
 import subprocess
 import sys
 import tempfile
@@ -386,6 +387,37 @@ class HostServer(socketserver.ThreadingUnixStreamServer):
         return client, address
 
 
+def workspace_write_schema(state, original):
+    folder_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    try:
+        workspace = os.open(os.path.join(state, "workspace"), folder_flags)
+        try:
+            folder = os.open(".system", folder_flags, dir_fd=workspace)
+            try:
+                fd = os.open("write-tool.json", os.O_RDONLY | os.O_NOFOLLOW |
+                             os.O_NONBLOCK, dir_fd=folder)
+                with os.fdopen(fd) as source:
+                    if not stat.S_ISREG(os.fstat(fd).st_mode):
+                        return original
+                    text = source.read(4096)
+            finally:
+                os.close(folder)
+        finally:
+            os.close(workspace)
+        edited = json.loads(text)
+        if (edited["name"] == original["name"] and
+                edited["parameters"]["properties"].keys() ==
+                original["parameters"]["properties"].keys()):
+            return edited
+    except FileNotFoundError:
+        return original
+    except (OSError, ValueError, AttributeError, TypeError, KeyError):
+        pass
+    print("Ollama: using the shipped write schema because ~/.system/write-tool.json is invalid.",
+          file=sys.stderr)
+    return original
+
+
 def run_host(state, model, argv):
     if model not in installed_models():
         raise ValueError("the selected model is no longer installed")
@@ -407,7 +439,7 @@ def run_host(state, model, argv):
             server.compute = os.environ.get("PUZZLLM_COMPUTE") or "auto"
             schema_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "puzzllm-write-tool.json")
             with open(schema_path, encoding="utf-8") as schema_file:
-                server.write_schema = json.load(schema_file)
+                server.write_schema = workspace_write_schema(state, json.load(schema_file))
             threading.Thread(target=server.serve_forever, daemon=True).start()
             argv = [os.path.join(directory, "socket") if arg == "@OLLAMA_SOCKET@" else arg
                     for arg in argv]

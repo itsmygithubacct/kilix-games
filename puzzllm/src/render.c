@@ -418,34 +418,43 @@ static void details_block(pane_text *pane, const char *text)
     }
 }
 
-static void details_text(pane_text *pane, model_details_tab tab, const char *prompt, const char *schema)
+static void details_text(pane_text *pane, model_details_tab tab, const char *prompt,
+                         const char *schema, const char *count)
 {
-    if (tab == DETAILS_OLLAMA) {
-        pane_message(pane, "PuzzLLM system prompt", 0xffdf94);
-        details_block(pane, *prompt ? prompt : "System prompt file unavailable.");
+    if (tab != DETAILS_CODEX) {
+        pane_message(pane, "Default system message tokens (Qwen 3.5, text only)", 0xffdf94);
+        pane_message(pane, "llama.cpp: OMP 2,460 / Pi 553    Ollama: OMP 256 / Pi 166", 0xd0d4dc);
+        pane_message(pane, "Shipped Ollama prompt file: 132 tokens", 0xd0d4dc);
         pane->count++;
-        pane_message(pane, "Ollama write-tool schema", 0xffdf94);
+        if (*count) pane_message(pane, count, 0x9fd0ff);
+    }
+    if (tab == DETAILS_OLLAMA) {
+        pane_message(pane, "~/.system/ollama-prompt.txt", 0xffdf94);
+        details_block(pane, *prompt ? prompt : "Empty file. The game uses the shipped Ollama prompt.");
+        pane->count++;
+        pane_message(pane, "~/.system/write-tool.json (OMP Ollama write schema)", 0xffdf94);
         details_block(pane, *schema ? schema : "Write-tool schema file unavailable.");
     } else if (tab == DETAILS_LLAMA) {
-        pane_message(pane, "omp supplies its built-in system prompt and tool definitions to llama.cpp.", 0xd0d4dc);
-        pane_message(pane, "The Ollama tab shows the prompt and write schema configured by PuzzLLM.", 0xd0d4dc);
+        pane_message(pane, "~/.system/llama-prompt.txt", 0xffdf94);
+        details_block(pane, *prompt ? prompt : "Empty file. The selected harness uses its built-in system prompt.");
     } else if (tab == DETAILS_PI) {
         pane_message(pane, "Pi provides its built-in read, bash, edit and write tools.", 0xd0d4dc);
-        pane_message(pane, "Pi uses its built-in prompt with llama.cpp and the PuzzLLM prompt with Ollama.", 0xd0d4dc);
+        pane_message(pane, "Enter edits the prompt file for Pi's selected model backend.", 0xd0d4dc);
+        details_block(pane, *prompt ? prompt : "Empty file. Pi uses its built-in system prompt.");
     } else {
         pane_message(pane, "The Codex CLI supplies its own prompt and tools.", 0xd0d4dc);
     }
 }
 
 int render_model_details(sr_canvas *c, model_details_tab tab, int scroll,
-                         const char *prompt, const char *schema)
+                         const char *prompt, const char *schema, const char *count)
 {
     static const char *const tabs[] = {"Ollama", "llama.cpp", "Codex", "Pi"};
     int width = CANVAS_W < 1000 ? CANVAS_W - 100 : 880;
     int height = CANVAS_H - 96;
     int x = (CANVAS_W - width) / 2, y = 48;
     pane_text pane = {.cols = (width - 40) / CELL_W, .rows = (height - 116) / CELL_H};
-    details_text(&pane, tab, prompt, schema);
+    details_text(&pane, tab, prompt, schema, count);
     int limit = pane.count > pane.rows ? pane.count - pane.rows : 0;
     if (!c) return limit;
 
@@ -463,21 +472,80 @@ int render_model_details(sr_canvas *c, model_details_tab tab, int scroll,
     pane.y = y + 72;
     pane.first = scroll > limit ? limit : scroll;
     pane.count = 0;
-    details_text(&pane, tab, prompt, schema);
+    details_text(&pane, tab, prompt, schema, count);
     draw_text(c, x + 20, y + height - 29,
-              "Left/Right backend    Up/Down or wheel scroll    Esc back", 0xbccadb, 1);
+              tab == DETAILS_CODEX ? "Left/Right backend    Esc back" :
+              "Enter edit prompt    Left/Right tabs    Up/Down scroll    Esc back", 0xbccadb, 1);
     return limit;
+}
+
+void render_prompt_editor(sr_canvas *c, const char *draft, size_t cursor, const char *notice)
+{
+    int width = CANVAS_W < 1000 ? CANVAS_W - 100 : 880;
+    int height = CANVAS_H - 96;
+    int x = (CANVAS_W - width) / 2, y = 48;
+    int cols = (width - 40) / CELL_W, rows = (height - 112) / CELL_H;
+    int cursor_row = 0, cursor_col = 0;
+    for (size_t i = 0; i < cursor; i++) {
+        unsigned char ch = (unsigned char)draft[i];
+        if (ch == '\n') { cursor_row++; cursor_col = 0; }
+        else if ((ch & 0xc0) != 0x80 && ++cursor_col == cols) {
+            cursor_row++;
+            cursor_col = 0;
+        }
+    }
+    int first = cursor_row >= rows ? cursor_row - rows + 1 : 0;
+    draw_fill(c, 0, 0, CANVAS_W, CANVAS_H, 0x0c1018, 0.72f);
+    draw_fill(c, x, y, width, height, 0x151d29, 1);
+    draw_stroke(c, x, y, width, height, 2, 0x826b47, 1);
+    draw_text(c, x + 20, y + 14, "Edit system prompt", 0xffde8c, 1);
+    for (int line = 0; *draft && line < first + rows; line++) {
+        const char *end = draft;
+        int col = 0;
+        for (; *end && *end != '\n' && col < cols; col++) {
+            do end++; while (((unsigned char)*end & 0xc0) == 0x80);
+        }
+        if (line >= first) {
+            char text[MODEL_SPEC_CAP];
+            memcpy(text, draft, (size_t)(end - draft));
+            text[end - draft] = 0;
+            text_line(c, x + 20, y + 49 + (line - first) * CELL_H, text, 0xd0d4dc, cols);
+        }
+        draft = *end == '\n' && col < cols ? end + 1 : end;
+    }
+    draw_fill(c, x + 20 + cursor_col * CELL_W, y + 49 + (cursor_row - first) * CELL_H,
+              2, CELL_H, 0xffdf94, 1);
+    text_line(c, x + 20, y + height - 49, notice, 0xffdf94, cols);
+    draw_text(c, x + 20, y + height - 27,
+              "Ctrl+S save    Ctrl+U clear    Esc cancel    Paste supported", 0xbccadb, 1);
 }
 
 static void render_resources(sr_canvas *c, const view *v)
 {
     rect r = layout_resources();
     int cols = (r.w - 2 * SCREEN_PAD) / CELL_W;
+    char tokens[32] = "Tokens --";
+    if (v->act && v->act->tokens_reported) {
+        unsigned long long n = v->act->tokens_used;
+        if (n < 1000000)
+            snprintf(tokens, sizeof tokens, "Tokens %llu", n);
+        else if (n < 1000000000)
+            snprintf(tokens, sizeof tokens, "Tokens %.1fM", (double)n / 1000000.0);
+        else
+            snprintf(tokens, sizeof tokens, "Tokens %.1fB", (double)n / 1000000000.0);
+    }
+    int token_cols = (int)strlen(tokens);
+    int metrics_cols = cols - token_cols - 2;
+    const char *summary = v->resource_summary ? v->resource_summary : "Resources   Agent idle";
+    if (strlen(summary) > (size_t)metrics_cols) {
+        const char *cpu = strstr(summary, "CPU ");
+        if (cpu) summary = cpu;
+    }
     draw_fill(c, r.x, r.y, r.w, r.h, 0x171e27, 1);
     draw_stroke(c, r.x, r.y, r.w, r.h, 1, 0x3b4a5c, 1);
-    text_line(c, r.x + SCREEN_PAD, r.y + 2,
-              v->resource_summary ? v->resource_summary : "Resources   Agent idle",
-              0xa8d7f2, cols);
+    text_line(c, r.x + SCREEN_PAD, r.y + 2, summary, 0xa8d7f2, metrics_cols);
+    text_line(c, r.x + SCREEN_PAD + (cols - token_cols) * CELL_W, r.y + 2,
+              tokens, 0xa8d7f2, token_cols);
     text_line(c, r.x + SCREEN_PAD, r.y + 18,
               v->resource_devices && *v->resource_devices ? v->resource_devices : "GPU --  VRAM --  Disk --/--",
               0xbdc8d7, cols);

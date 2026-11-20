@@ -41,6 +41,13 @@ typedef struct game_menu {
     model_details_tab details_tab;
     int details_scroll;
     char prompt[MODEL_SPEC_CAP], write_schema[MODEL_SPEC_CAP];
+    char prompt_draft[MODEL_SPEC_CAP];
+    size_t prompt_cursor;
+    bool prompt_edit;
+    pty_proc prompt_counter;
+    char prompt_count[48];
+    char prompt_input[128];
+    size_t prompt_input_len;
     char notice[160];
     int selected;
     model_option *models;

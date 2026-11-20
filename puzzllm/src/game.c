@@ -202,7 +202,8 @@ static bool archive_workspace(const char *workspace, int number)
         const char *name = entry->d_name;
         /* The running shell keeps its log and the mounted help across rooms. */
         if (!strcmp(name, ".") || !strcmp(name, "..") ||
-            !strcmp(name, "shell.log") || !strcmp(name, "docs")) continue;
+            !strcmp(name, "shell.log") || !strcmp(name, "docs") ||
+            !strcmp(name, ".system")) continue;
         const char *digits = name + (strncmp(name, "level_", 6) == 0 ? 6 : 0);
         if (digits != name && *digits && digits[strspn(digits, "0123456789")] == 0) {
             struct stat st;
@@ -375,6 +376,7 @@ static void pump_metrics(agent_metrics *metrics, pty_proc *agent)
 
 static void spawn_agent(game *g)
 {
+    activity_begin_session(&g->act, g->state);
     char sandbox[4096], st_env[2100], model_env[OLLAMA_NAME_CAP + 32];
     char *argv[] = {sandbox, g->use_codex ? "codex" : "agent", NULL};
     char *think_env = g->thinking_enabled ? "PUZZLLM_THINK=1" : "PUZZLLM_THINK=0";
@@ -562,13 +564,17 @@ static void restart_agent(game *g)
 static void model_details_scroll(game_menu *menu, int rows)
 {
     int limit = render_model_details(NULL, menu->details_tab, 0,
-                                     menu->prompt, menu->write_schema);
+                                     menu->prompt, menu->write_schema,
+                                     menu->prompt_count);
     int next = menu->details_scroll + rows;
     menu->details_scroll = next < 0 ? 0 : next > limit ? limit : next;
 }
 
-static void model_details_key(game_menu *menu, const key_event *ev)
+static void refresh_model_details(game *g);
+
+static void model_details_key(game *g, const key_event *ev)
 {
+    game_menu *menu = &g->menu;
     switch (ev->key) {
     case KEY_LEFT:
     case KEY_RIGHT:
@@ -576,6 +582,7 @@ static void model_details_key(game_menu *menu, const key_event *ev)
             int change = ev->key == KEY_LEFT ? DETAILS_COUNT - 1 : 1;
             menu->details_tab = (menu->details_tab + change) % DETAILS_COUNT;
             menu->details_scroll = 0;
+            refresh_model_details(g);
         }
         break;
     case KEY_UP: model_details_scroll(menu, -1); break;
@@ -599,12 +606,240 @@ static void read_model_spec(const char *root, const char *name, char text[MODEL_
     fclose(f);
 }
 
+static const char *prompt_file(const game *g)
+{
+    return g->menu.details_tab == DETAILS_OLLAMA ||
+           (g->menu.details_tab == DETAILS_PI && g->ollama_model[0]) ?
+           "ollama-prompt.txt" : "llama-prompt.txt";
+}
+
+static int system_folder(const game *g, bool create)
+{
+    int workspace = open(g->workspace, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (workspace < 0) return -1;
+    if (create) mkdirat(workspace, ".system", 0700);
+    int folder = openat(workspace, ".system", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    close(workspace);
+    return folder;
+}
+
+static void seed_system_files(const game *g)
+{
+    const char *names[] = {"ollama-prompt.txt", "llama-prompt.txt", "write-tool.json"};
+    const char *sources[] = {"puzzllm-ollama-prompt.txt", NULL, "puzzllm-write-tool.json"};
+    int folder = system_folder(g, true);
+    if (folder < 0) return;
+    for (size_t i = 0; i < sizeof names / sizeof *names; i++) {
+        int fd = openat(folder, names[i], O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+        if (fd < 0) continue;
+        char text[MODEL_SPEC_CAP] = "";
+        if (sources[i]) read_model_spec(g->root, sources[i], text);
+        size_t len = strlen(text);
+        bool ok = write(fd, text, len) == (ssize_t)len;
+        if (close(fd) != 0) ok = false;
+        if (!ok) unlinkat(folder, names[i], 0);
+    }
+    close(folder);
+}
+
+static void read_system_file(int folder, const char *name, char text[MODEL_SPEC_CAP])
+{
+    struct stat st;
+    int fd = openat(folder, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+    text[0] = 0;
+    if (fd < 0) return;
+    if (fstat(fd, &st) == 0 && S_ISREG(st.st_mode)) {
+        ssize_t n = read(fd, text, MODEL_SPEC_CAP - 1);
+        if (n > 0) {
+            while (n > 0 && text[n - 1] == '\n') n--;
+            text[n] = 0;
+        }
+    }
+    close(fd);
+}
+
+static void refresh_model_details(game *g)
+{
+    game_menu *menu = &g->menu;
+    int folder = system_folder(g, false);
+    menu->prompt[0] = menu->write_schema[0] = 0;
+    if (folder >= 0) {
+        read_system_file(folder, prompt_file(g), menu->prompt);
+        read_system_file(folder, "write-tool.json", menu->write_schema);
+        close(folder);
+    }
+    pty_stop(&menu->prompt_counter);
+    pty_init(&menu->prompt_counter);
+    menu->prompt_count[0] = 0;
+    menu->prompt_input_len = 0;
+    if (!menu->prompt[0] || !g->spawn || menu->details_tab == DETAILS_CODEX) return;
+    char helper[4096], input[MODEL_SPEC_CAP + 32];
+    snprintf(helper, sizeof helper, "%s/libexec/puzzllm-prompt-tokens", g->root);
+    snprintf(input, sizeof input, "PUZZLLM_PROMPT_TEXT=%s", menu->prompt);
+    char *argv[] = {helper, NULL};
+    char *env[] = {input, NULL};
+    snprintf(menu->prompt_count, sizeof menu->prompt_count, "Counting file text...");
+    if (!pty_spawn(&menu->prompt_counter, argv, env, 80, 24))
+        snprintf(menu->prompt_count, sizeof menu->prompt_count, "Tokenizer unavailable");
+}
+
+static void poll_prompt_count(game_menu *menu)
+{
+    if (menu->prompt_counter.fd < 0) return;
+    char buf[64];
+    long n = pty_read(&menu->prompt_counter, buf, sizeof buf);
+    if (n > 0) {
+        size_t room = sizeof menu->prompt_input - 1 - menu->prompt_input_len;
+        size_t copy = (size_t)n < room ? (size_t)n : room;
+        memcpy(menu->prompt_input + menu->prompt_input_len, buf, copy);
+        menu->prompt_input_len += copy;
+        return;
+    }
+    if (!pty_poll_exit(&menu->prompt_counter)) return;
+    menu->prompt_input[menu->prompt_input_len] = 0;
+    char *end;
+    long count = strtol(menu->prompt_input, &end, 10);
+    if (menu->prompt_counter.exit_status == 0 && end != menu->prompt_input &&
+        (*end == '\r' || *end == '\n' || !*end))
+        snprintf(menu->prompt_count, sizeof menu->prompt_count, "File text: %ld tokens (local GGUF)", count);
+    else
+        snprintf(menu->prompt_count, sizeof menu->prompt_count, "Tokenizer unavailable");
+    pty_stop(&menu->prompt_counter);
+}
+
+static void insert_prompt_text(game_menu *menu, const char *text, size_t len)
+{
+    size_t end = strlen(menu->prompt_draft);
+    if (len > sizeof menu->prompt_draft - end - 1) {
+        snprintf(menu->notice, sizeof menu->notice, "Prompt limit is %d bytes.", MODEL_SPEC_CAP - 1);
+        return;
+    }
+    char *cursor = menu->prompt_draft + menu->prompt_cursor;
+    memmove(cursor + len, cursor, end - menu->prompt_cursor + 1);
+    memcpy(cursor, text, len);
+    menu->prompt_cursor += len;
+    menu->notice[0] = 0;
+}
+
+static bool save_system_prompt(const game *g)
+{
+    int folder = system_folder(g, true);
+    if (folder < 0) return false;
+    const char *temp = ".prompt-save";
+    unlinkat(folder, temp, 0);
+    int fd = openat(folder, temp, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+    bool ok = false;
+    if (fd >= 0) {
+        const char *draft = g->menu.prompt_draft;
+        size_t len = strlen(draft);
+        ok = write(fd, draft, len) == (ssize_t)len;
+        if (close(fd) != 0) ok = false;
+        if (ok) ok = renameat(folder, temp, folder, prompt_file(g)) == 0;
+        if (!ok) unlinkat(folder, temp, 0);
+    }
+    close(folder);
+    return ok;
+}
+
+static size_t prompt_step(const char *text, size_t at, int delta)
+{
+    if (delta < 0 && at > 0) {
+        do at--; while (at > 0 && ((unsigned char)text[at] & 0xc0) == 0x80);
+    } else if (delta > 0 && text[at]) {
+        do at++; while (((unsigned char)text[at] & 0xc0) == 0x80);
+    }
+    return at;
+}
+
+static void prompt_editor_key(game *g, const key_event *ev)
+{
+    game_menu *menu = &g->menu;
+    char *text = menu->prompt_draft;
+    size_t at = menu->prompt_cursor;
+    if (ev->mods & MOD_CTRL) {
+        if (ev->action != 1) return;
+        if (ev->key == 's' || ev->key == 'S') {
+            if (g->state_lock < 0 || !save_system_prompt(g)) {
+                snprintf(menu->notice, sizeof menu->notice, "Could not save the prompt in ~/.system.");
+                return;
+            }
+            menu->prompt_edit = false;
+            menu->details_scroll = 0;
+            refresh_model_details(g);
+            bool editing_ollama = strcmp(prompt_file(g), "ollama-prompt.txt") == 0;
+            if (!g->use_codex && editing_ollama == (g->ollama_model[0] != 0))
+                restart_agent(g);
+        } else if (ev->key == 'u' || ev->key == 'U') {
+            text[0] = 0;
+            menu->prompt_cursor = 0;
+        }
+        return;
+    }
+    switch (ev->key) {
+    case KEY_HOME:
+        while (at && text[at - 1] != '\n') at--;
+        menu->prompt_cursor = at;
+        return;
+    case KEY_END:
+        menu->prompt_cursor = at + strcspn(text + at, "\n");
+        return;
+    case KEY_LEFT: case KEY_RIGHT:
+        menu->prompt_cursor = prompt_step(text, at, ev->key == KEY_LEFT ? -1 : 1);
+        return;
+    case KEY_UP: case KEY_DOWN: {
+        size_t begin = at, column = 0;
+        while (begin && text[begin - 1] != '\n') {
+            begin = prompt_step(text, begin, -1);
+            column++;
+        }
+        if (ev->key == KEY_UP) {
+            if (!begin) return;
+            at = begin - 1;
+            while (at && text[at - 1] != '\n') at--;
+        } else {
+            at += strcspn(text + at, "\n");
+            if (!text[at]) return;
+            at++;
+        }
+        while (column-- && text[at] && text[at] != '\n') at = prompt_step(text, at, 1);
+        menu->prompt_cursor = at;
+        return;
+    }
+    case KEY_BACKSPACE: case KEY_DELETE: {
+        size_t first = ev->key == KEY_BACKSPACE ? prompt_step(text, at, -1) : at;
+        size_t last = ev->key == KEY_DELETE ? prompt_step(text, at, 1) : at;
+        memmove(text + first, text + last, strlen(text + last) + 1);
+        menu->prompt_cursor = first;
+        return;
+    }
+    case KEY_ENTER:
+        insert_prompt_text(menu, "\n", 1);
+        return;
+    default:
+        break;
+    }
+    if (ev->mods & (MOD_ALT | MOD_SUPER)) return;
+    for (int i = 0; i < (ev->text_len ? ev->text_len : 1); i++) {
+        uint32_t ch = ev->text_len ? ev->text[i] : ev->key;
+        if (ch < 32 || ch == 127 || (!ev->text_len && ch >= 0xe000 && ch <= 0xf8ff)) continue;
+        char encoded[4];
+        size_t n = keys_utf8(ch, encoded);
+        insert_prompt_text(menu, encoded, n);
+    }
+}
+
 static void menu_key(game *g, const key_event *ev)
 {
     game_menu *menu = &g->menu;
     int last = menu->count + MENU_LOCAL;
     if (menu->details_open) {
-        model_details_key(menu, ev);
+        if (menu->prompt_edit) prompt_editor_key(g, ev);
+        else if (ev->key == KEY_ENTER && ev->action == 1 && menu->details_tab != DETAILS_CODEX) {
+            snprintf(menu->prompt_draft, sizeof menu->prompt_draft, "%s", menu->prompt);
+            menu->prompt_cursor = strlen(menu->prompt_draft);
+            menu->notice[0] = 0;
+            menu->prompt_edit = true;
+        } else model_details_key(g, ev);
         return;
     }
     if (menu->confirm_reset) {
@@ -667,8 +902,7 @@ static void menu_key(game *g, const key_event *ev)
             menu->details_scroll = 0;
             menu->details_tab = g->use_codex ? DETAILS_CODEX : g->use_pi ? DETAILS_PI :
                                 g->ollama_model[0] ? DETAILS_OLLAMA : DETAILS_LLAMA;
-            read_model_spec(g->root, "puzzllm-ollama-prompt.txt", menu->prompt);
-            read_model_spec(g->root, "puzzllm-write-tool.json", menu->write_schema);
+            refresh_model_details(g);
         }
         if (menu->selected >= MENU_CODEX) {
             bool codex = menu->selected == MENU_CODEX;
@@ -691,7 +925,7 @@ static void menu_key(game *g, const key_event *ev)
             } else if (g->spawn && g->started && pty_poll_exit(&g->omp)) {
                 restart_agent(g);
             }
-            if (g->started) menu->open = false;
+            start_play(g);
         }
         break;
     default:
@@ -701,6 +935,7 @@ static void menu_key(game *g, const key_event *ev)
 
 void game_enter_level(game *g, int level)
 {
+    if (g->state_lock >= 0) seed_system_files(g);
     count_puzzle_stop(&g->count_check);
     scene_enter_room(&g->sc, level);
     g->last_pane = FOCUS_OMP;
@@ -739,6 +974,7 @@ bool game_init(game *g, const char *root, const char *state, bool spawn,
     pty_init(&g->omp);
     pty_init(&g->shell);
     pty_init(&g->menu.discovery);
+    pty_init(&g->menu.prompt_counter);
     pty_init(&g->metrics.worker);
     activity_init(&g->act);
 
@@ -789,6 +1025,7 @@ void game_shutdown(game *g)
     pty_stop(&g->omp);
     pty_stop(&g->shell);
     pty_stop(&g->menu.discovery);
+    pty_stop(&g->menu.prompt_counter);
     clear_models(&g->menu);
     art_free_room(&g->room);
     history_clear(&g->omp_history);
@@ -847,7 +1084,18 @@ void game_paste(game *g, const unsigned char *text, size_t len, bool final)
         g->paste_len += len;
     }
     if (final) {
-        if (!g->paste_overflow) paste_into_terminal(g, g->paste, g->paste_len);
+        if (!g->paste_overflow && g->menu.prompt_edit) {
+            char clean[CLIPBOARD_CAP];
+            size_t n = 0;
+            for (size_t i = 0; i < g->paste_len; i++) {
+                unsigned char ch = (unsigned char)g->paste[i];
+                if (ch == '\r' && i + 1 < g->paste_len && g->paste[i + 1] == '\n') continue;
+                if (ch == '\r' || ch == '\n') clean[n++] = '\n';
+                else if (ch == '\t') clean[n++] = ' ';
+                else if (ch >= 32 && ch != 127) clean[n++] = (char)ch;
+            }
+            insert_prompt_text(&g->menu, clean, n);
+        } else if (!g->paste_overflow) paste_into_terminal(g, g->paste, g->paste_len);
         g->paste_len = 0;
         g->paste_overflow = false;
     }
@@ -927,7 +1175,11 @@ void game_key(game *g, const key_event *ev)
 
     if (ev->key == KEY_ESCAPE && ev->mods == 0) {
         if (press && ev->action != 2) {
-            if (g->menu.details_open) g->menu.details_open = false;
+            if (g->menu.prompt_edit) g->menu.prompt_edit = false;
+            else if (g->menu.details_open) {
+                g->menu.details_open = false;
+                pty_stop(&g->menu.prompt_counter);
+            }
             else if (g->menu.confirm_reset) g->menu.confirm_reset = false;
             else if (!g->menu.open) open_menu(g);
             else if (g->started) g->menu.open = false;
@@ -1150,6 +1402,7 @@ static void pump(pty_proc *p, neuroterm *t, char *note, size_t notecap, const ch
 
 void game_update(game *g, double dt)
 {
+    poll_prompt_count(&g->menu);
     poll_models(&g->menu);
     if (g->spawn) {
         pump(&g->omp, &g->omp_vt, g->omp_note, sizeof g->omp_note, "the agent");
@@ -1260,9 +1513,12 @@ void game_render(game *g, sr_canvas *c)
 {
     view v = game_view(g);
     render_frame(c, &v);
-    if (g->menu.details_open)
+    if (g->menu.prompt_edit)
+        render_prompt_editor(c, g->menu.prompt_draft, g->menu.prompt_cursor, g->menu.notice);
+    else if (g->menu.details_open)
         render_model_details(c, g->menu.details_tab, g->menu.details_scroll,
-                             g->menu.prompt, g->menu.write_schema);
+                             g->menu.prompt, g->menu.write_schema,
+                             g->menu.prompt_count);
     else if (g->menu.open)
         render_menu(c, g->menu.models, g->menu.count, g->menu.selected,
                     v.agent_model, g->menu.loading, g->menu.load_failed,

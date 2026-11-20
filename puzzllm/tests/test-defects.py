@@ -68,7 +68,7 @@ DEFECTS = [
      "libexec/puzzllm-ollama", 'options["num_ctx"] = context',
      'options["num_ctx"] = 4096', "test-sandbox"),
     ("model details do not display the saved tool schema",
-     "src/game.c", 'read_model_spec(g->root, "puzzllm-write-tool.json", menu->write_schema);',
+     "src/game.c", 'read_system_file(folder, "write-tool.json", menu->write_schema);',
      "", "test-unit"),
     ("the tooltip toggle leaves yellow prompts on",
      "src/render.c", "if (v->tooltips && s->focus == FOCUS_ROOM) {",

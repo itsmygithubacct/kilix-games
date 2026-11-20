@@ -564,6 +564,20 @@ static void test_activity(void)
     CHECK(has_line(&act, "agent: Done."), "assistant text, first line");
     CHECK(!has_line(&act, "More"), "only the first line");
     CHECK(act.count == 5, "five lines, garbage ignored (got %d)", act.count);
+    const char usage[] = "{\"type\":\"message\",\"message\":{\"role\":\"assistant\","
+        "\"usage\":{\"input\":12,\"output\":9,\"cacheRead\":3,\"totalTokens\":24}}}";
+    const char split_usage[] = "{\"type\":\"message\",\"message\":{\"role\":\"assistant\","
+        "\"usage\":{\"input\":5,\"output\":2}}}";
+    activity_session_line(&act, usage, strlen(usage));
+    activity_session_line(&act, split_usage, strlen(split_usage));
+    CHECK(act.tokens_reported && act.tokens_used == 31,
+          "local token totals sum each response once, including reported cache usage");
+    const char codex_usage[] = "{\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\","
+        "\"info\":{\"total_token_usage\":{\"total_tokens\":57}}}}";
+    act.codex = true;
+    activity_session_line(&act, codex_usage, strlen(codex_usage));
+    activity_session_line(&act, codex_usage, strlen(codex_usage));
+    CHECK(act.tokens_used == 57, "Codex cumulative events replace the previous total");
 
     for (int i = 0; i < ACT_LINES + 10; i++) activity_add(&act, ACT_INFO, "n%d", i);
     CHECK(act.count == ACT_LINES && strcmp(activity_line(&act, ACT_LINES - 1)->text, "n73") == 0,
@@ -1262,9 +1276,32 @@ static void test_model_details_menu(void)
     }
     sr_canvas_free(&top);
     sr_canvas_free(&end);
+    menu_press(KEY_ENTER);
+    CHECK(G.menu.prompt_edit && strstr(G.menu.prompt_draft, "use the matching function tool"),
+          "Enter edits the prompt from the workspace");
+    key_event clear = {.key = 'u', .mods = MOD_CTRL, .action = 1};
+    game_key(&G, &clear);
+    const char replacement[] = "Use the write tool.\r\nRead its results.";
+    game_paste(&G, (const unsigned char *)replacement, sizeof replacement - 1, true);
+    key_event save = {.key = 's', .mods = MOD_CTRL, .action = 1};
+    game_key(&G, &save);
+    CHECK(!G.menu.prompt_edit && strcmp(G.menu.prompt, "Use the write tool.\nRead its results.") == 0,
+          "Ctrl+S saves the multiline prompt and reads it back from the workspace");
+    menu_press(KEY_ENTER);
+    game_key(&G, &clear);
+    menu_press(KEY_ESCAPE);
+    CHECK(!G.menu.prompt_edit && strstr(G.menu.prompt, "Read its results."),
+          "Escape discards an unsaved prompt edit");
     menu_press(KEY_ESCAPE);
     CHECK(G.menu.open && !G.menu.details_open && G.menu.selected == MENU_MODEL_DETAILS && !G.ollama_model[0],
           "Escape returns to the menu without changing the model");
+    game_shutdown(&G);
+    CHECK(game_init(&G, ".", state, false, err, sizeof err), "reopen prompt file: %s", err);
+    menu_press(KEY_ESCAPE);
+    for (int i = 0; i < MENU_MODEL_DETAILS; i++) menu_press(KEY_DOWN);
+    menu_press(KEY_ENTER);
+    menu_press(KEY_LEFT);
+    CHECK(strstr(G.menu.prompt, "Read its results."), "opening the game preserves edited system files");
     game_shutdown(&G);
     layout_set(LAYOUT_DEFAULT_W, LAYOUT_DEFAULT_H);
 }
@@ -1353,9 +1390,10 @@ static void test_start_and_reset_menu(void)
     menu_press(KEY_ESCAPE);
     CHECK(G.menu.open, "Escape keeps the initial menu open");
     G.spawn = false;  /* Drive the menu without running the terminal children. */
+    for (int i = 0; i < MENU_LOCAL; i++) menu_press(KEY_DOWN);
     menu_press(KEY_ENTER);
     CHECK(G.started && !G.menu.open && G.sc.level == 2,
-          "start continues the existing save");
+          "selecting a model starts the game and continues the existing save");
 
     menu_press(KEY_ESCAPE);
     for (int i = 0; i < MENU_RESET_LEVEL; i++) menu_press(KEY_DOWN);
@@ -1545,7 +1583,13 @@ static void test_goal_and_action_panes(void)
         CHECK(differing(&before, &after, utilization) > 0 &&
               differing(&before, &after, devices) > 0 && differing(&before, &after, act) == 0,
               "both resource rows update without changing system actions");
+        G.act.tokens_reported = true;
+        G.act.tokens_used = 12345;
         game_render(&G, &after);
+        rect tokens = {resources.x + resources.w * 3 / 4, resources.y,
+                       resources.w - resources.w * 3 / 4, RESOURCE_H / 2};
+        CHECK(differing(&before, &after, tokens) > 0 && differing(&before, &after, devices) == 0,
+              "session tokens update on the right side of the resource bar");
 
         activity_add(&G.act, ACT_TOOL, "tool write hello_world.txt");
         game_render(&G, &before);

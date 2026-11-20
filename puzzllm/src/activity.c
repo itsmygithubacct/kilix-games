@@ -4,6 +4,7 @@
 
 #include <dirent.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -150,6 +151,38 @@ static void codex_item(activity *a, const json_doc *d, int item)
     }
 }
 
+static bool token_value(const json_doc *d, int usage, const char *key,
+                        unsigned long long *value)
+{
+    int node = json_get(d, usage, key);
+    if (node < 0 || d->nodes[node].type != JSON_NUMBER) return false;
+    double num = d->nodes[node].num;
+    if (!(num >= 0 && num <= 9007199254740991.0)) return false;
+    *value = (unsigned long long)num;
+    return num == (double)*value;
+}
+
+static void record_usage(activity *a, const json_doc *d, int usage, bool cumulative)
+{
+    unsigned long long total = 0;
+    bool reported = token_value(d, usage, cumulative ? "total_tokens" : "totalTokens", &total);
+    if (!reported && !cumulative) {
+        static const char *const fields[] = {"input", "output", "cacheRead", "cacheWrite"};
+        for (size_t i = 0; i < sizeof fields / sizeof *fields; i++) {
+            unsigned long long value;
+            if (token_value(d, usage, fields[i], &value)) {
+                total += value;
+                reported = true;
+            }
+        }
+    }
+    if (!reported) return;
+    a->tokens_reported = true;
+    if (cumulative) a->tokens_used = total;
+    else if (ULLONG_MAX - a->tokens_used >= total) a->tokens_used += total;
+    else a->tokens_used = ULLONG_MAX;
+}
+
 void activity_session_line(activity *a, const char *line, size_t len)
 {
     json_doc d;
@@ -165,9 +198,19 @@ void activity_session_line(activity *a, const char *line, size_t len)
     if (a->codex) {
         if (type && strcmp(type, "response_item") == 0)
             codex_item(a, &d, json_get(&d, root, "payload"));
+        else if (type && strcmp(type, "event_msg") == 0) {
+            int payload = json_get(&d, root, "payload");
+            const char *event = json_str(&d, json_get(&d, payload, "type"));
+            if (event && strcmp(event, "token_count") == 0) {
+                int info = json_get(&d, payload, "info");
+                record_usage(a, &d, json_get(&d, info, "total_token_usage"), true);
+            }
+        }
     } else if (type != NULL && strcmp(type, "message") == 0) {
         msg = json_get(&d, root, "message");
         role = json_str(&d, json_get(&d, msg, "role"));
+        if (role && strcmp(role, "assistant") == 0)
+            record_usage(a, &d, json_get(&d, msg, "usage"), false);
         if (role != NULL) content_blocks(a, &d, msg, role);
     } else if (type != NULL && strcmp(type, "model_change") == 0) {
         const char *m = json_str(&d, json_get(&d, root, "model"));
@@ -213,11 +256,11 @@ static bool newest_session(const activity *a, const char *state, char *out, size
     return best >= 0;
 }
 
-void activity_begin_room(activity *a, const char *state, const char *workspace)
+void activity_begin_session(activity *a, const char *state)
 {
     struct stat st;
-    a->head = a->count = 0;
-    a->generation++;
+    a->tokens_used = 0;
+    a->tokens_reported = false;
     a->partial_len = 0;
     a->status[0] = 0;
     a->session_path[0] = 0;
@@ -225,6 +268,13 @@ void activity_begin_room(activity *a, const char *state, const char *workspace)
     if (newest_session(a, state, a->session_path, sizeof a->session_path) &&
         stat(a->session_path, &st) == 0)
         a->session_offset = st.st_size;
+}
+
+void activity_begin_room(activity *a, const char *state, const char *workspace)
+{
+    a->head = a->count = 0;
+    a->generation++;
+    activity_begin_session(a, state);
     a->nfiles = 0;
     a->files_primed = false;
     activity_scan_workspace(a, workspace);
@@ -239,6 +289,8 @@ static void poll_session(activity *a, const char *state)
 
     if (!newest_session(a, state, path, sizeof path)) return;
     if (strcmp(path, a->session_path) != 0) {
+        a->tokens_used = 0;
+        a->tokens_reported = false;
         snprintf(a->session_path, sizeof a->session_path, "%s", path);
         a->session_offset = 0;
         a->partial_len = 0;

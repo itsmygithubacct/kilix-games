@@ -36,6 +36,8 @@ typedef struct act_file {
 typedef struct activity {
     bool codex;
     bool pi;
+    bool tokens_reported;
+    unsigned long long tokens_used;
     act_line lines[ACT_LINES];
     int head, count;               /* ring buffer */
     char session_path[4096];
@@ -51,6 +53,7 @@ typedef struct activity {
 
 void activity_init(activity *a);
 void activity_begin_room(activity *a, const char *state, const char *workspace);
+void activity_begin_session(activity *a, const char *state);
 void activity_add(activity *a, act_kind kind, const char *fmt, ...)
     __attribute__((format(printf, 3, 4)));
 /* i = 0 is the oldest kept line. */

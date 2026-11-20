@@ -142,12 +142,15 @@ printf 'An extra file for the same script.\n' > "$workspace/sample files/new fil
     pass "the grader uses the actual shipped directory in the workspace" || fail "room 4 changed folder rc=$rc"
 
 # The completed script room leads to the final playable room.
+printf 'Keep this instruction across rooms.\n' > "$workspace/.system/llama-prompt.txt"
 printf 'level 4\n' > "$PUZZLLM_STATE/transition"
 "$bin" --check-level 5 > "$scratch/out"; rc=$?
 [ "$rc" -eq 1 ] && grep -qx 'level 5' "$PUZZLLM_STATE/progress" &&
     [ -f "$workspace/level_4/count_files.sh" ] && [ -f "$workspace/chest.zip" ] &&
     pass "room 4 leads to the password-protected archive in room 5" ||
     fail "room 4 to room 5 transition rc=$rc"
+grep -qx 'Keep this instruction across rooms.' "$workspace/.system/llama-prompt.txt" &&
+    pass "prompt settings stay in the sandbox home across rooms" || fail "prompt settings were archived"
 
 # a broken level file is reported with its line
 mkdir -p "$scratch/root/levels"
