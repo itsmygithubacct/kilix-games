@@ -5,6 +5,7 @@
  *   puzzllm --render DIR          write the room as PPMs (no terminal needed)
  *   puzzllm --reset-progress      back up the workspace and start at level 1
  *   puzzllm --check-level N       print whether level N's goal is met now
+ *   puzzllm --goal-status         report the current room's live grader result
  *   puzzllm --bench [WxH]         time frames headless (default 1908x972)
  *   puzzllm --renderer            print which renderer draws (neuronte/raster)
  *
@@ -29,6 +30,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #ifndef PUZZLLM_VERSION
@@ -104,6 +106,20 @@ static void on_paste(void *ctx, const unsigned char *text, size_t len, bool fina
 }
 static void on_scroll(void *ctx, int x, int y, int rows) { game_scroll(ctx, x, y, rows); }
 
+static pid_t start_goal_service(const char *root, const char *state)
+{
+    char server[4096], pid[32], executable[80];
+    snprintf(server, sizeof server, "%s/libexec/puzzllm-goal-service", root);
+    snprintf(pid, sizeof pid, "%ld", (long)getpid());
+    snprintf(executable, sizeof executable, "/proc/%s/exe", pid);
+    pid_t child = fork();
+    if (child == 0) {
+        execl(server, server, pid, root, state, executable, (char *)NULL);
+        _exit(127);
+    }
+    return child;
+}
+
 static int play(const char *root, const char *state)
 {
     char err[512];
@@ -152,6 +168,7 @@ static int play(const char *root, const char *state)
     snapshot = getenv("PUZZLLM_SNAPSHOT");
     if (getenv("PUZZLLM_STATS") != NULL && getenv("PUZZLLM_STATS")[0] != '\0')
         stats = fopen(getenv("PUZZLLM_STATS"), "a");
+    pid_t goal_service = start_goal_service(root, state);
     last = now_s();
     st_start = last;
     next_frame = last;
@@ -216,6 +233,10 @@ static int play(const char *root, const char *state)
     }
     if (stats != NULL) fclose(stats);
     termio_stop();
+    if (goal_service > 0) {
+        kill(goal_service, SIGTERM);
+        while (waitpid(goal_service, NULL, 0) < 0 && errno == EINTR) {}
+    }
     game_shutdown(&the_game);
     sr_canvas_free(&canvas);
     return rc;
@@ -322,6 +343,36 @@ static int bench(const char *root, const char *state, const char *size)
     return 0;
 }
 
+/* Read the active save without generating guides, updating scores, or acquiring the play lock. */
+static int current_goal_status(const char *root, const char *state)
+{
+    char path[4096], err[512];
+    snprintf(the_game.root, sizeof the_game.root, "%s", root);
+    snprintf(the_game.state, sizeof the_game.state, "%s", state);
+    snprintf(the_game.workspace, sizeof the_game.workspace, "%s/workspace", state);
+    snprintf(path, sizeof path, "%s/levels/levels.txt", root);
+    if (!levels_load(&the_game.levels, path, err, sizeof err)) {
+        fprintf(stderr, "%s\n", err);
+        return 2;
+    }
+    int index = game_load_progress(state, the_game.levels.count);
+    const level *lv = &the_game.levels.items[index];
+    goal_result result = game_check_level(&the_game, index);
+    snprintf(path, sizeof path, "%s/transition", state);
+    if (access(path, F_OK) == 0 || game_load_progress(state, the_game.levels.count) != index) {
+        puts("Changing rooms. Run the check again.");
+        return 2;
+    }
+    printf("Level %d — %s\n", lv->number, lv->title);
+    if (lv->check == CHECK_NONE) {
+        puts("This room has no playable goal yet.");
+        return 2;
+    }
+    printf("%s\n%s\n\n%s\n%s\n", result.met ? "COMPLETE" : "INCOMPLETE", lv->goal,
+           result.met ? "Grader result" : "Remaining work", result.why);
+    return result.met ? 0 : 1;
+}
+
 static int check_level(const char *root, const char *state, const char *n)
 {
     char err[512];
@@ -346,6 +397,7 @@ int main(int argc, char **argv)
     char root[2048], state[2048];
     default_paths(root, sizeof root, state, sizeof state);
 
+    if (argc == 2 && !strcmp(argv[1], "--goal-status")) return current_goal_status(root, state);
     if (argc == 2 && strcmp(argv[1], "--reset-progress") == 0) {
         if (!game_reset_progress(state)) {
             fprintf(stderr, "puzzllm: reset failed: %s\n", strerror(errno));
@@ -370,11 +422,11 @@ int main(int argc, char **argv)
     if (argc == 3 && strcmp(argv[1], "--check-level") == 0)
         return check_level(root, state, argv[2]);
     if (argc == 2 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0)) {
-        printf("usage: puzzllm [--version | --render DIR | --check-level N | --reset-progress | --bench [WxH] | --renderer]\n");
+        printf("usage: puzzllm [--version | --render DIR | --check-level N | --goal-status | --reset-progress | --bench [WxH] | --renderer]\n");
         return 0;
     }
     if (argc != 1) {
-        fprintf(stderr, "usage: puzzllm [--version | --render DIR | --check-level N | --reset-progress | --bench [WxH] | --renderer]\n");
+        fprintf(stderr, "usage: puzzllm [--version | --render DIR | --check-level N | --goal-status | --reset-progress | --bench [WxH] | --renderer]\n");
         return 2;
     }
     return play(root, state);

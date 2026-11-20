@@ -1,0 +1,70 @@
+#!/usr/bin/python3 -B
+"""Run the game's read-only grader on request while the game is alive."""
+from contextlib import ExitStack
+import fcntl
+import os
+from pathlib import Path
+import selectors
+import socket
+import stat
+import subprocess
+import sys
+
+
+def check(binary, env):
+    try:
+        result = subprocess.run([binary, "--goal-status"], env=env, stdin=subprocess.DEVNULL,
+                                capture_output=True, timeout=8)
+    except subprocess.TimeoutExpired:
+        return b"2\nThe grader timed out. Run the check again.\n"
+    except OSError:
+        return b"2\nThe game grader is unavailable.\n"
+    status = result.returncode if result.returncode in (0, 1) else 2
+    message = result.stdout or result.stderr or b"The grader could not finish.\n"
+    return str(status).encode() + b"\n" + message
+
+
+def serve(pid, root, state, binary):
+    os.umask(0o077)
+    directory = state / "goals"
+    directory.mkdir(mode=0o700, exist_ok=True)
+    env = dict(os.environ, PUZZLLM_ROOT=str(root), PUZZLLM_STATE=str(state))
+    with ExitStack() as resources:
+        folder = os.open(directory, os.O_DIRECTORY | os.O_NOFOLLOW)
+        resources.callback(os.close, folder)
+        try:
+            fcntl.flock(folder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
+        # Bind relative to the trusted directory, even if the save path is long.
+        os.fchdir(folder)
+        path = Path("status.sock")
+        try:
+            if stat.S_ISSOCK(path.lstat().st_mode):
+                path.unlink()
+        except FileNotFoundError:
+            pass
+        lifetime = os.pidfd_open(pid)
+        resources.callback(os.close, lifetime)
+        server = resources.enter_context(socket.socket(socket.AF_UNIX))
+        server.bind(str(path))
+        resources.callback(path.unlink, missing_ok=True)
+        server.listen(8)
+        ready = resources.enter_context(selectors.DefaultSelector())
+        ready.register(lifetime, selectors.EVENT_READ)
+        ready.register(server, selectors.EVENT_READ)
+        while True:
+            if any(key.fd == lifetime for key, _ in ready.select()):
+                return
+            conn, _ = server.accept()
+            with conn:
+                conn.settimeout(1)
+                try:
+                    conn.sendall(check(binary, env))
+                except OSError:
+                    pass  # The client closed while the grader was running.
+
+
+if __name__ == "__main__":
+    serve(int(sys.argv[1]), Path(sys.argv[2]).absolute(), Path(sys.argv[3]).absolute(),
+          os.path.abspath(sys.argv[4]))

@@ -363,6 +363,13 @@ DEFECTS = [
      "libexec/puzzllm-script-check",
      "run '-2 -1 0' $'-1\\n0\\n' || exit 13",
      ": || exit 13", "test-unit"),
+    ("coding input also matches the shell's init command",
+     "libexec/puzzllm_kilix_bridge.py", 'return "env:^PUZZLLM_PANE$=^" + role + "$"',
+     'return "env:PUZZLLM_PANE=" + role', "test-kilix-display"),
+    ("the private terminal tab bar appears inside the game",
+     "libexec/puzzllm-kilix.conf", "tab_bar_style hidden", "tab_bar_style powerline", "test-kilix-display"),
+    ("the goal checker exits successfully for unfinished work",
+     "src/main.c", "return result.met ? 0 : 1;", "return 0;", "test-cli"),
 ]
 
 

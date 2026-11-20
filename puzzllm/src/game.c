@@ -1925,8 +1925,8 @@ static void menu_key(game *g, const key_event *ev)
 static bool save_goal_file(const game *g)
 {
     const level *lv = cur_level(g);
-    char body[LEVEL_TEXT + 32];
-    int length = snprintf(body, sizeof body, "# Goal\n\n%s\n", lv->goal);
+    char body[LEVEL_TEXT + 128];
+    int length = snprintf(body, sizeof body, "# Goal\n\n%s\n\nRun `~/check_goal_status.sh` to check your work.\n", lv->goal);
     if (length < 0 || (size_t)length >= sizeof body) return false;
     return write_guide(g->workspace, lv->number, "GOAL.md", ".goal-save", body, (size_t)length);
 }

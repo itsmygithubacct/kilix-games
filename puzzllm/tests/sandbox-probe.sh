@@ -19,6 +19,10 @@ must_fail_write() {
 [ ! -e "$HOME/workspace" ] && ok "no nested work directory" || fail "found an unexpected work subdirectory"
 grep -Fq 'tmux capture-pane -p -t shell' "$HOME/docs/tmux.md" &&
     ok "tmux help is available at ~/docs/tmux.md" || fail "tmux help missing"
+grep -Fq 'kilix pane read' "$HOME/docs/kilix.md" &&
+grep -Fq "kilix ask 'list panes'" "$HOME/docs/kilix-ask.md" &&
+    ok "both Kilix guides are readable" || fail "missing Kilix command guides"
+test -x "$HOME/check_goal_status.sh" && ok "goal checker is executable" || fail "missing goal checker"
 
 # writes outside the workspace fail
 must_fail_write "$outside/escape-$mode"
@@ -29,6 +33,7 @@ must_fail_write /escape
 must_fail_write /opt/escape
 must_fail_write ../../../escape
 must_fail_write "$HOME/docs/tmux.md"
+must_fail_write "$HOME/check_goal_status.sh"
 [ "$mode" = agent ] && must_fail_write /opt/puzzllm/bin/omp
 
 # the workspace itself is writable, in both sandboxes (owner's decision)

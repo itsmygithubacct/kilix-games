@@ -14,6 +14,9 @@ def window_id(kind):
         return ""
     return out[0] if out else ""
 
+def pane_match(role):
+    return "env:^PUZZLLM_PANE$=^" + role + "$"
+
 def launch_agent(kitten):
     subprocess.run(
         [kitten, "@", "--to", listen, "launch", "--type=os-window",
@@ -30,7 +33,7 @@ def handle(line, kitten, sizes):
     op = parts[0]
     if op == "close-agent":
         subprocess.run([kitten, "@", "--to", listen, "close-window",
-                        "--match", "env:PUZZLLM_PANE=agent"],
+                        "--match", pane_match("agent")],
                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                        stderr=subprocess.DEVNULL, timeout=5, check=False)
         return
@@ -97,7 +100,7 @@ def handle(line, kitten, sizes):
         try:
             sent = subprocess.run(
                 [kitten, "@", "--to", listen, "send-text",
-                 "--match", "env:PUZZLLM_PANE=" + pane, "--stdin"],
+                 "--match", pane_match(pane), "--stdin"],
                 input=payload, stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL, timeout=3, check=False,
             ).returncode == 0
@@ -160,7 +163,7 @@ def main(kitty_bin, kitten, xvfb_pid):
 
     kitty = subprocess.Popen(
         [kitty_bin,
-         "--config", config, "--config", root + "/listen.conf",
+         "--config", config, "--config", "/opt/puzzllm/bin/puzzllm-kilix.conf",
          "--session", root + "/session.conf",
          "--listen-on", listen,
          "--override", "listen_on=" + listen,

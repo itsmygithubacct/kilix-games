@@ -23,6 +23,19 @@ printf 'Hello, World!\n' > "$scratch/state/workspace/hello_world.txt"
 "$bin" --check-level 1 > "$scratch/out"; rc=$?
 [ $rc -eq 0 ] && grep -q 'level 1: met' "$scratch/out" && pass "level 1 met" ||
     fail "met check rc=$rc $(cat "$scratch/out")"
+"$bin" --goal-status > "$scratch/out"; rc=$?
+[ "$rc" -eq 0 ] && grep -qx COMPLETE "$scratch/out" && grep -q '^Level 1 ' "$scratch/out" &&
+    pass "current goal is complete" || fail "complete goal status rc=$rc"
+printf 'level 2\n' > "$PUZZLLM_STATE/progress"
+"$bin" --goal-status > "$scratch/out"; rc=$?
+[ "$rc" -eq 1 ] && grep -qx INCOMPLETE "$scratch/out" && grep -q 'strawberry.txt' "$scratch/out" &&
+    pass "current goal names remaining work" || fail "missing current-room feedback rc=$rc"
+touch "$PUZZLLM_STATE/transition"
+"$bin" --goal-status > "$scratch/out"; rc=$?
+[ "$rc" -eq 2 ] && grep -q 'Changing rooms' "$scratch/out" &&
+    pass "a room transition reports a temporary status" || fail "graded an in-progress room change"
+rm "$PUZZLLM_STATE/transition"
+printf 'level 1\n' > "$PUZZLLM_STATE/progress"
 head -c 1000000 /dev/zero | tr '\0' 1 > "$scratch/state/workspace/1.txt"
 "$bin" --check-level 3 > "$scratch/out"; rc=$?
 [ $rc -eq 0 ] && grep -q 'level 3: met' "$scratch/out" && pass "level 3 met by a million ones" ||

@@ -6,9 +6,10 @@ codex=$1
 shift
 auth=(-c 'cli_auth_credentials_store="file"')
 policy=(-c 'default_permissions="puzzllm"'
-        -c 'permissions.puzzllm.filesystem={":minimal"="read","/kilix"="write","/opt/puzzllm/home"="write","/opt/puzzllm/tmux"="write","/opt/puzzllm/codex-home"="deny"}'
+        -c 'permissions.puzzllm.filesystem={":minimal"="read","/kilix"="write","/opt/puzzllm/home"="write","/opt/puzzllm/tmux"="write","/opt/puzzllm/bin"="read","/opt/puzzllm/cli"="read","/opt/puzzllm/kx/g"="write","/opt/puzzllm/kx/listen.sock"="write","/opt/puzzllm/kx/goals"="read","/opt/puzzllm/codex-home"="deny"}'
         -c 'permissions.puzzllm.network.enabled=false'
         -c 'projects."/kilix".trust_level="untrusted"'
+        -c 'shell_environment_policy.set.PATH="/opt/puzzllm/bin:/usr/local/bin:/usr/bin:/bin"'
         -c 'web_search="disabled"'
         --disable hooks --disable plugins)
 

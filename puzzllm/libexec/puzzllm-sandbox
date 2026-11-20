@@ -393,14 +393,20 @@ esac
 case "$mode" in
 agent|agent-exec|codex|grok|claude|shell|shell-exec)
     # This mount must follow the workspace mount.
-    args+=(--ro-bind "$here/docs" "$box_home/docs")
+    (umask 077 && mkdir -p "$state/goals") || die "cannot prepare the goal status socket directory"
+    [ ! -L "$state/goals" ] || die "invalid goal status directory"
+    args+=(--ro-bind "$here/docs" "$box_home/docs"
+           --ro-bind "$here/docs/check_goal_status.sh" "$box_home/check_goal_status.sh")
+    if [ "$kilix_session" != 1 ]; then
+        args+=(--ro-bind "$state/goals" /opt/puzzllm/kx/goals)
+    fi
     ;;
 esac
 
 # Bind the private Kilix over the puzzllm state directory and point every
 # storage variable at that bind. The desktop instance is not mounted.
 mount_kilix() {
-    local env_text kitty kitten broker config src kittendir needle
+    local env_text kitty kitten broker config src cli_root component candidate needle tools_runtime
     env_text=$("$here/puzzllm-kilix" --shell-env) || die "no private Kilix engine"
     kitty=; kitten=; broker=; config=; src=
     eval "$env_text"
@@ -412,22 +418,48 @@ mount_kilix() {
     esac
     [ -x "$kitty" ] && [ -x "$kitten" ] && [ -x "$broker" ] &&
         [ -f "$config" ] && [ -d "$src" ] || die "Kilix engine is incomplete"
-    kittendir=$(dirname "$kitten")
+    cli_root=
+    local -a cli_candidates=("${PUZZLLM_KILIX_CLI_ROOT:-}" "$(dirname "$(dirname "$config")")"
+                             "$(dirname "$(dirname "$(dirname "$(dirname "$kitten")")")")")
+    for candidate in "${cli_candidates[@]}"; do
+        [ -n "$candidate" ] && [ -x "$candidate/kilix" ] &&
+            [ -f "$candidate/config/kilix_facts.py" ] && [ -f "$candidate/config/remote.py" ] || continue
+        cli_root=$(readlink -f "$candidate")
+        case "$cli_root" in *"$needle"*) cli_root=; continue ;; esac
+        break
+    done
+    [ -n "$cli_root" ] || die "Kilix with Ask is missing (set PUZZLLM_KILIX_CLI_ROOT)"
     mkdir -p "$state/kx/frames" "$state/kx/logs" "$state/kx/b" "$state/kx/g" ||
         die "cannot create Kilix state"
     chmod 700 "$state/kx" "$state/kx/b" "$state/kx/g" || die "cannot lock down Kilix state"
-    cat > "$state/kx/listen.conf" <<'EOF'
-listen_on unix:/opt/puzzllm/kx/listen.sock
-allow_remote_control yes
-confirm_os_window_close 0
-remember_window_size no
-update_check_interval 0
-EOF
+    # Keep the pinned command interpreter outside sandbox-writable storage.
+    tools_runtime=$state/runtime/kilix
+    (umask 077 && mkdir -p "$tools_runtime/data/desktop-apps") || die "cannot prepare Kilix tools"
+    if [ ! -x "$tools_runtime/data/desktop-apps/kilix-needle/kilix-needle" ]; then
+        env GPU_TERMINAL_HOME="$tools_runtime" KILIX_STORAGE_HOME="$tools_runtime" \
+            KILIX_DATA_HOME="$tools_runtime/data" GIT_TERMINAL_PROMPT=0 \
+            flock -n "$tools_runtime/install.lock" timeout 90 python3 -B "$cli_root/config/content_app.py" install kilix-needle \
+            </dev/null >"$tools_runtime/ask-install.log" 2>&1 &
+    fi
     args+=(--bind "$state/kx" /opt/puzzllm/kx
+           --ro-bind "$state/goals" /opt/puzzllm/kx/goals
+           --ro-bind "$tools_runtime/data/desktop-apps" /opt/puzzllm/kx/g/k/data/desktop-apps
            --ro-bind "$here/puzzllm-kilix" /opt/puzzllm/bin/puzzllm-kilix
+           --ro-bind "$here/puzzllm-cli" /opt/puzzllm/bin/kilix
+           --ro-bind "$here/puzzllm-kilix.conf" /opt/puzzllm/bin/puzzllm-kilix.conf
+           --ro-bind "$kitten" /opt/puzzllm/bin/kitten
+           --ro-bind "$cli_root/kilix" /opt/puzzllm/cli/kilix
+           --ro-bind "$cli_root/kilix-settings" /opt/puzzllm/cli/kilix-settings
+           --ro-bind "$cli_root/config" /opt/puzzllm/cli/config
+           --symlink "$kitty" /opt/puzzllm/cli/engine/bin/kitty
+           --ro-bind "$here/puzzllm-cli" /opt/puzzllm/cli/engine/bin/kitten
            --ro-bind "$here/puzzllm_kilix_bridge.py" /opt/puzzllm/bin/puzzllm_kilix_bridge.py
            --ro-bind "$src" "$src"
            --ro-bind "$(dirname "$config")" /opt/puzzllm/kilix-config)
+    for component in VERSION kilix-session scripts share third_party/kilix-content third_party/kilix-state; do
+        [ ! -e "$cli_root/$component" ] ||
+            args+=(--ro-bind "$cli_root/$component" "/opt/puzzllm/cli/$component")
+    done
     # The broker loads libkitty-pty-broker.so from $ORIGIN. Binding only the
     # executable leaves that directory empty inside the sandbox, and every
     # pane exits before its control socket exists.
@@ -461,7 +493,7 @@ EOF
            --setenv KILIX_TELEMETRY_RUNTIME /opt/puzzllm/kx/g/k/session/telemetry
            --setenv KILIX_DATA_HOME /opt/puzzllm/kx/g/k/data
            --setenv KILIX_BUILD_DIRECTORY /opt/puzzllm/kx/g/k/build
-           --setenv KILIX_PREBUILT_HOME /opt/puzzllm/kx/g/k/prebuilt
+           --setenv KILIX_PREBUILT_HOME /opt/puzzllm/cli/engine
            --setenv KITTY_CONFIG_DIRECTORY /opt/puzzllm/kx/g/k/config
            --setenv KITTY_PTY_BROKER_RUNTIME /opt/puzzllm/kx/b
            --setenv KITTY_PTY_BROKER_EXECUTABLE "$broker"
@@ -474,7 +506,8 @@ EOF
            --setenv PUZZLLM_PANE_INIT "/opt/puzzllm/bin/puzzllm-${mode}-init"
            --setenv PUZZLLM_KITTY "$kitty"
            --setenv PUZZLLM_KITTEN "$kitten"
-           --setenv PATH "$kittendir:/opt/puzzllm/bin:/usr/local/bin:/usr/bin:/bin")
+           --setenv KILIX_KITTEN /opt/puzzllm/bin/kitten
+           --setenv PATH "/opt/puzzllm/bin:$(dirname "$kitten"):/usr/local/bin:/usr/bin:/bin")
 }
 
 case "$mode" in

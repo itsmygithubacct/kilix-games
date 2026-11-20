@@ -337,5 +337,38 @@ else
     pass "script check rejects a path"
 fi
 
+goal_state=$scratch/status-state
+mkdir -p "$goal_state/workspace"
+"$here/libexec/puzzllm-goal-service" "$$" "$here" "$goal_state" "$here/build/puzzllm" &
+goal_service=$!
+for _ in $(seq 50); do [ -S "$goal_state/goals/status.sock" ] && break; sleep 0.1; done
+report() {
+    PUZZLLM_STATE="$goal_state" "$sandbox" "$1-exec" -- sh -c '"$HOME/check_goal_status.sh"' > "$scratch/status.out"
+}
+report shell; rc=$?
+if [ "$rc" = 1 ] && grep -qx INCOMPLETE "$scratch/status.out" &&
+        grep -q 'hello_world.txt does not exist' "$scratch/status.out"; then
+    pass "the player sees the missing file and an incomplete status"
+else fail "unexpected initial goal status ($rc): $(cat "$scratch/status.out")"; fi
+if PUZZLLM_STATE="$goal_state" "$sandbox" agent-exec -- sh -c \
+        'printf "Hello, World!\n" > ~/hello_world.txt && ~/check_goal_status.sh' > "$scratch/status.out" &&
+        grep -qx COMPLETE "$scratch/status.out"; then
+    pass "the agent can grade its edit immediately"
+else fail "goal checker did not report the agent's completed goal"; fi
+rm "$goal_state/workspace/hello_world.txt"
+report agent; rc=$?
+[ "$rc" = 1 ] && grep -qx 'Remaining work' "$scratch/status.out" &&
+    pass "removing the solution reopens the goal immediately" || fail "stale result after removal"
+printf 'level 2\n' > "$goal_state/progress"
+report shell; rc=$?
+[ "$rc" = 1 ] && grep -q '^Level 2 ' "$scratch/status.out" && grep -q 'strawberry.txt' "$scratch/status.out" &&
+    pass "goal checks follow a room change" || fail "wrong room after advancing"
+printf 'level 11\n' > "$goal_state/progress"
+report shell; rc=$?
+[ "$rc" = 2 ] && grep -q 'no playable goal' "$scratch/status.out" &&
+    pass "a placeholder room reports that it has no goal" || fail "placeholder room graded"
+kill "$goal_service" 2>/dev/null
+wait "$goal_service" 2>/dev/null
+
 echo "test-sandbox: $fails failed"
 [ "$fails" -eq 0 ]

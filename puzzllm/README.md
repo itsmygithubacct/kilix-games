@@ -37,11 +37,14 @@ across rooms and sessions. The sandbox includes instructions in
 `~/docs/tmux.md`. `~` is `/opt/puzzllm/home`, a symlink to the shared
 workspace at `/kilix`.
 
-Those two screens are panes of a private Kilix inside the sandbox, with its
-clickable title bars, its pty broker, and a listen socket under the puzzllm
-state directory. The agent can also type into the shell with
-`kitten @ --to unix:/opt/puzzllm/kx/listen.sock send-text --match env:PUZZLLM_PANE=shell`.
-See `libexec/docs/kilix-panes.md`. The tmux session remains available.
+Both terminals are panes of a private Kilix instance with their tab and pane
+bars hidden. Type `kilix` to list them or `kilix ask 'list panes'` to ask in
+ordinary language. The shell and the coding agent can control the same panes.
+The sandbox mounts [the Kilix guide](libexec/docs/kilix.md) and
+[the Ask guide](libexec/docs/kilix-ask.md) under `~/docs/`. The player shell
+also has a tmux session named `shell`. On the first launch the game fetches
+the small, pinned Needle command interpreter into its private state. Ask
+uses its local grammar for pane actions.
 
 Codex can read the log from its command sandbox. Resetting progress
 backs up the log with the other files.
@@ -158,6 +161,11 @@ peak. **Clear campaign board** asks for confirmation, then removes those
 rankings. The current run and the room leaderboard stay. Reset Game
 keeps the locked model and starts its rooms over. Reset Level redoes
 that one room.
+
+Run `~/check_goal_status.sh` from the player shell or the agent to grade the
+current room immediately. It prints the goal and the first unmet check. Its
+exit status is 0 for a completed goal, 1 when work remains, and 2 when the
+grader is unavailable or the room has no playable goal.
 
 Each room writes its goal to `GOAL.md` in the sandbox home, so the agent
 and the shell can read it at `~/GOAL.md`. Entering a room replaces the

@@ -119,7 +119,7 @@ static bool transfer_files(int source, int dest, int prior, int number, enum tra
             continue;
         }
         if (kind == STORE && (!strcmp(name, "shell.log") || !strcmp(name, "docs") ||
-            !strcmp(name, ".system") || !strcmp(name, "prior_levels")))
+            !strcmp(name, "check_goal_status.sh") || !strcmp(name, ".system") || !strcmp(name, "prior_levels")))
             continue;
         ok = move_entry(source, name, dest, name);
     }

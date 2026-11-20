@@ -1,0 +1,28 @@
+#!/bin/sh
+# Use the game instance even when an agent tool starts a shell with a clean environment.
+set -eu
+export KITTY_LISTEN_ON=unix:/opt/puzzllm/kx/listen.sock
+if [ "${0##*/}" = kitten ]; then
+    # The game socket belongs to this sandbox and accepts its local clients.
+    # The desktop launcher's password is for a different engine.
+    if [ "${1:-}" = @ ]; then
+        shift
+        exec /opt/puzzllm/bin/kitten @ --to "$KITTY_LISTEN_ON" --use-password=never "$@"
+    fi
+    exec /opt/puzzllm/bin/kitten "$@"
+fi
+export KILIX_HOME=/opt/puzzllm/cli
+export GPU_TERMINAL_HOME=/opt/puzzllm/kx/g
+export KILIX_STORAGE_HOME=$GPU_TERMINAL_HOME/k
+export KILIX_PREBUILT_HOME=/opt/puzzllm/cli/engine
+export KILIX_KITTEN=$KILIX_PREBUILT_HOME/bin/kitten
+export KILIX_ASK_COMMANDS_BACKEND=${KILIX_ASK_COMMANDS_BACKEND:-grammar}
+export KILIX_MODEL_AUTO_INSTALL=0
+export PATH=/opt/puzzllm/bin:$PATH
+if [ "$#" -eq 0 ]; then set -- pane list; fi
+case "$1" in
+    @) exec "$KILIX_KITTEN" "$@" ;;
+    ls|focus|watch|fullscreen|pane|tab|new-pane|split|new-tab|new-page)
+        exec python3 -B /opt/puzzllm/cli/config/remote.py "$@" ;;
+esac
+exec "$KILIX_HOME/kilix" "$@"

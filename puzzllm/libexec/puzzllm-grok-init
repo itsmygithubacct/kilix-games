@@ -11,9 +11,9 @@ fi
 cat > "$GROK_HOME/sandbox.toml" <<'EOF'
 [profiles.puzzllm]
 extends = "strict"
-read_write = ["/opt/puzzllm/tmux", "/opt/puzzllm/home"]
+read_write = ["/opt/puzzllm/tmux", "/opt/puzzllm/home", "/opt/puzzllm/kx/g", "/opt/puzzllm/kx/listen.sock"]
 EOF
-rules='Read the player shell with tmux capture-pane -p -t shell. That tmux server is the one inside this sandbox. The transcript is also at ~/shell.log. Do not start another tmux server.'
+rules='Read the player shell with tmux capture-pane -p -t shell. That tmux server is the one inside this sandbox. The transcript is also at ~/shell.log. Read ~/docs/kilix.md and ~/docs/kilix-ask.md for private pane controls. Do not start another tmux server.'
 if [ ! -s "$GROK_HOME/auth.json" ]; then
     printf 'Sign in to Grok Build for PuzzLLM.\n'
     "$grok" login --device-auth

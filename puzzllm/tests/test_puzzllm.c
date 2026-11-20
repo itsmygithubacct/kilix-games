@@ -1321,6 +1321,7 @@ static void test_render_and_flow(void)
     snprintf(prog, sizeof prog, "%s/workspace/GOAL.md", state);
     CHECK(file_contains(prog, "# Goal") && file_contains(prog, "Hello, World"),
           "room 1 writes its goal to ~/GOAL.md");
+    CHECK(file_contains(prog, "~/check_goal_status.sh"), "the goal tells both players how to check their work");
     snprintf(prog, sizeof prog, "%s/workspace/HINTS.md", state);
     CHECK(G.hints_file && file_contains(prog, "# Hints") &&
           file_contains(prog, "1. Walk to the agent") &&

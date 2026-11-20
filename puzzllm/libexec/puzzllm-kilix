@@ -162,7 +162,7 @@ send)
         *) die "refusing a listen socket that is not this sandbox Kilix" ;;
     esac
     kitten=${PUZZLLM_KITTEN:-kitten}
-    exec "$kitten" @ --to "$to" send-text --match "env:PUZZLLM_PANE=$pane" --stdin
+    exec "$kitten" @ --to "$to" send-text --match "env:^PUZZLLM_PANE$=^${pane}$" --stdin
     ;;
 --pane)
     init=${PUZZLLM_PANE_INIT:-/opt/puzzllm/bin/puzzllm-agent-init}
@@ -287,12 +287,4 @@ EOF
 export PUZZLLM_KILIX_LISTEN=unix:/opt/puzzllm/kx/listen.sock
 export KITTY_LISTEN_ON=unix:/opt/puzzllm/kx/listen.sock
 rm -f /opt/puzzllm/kx/listen.sock /opt/puzzllm/kx/bridge.sock /opt/puzzllm/kx/error
-cat > /opt/puzzllm/kx/listen.conf <<'EOF'
-listen_on unix:/opt/puzzllm/kx/listen.sock
-allow_remote_control yes
-confirm_os_window_close 0
-remember_window_size no
-update_check_interval 0
-EOF
-
 exec python3 "$here/puzzllm_kilix_bridge.py" "$kitty" "$kitten" "$xvfb"
