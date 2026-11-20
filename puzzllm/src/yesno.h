@@ -25,7 +25,7 @@ typedef struct bench_stream {
 } bench_stream;
 
 typedef struct yesno_bench {
-    bool open, replay, follow, misses, standalone;
+    bool open, replay, follow, misses, standalone, redraw;
     bench_page page;
     bench_status status;
     int provider, picking, cursor;

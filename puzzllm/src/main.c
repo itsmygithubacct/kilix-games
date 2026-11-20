@@ -75,7 +75,7 @@ static void default_paths(char *root, size_t rcap, char *state, size_t scap)
     }
 }
 
-enum { FRAME_HZ = 60 };
+enum { FRAME_HZ = 60, BENCH_HZ = 12 };
 
 static void start_renderer(const char *state)
 {
@@ -130,7 +130,7 @@ static int play(const char *root, const char *state, bool bench_only)
     FILE *stats = NULL;
     double st_start = 0, st_render = 0, st_present = 0;
     double st_render_max = 0, st_present_max = 0;
-    int st_frames = 0;
+    int st_frames = 0, presented_w = 0, presented_h = 0;
     const char *snapshot;
     int rc = 0;
 
@@ -197,8 +197,9 @@ static int play(const char *root, const char *state, bool bench_only)
         if (termio_read(&h) < 0) break;
         t = now_s();
         if (t < next_frame) continue;
-        next_frame = next_frame + 1.0 / FRAME_HZ < t ? t + 1.0 / FRAME_HZ
-                                                   : next_frame + 1.0 / FRAME_HZ;
+        double interval = 1.0 / (the_game.bench.open ? BENCH_HZ : FRAME_HZ);
+        next_frame += interval;
+        if (next_frame < t) next_frame = t + interval;
         the_game.release_events = termio_release_events();
         game_update(&the_game, t - last);
         last = t;
@@ -208,10 +209,16 @@ static int play(const char *root, const char *state, bool bench_only)
             sr_canvas_free(&canvas);
             if (!sr_canvas_init(&canvas, CANVAS_W, CANVAS_H)) { rc = 1; break; }
         }
+        bool snapshot_due = snapshot && *snapshot && t >= next_snapshot;
+        if (the_game.bench.open && !the_game.bench.redraw && fw == presented_w && fh == presented_h &&
+            !snapshot_due && !stats) continue;
+        the_game.bench.redraw = false;
+        presented_w = fw;
+        presented_h = fh;
         r0 = now_s();
         game_render(&the_game, &canvas);
         r1 = now_s();
-        if (snapshot != NULL && snapshot[0] != '\0' && t >= next_snapshot) {
+        if (snapshot_due) {
             /* debugging aid: the frame as a PPM, replaced atomically */
             char tmp[4200];
             snprintf(tmp, sizeof tmp, "%s.tmp", snapshot);

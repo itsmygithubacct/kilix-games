@@ -69,7 +69,7 @@ static bool launch(game *g, bench_stream *stream, char *mode, char *arg, char *p
 void yesno_open(game *g)
 {
     yesno_bench *b = &g->bench;
-    b->open = true;
+    b->open = b->redraw = true;
     b->page = BENCH_WATCH;
     if (!b->worker.process.pid) {
         b->replay = launch(g, &b->worker, "latest", g->state, NULL, NULL);
@@ -205,6 +205,7 @@ static void poll_stream(yesno_bench *b, bench_stream *stream, bool catalog)
     char buf[4096];
     for (int reads = 0; reads < 32; reads++) {
         long n = pty_read(&stream->process, buf, sizeof buf);
+        if (n != 0) b->redraw = true;
         if (n <= 0) {
             if (n < 0 && pty_poll_exit(&stream->process)) {
                 if (!catalog && b->status == BENCH_RUNNING) {
@@ -328,6 +329,7 @@ static void button(game *g, int id)
 
 void yesno_scroll(yesno_bench *b, int rows)
 {
+    b->redraw = true;
     if (b->page == BENCH_PROVIDERS || b->page == BENCH_MODELS) {
         int n = yesno_options(b);
         b->cursor += rows;
@@ -348,6 +350,7 @@ void yesno_paste(yesno_bench *b, const char *text, size_t len)
     if (len >= sizeof b->entry - n) return;
     for (size_t i = 0; i < len; i++)
         if ((unsigned char)text[i] < 32 || text[i] == 127) return;
+    b->redraw = true;
     memcpy(b->entry + n, text, len);
     b->entry[n + len] = 0;
 }
@@ -356,6 +359,7 @@ void yesno_key(game *g, const key_event *ev)
 {
     yesno_bench *b = &g->bench;
     if (ev->action == 3) return;
+    b->redraw = true;
     if (ev->key == KEY_ESCAPE) { if (ev->action == 1) button(g, BENCH_BACK); return; }
     if (b->page == BENCH_ENTRY) {
         size_t n = strlen(b->entry);
@@ -423,6 +427,7 @@ static bool inside(rect r, int x, int y)
 void yesno_click(game *g, int x, int y)
 {
     yesno_bench *b = &g->bench;
+    b->redraw = true;
     for (int i = 0; i < BENCH_BUTTONS; i++) {
         if (inside(yesno_button_rect(L.w, L.h, i), x, y)) {
             if (b->page == BENCH_WATCH || i == BENCH_BACK) button(g, i);

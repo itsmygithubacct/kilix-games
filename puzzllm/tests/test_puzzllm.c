@@ -1631,8 +1631,9 @@ static void test_bench_menu(void)
     menu_press('f');
     CHECK(G.bench.misses && G.bench.selected == 2 && G.bench.follow,
           "filter includes the latest invalid answer");
+    G.bench.redraw = false;
     game_scroll(&G, 100, 250, -1);
-    CHECK(G.bench.selected == 1 && !G.bench.follow, "scrolling misses selects the wrong answer");
+    CHECK(G.bench.redraw && G.bench.selected == 1 && !G.bench.follow, "scrolling misses selects the wrong answer");
     menu_press('l');
     CHECK(G.bench.selected == 2 && G.bench.follow, "Latest follows incoming answers");
     menu_press('f');
