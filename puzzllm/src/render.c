@@ -316,51 +316,112 @@ static void room_background(sr_canvas *c, const room_art *art, const char *style
     memcpy(c->px, bg.px, (size_t)c->w * (size_t)c->h * sizeof *c->px);
 }
 
+int menu_page_rows(int page, bool neuronte, int *out, int cap)
+{
+    static const int main_rows[] = {
+        MENU_HARNESS, MENU_MODEL, MENU_RESUME, MENU_SCORES, MENU_DISPLAY, MENU_RESETS, MENU_QUIT
+    };
+    static const int model_rows[] = {
+        MENU_CODEX, MENU_GROK, MENU_LOCAL, MENU_OLLAMA,
+        MENU_MODEL_DETAILS, MENU_THINKING, MENU_COMPUTE
+    };
+    static const int score_rows[] = {
+        MENU_LEADERBOARD, MENU_CAMPAIGN, MENU_CAMPAIGN_BOARD, MENU_CLEAR_CAMPAIGN
+    };
+    static const int display_rows[] = {
+        MENU_TOOLTIPS, MENU_ROOM_BUTTONS, MENU_HINTS_FILE, MENU_NEURONTE
+    };
+    static const int reset_rows[] = { MENU_RESET_LEVEL, MENU_RESET };
+    const int *rows = main_rows;
+    int n = (int)(sizeof main_rows / sizeof main_rows[0]);
+    if (page == MENU_PAGE_MODEL) {
+        rows = model_rows;
+        n = (int)(sizeof model_rows / sizeof model_rows[0]);
+    } else if (page == MENU_PAGE_SCORES) {
+        rows = score_rows;
+        n = (int)(sizeof score_rows / sizeof score_rows[0]);
+    } else if (page == MENU_PAGE_DISPLAY) {
+        rows = display_rows;
+        n = (int)(sizeof display_rows / sizeof display_rows[0]);
+        if (!neuronte) n--;
+    } else if (page == MENU_PAGE_RESET) {
+        rows = reset_rows;
+        n = (int)(sizeof reset_rows / sizeof reset_rows[0]);
+    }
+    if (n > cap) n = cap;
+    if (out) for (int i = 0; i < n; i++) out[i] = rows[i];
+    return n;
+}
+
 void render_menu(sr_canvas *c, int selected, const char *active_model,
                  bool started, int level, bool confirm_reset, const char *notice, int support, bool thinking_enabled, const char *hosted_agent,
-                 bool pi, compute_mode compute, bool tooltips, bool room_buttons)
+                 bool pi, compute_mode compute, bool tooltips, bool room_buttons,
+                 bool campaign, const char *campaign_model, bool hints_file, int page)
 {
     static const char *const actions[] = {
         [MENU_QUIT] = "Exit game", [MENU_RESET] = "Reset Game",
         [MENU_RESET_LEVEL] = "Reset Level",
         [MENU_MODEL_DETAILS] = "Model prompt and tools",
         [MENU_LEADERBOARD] = "Leaderboard",
+        [MENU_CAMPAIGN_BOARD] = "Campaign board",
+        [MENU_CLEAR_CAMPAIGN] = "Clear campaign board",
         [MENU_CODEX] = "Codex (OpenAI)",
         [MENU_GROK] = "Grok Build (xAI)",
         [MENU_LOCAL] = "llama.cpp models >",
         [MENU_OLLAMA] = "Ollama models >",
+        [MENU_MODEL] = "Model >",
+        [MENU_SCORES] = "Scores >",
+        [MENU_DISPLAY] = "Display >",
+        [MENU_RESETS] = "Reset >",
     };
-    int width = 560, row_h = 27;
-    int rows = (draw_neuronte_available() ? MENU_NEURONTE : MENU_OLLAMA) + 1;
-    int height = 125 + rows * row_h;
+    int ids[12];
+    int width = 560, row_h = 27, chrome = 125;
+    int rows = menu_page_rows(page, draw_neuronte_available(), ids, 12);
+    int height = chrome + rows * row_h;
+    if (height > c->h - 8 && rows > 0) {
+        row_h = (c->h - 8 - chrome) / rows;
+        if (row_h < 16) row_h = 16;
+        height = chrome + rows * row_h;
+    }
     int x = (c->w - width) / 2;
     int y = (c->h - height) / 2;
+    if (y < 0) y = 0;
     char label[320];
 
     draw_fill(c, 0, 0, c->w, c->h, 0x0c1018, 0.72f);
     if (confirm_reset) {
         int top = (c->h - 130) / 2;
         bool level_only = selected == MENU_RESET_LEVEL;
-        draw_fill(c, x, top, width, 130, 0x151d29, 1);
-        draw_stroke(c, x, top, width, 130, 2, 0x826b47, 1);
-        draw_text(c, x + 18, top + 16, level_only ? "Reset Level?" : "Reset Game?", 0xffde8c, 1);
-        draw_text(c, x + 18, top + 46, level_only ?
+        bool clear_board = selected == MENU_CLEAR_CAMPAIGN;
+        art_menu_panel(c, x, top, width, 130);
+        draw_text(c, x + 18, top + 16, clear_board ? "Clear campaign board?" :
+                  level_only ? "Reset Level?" : "Reset Game?", 0xffde8c, 1);
+        draw_text(c, x + 18, top + 46, clear_board ?
+                  "Remove ranked campaigns. This run and room scores stay." :
+                  level_only ?
                   "Restart this level. The current workspace will be backed up." :
                   "Start at level 1. The current workspace will be backed up.",
                   0xf2efeb, 1);
-        draw_text(c, x + 18, top + 93, "Enter reset    Esc cancel", 0xbccadb, 1);
+        draw_text(c, x + 18, top + 93, clear_board ? "Enter clear    Esc cancel" :
+                  "Enter reset    Esc cancel", 0xbccadb, 1);
         return;
     }
-    draw_fill(c, x, y, width, height, 0x151d29, 1);
-    draw_stroke(c, x, y, width, height, 2, 0x826b47, 1);
-    draw_text(c, x + 18, y + 13, "Game menu", 0xffde8c, 1);
+    art_menu_panel(c, x, y, width, height);
+    const char *title = page == MENU_PAGE_MODEL ? "Model" :
+                        page == MENU_PAGE_SCORES ? "Scores" :
+                        page == MENU_PAGE_DISPLAY ? "Display" :
+                        page == MENU_PAGE_RESET ? "Reset" : "Game menu";
+    draw_text(c, x + 18, y + 13, title, 0xffde8c, 1);
     snprintf(label, sizeof label, "Agent model: %s", *active_model ? active_model : "Qwen 3.5 (llama.cpp)");
     text_line(c, x + 18, y + 39, label, 0xbccadb, (width - 36) / CELL_W);
 
-    for (int i = 0; i < rows; i++) {
-        int row_y = y + 62 + i * row_h;
-        if (i == selected)
+    for (int row = 0; row < rows; row++) {
+        int i = ids[row];
+        int row_y = y + 62 + row * row_h;
+        if (i == selected) {
             draw_fill(c, x + 11, row_y, width - 22, row_h - 2, 0x354356, 1);
+            draw_fill(c, x + 11, row_y, 3, row_h - 2, 0xe0c070, 1);
+        }
         if (i == MENU_RESUME) {
             if (started) snprintf(label, sizeof label, "Resume game");
             else if (level > 1) snprintf(label, sizeof label, "Continue from level %d", level);
@@ -381,18 +442,26 @@ void render_menu(sr_canvas *c, int selected, const char *active_model,
             snprintf(label, sizeof label, "Tooltips: %s", tooltips ? "On" : "Off");
         else if (i == MENU_ROOM_BUTTONS)
             snprintf(label, sizeof label, "Level buttons: %s", room_buttons ? "On" : "Off");
+        else if (i == MENU_HINTS_FILE)
+            snprintf(label, sizeof label, "Hint file: %s", hints_file ? "On" : "Off");
+        else if (i == MENU_CAMPAIGN)
+            snprintf(label, sizeof label, "Campaign: %s",
+                     campaign && campaign_model && *campaign_model ? campaign_model : "Off");
         else if (i == MENU_NEURONTE)
             snprintf(label, sizeof label, "Neuronte v2: %s", draw_neuronte_enabled() ? "On" : "Off");
         else
             snprintf(label, sizeof label, "%s", actions[i]);
+        bool model_choice = i == MENU_CODEX || i == MENU_GROK || i == MENU_LOCAL || i == MENU_OLLAMA;
         bool disabled = (i == MENU_THINKING && support == THINK_UNAVAILABLE) ||
-                        ((i == MENU_COMPUTE || i == MENU_HARNESS) && hosted_agent);
+                        ((i == MENU_COMPUTE || i == MENU_HARNESS) && hosted_agent) ||
+                        (campaign && model_choice);
         uint32_t color = disabled ? 0xa6b5c6 : 0xf2efeb;
         text_line(c, x + 20, row_y + 5, label, color, (width - 40) / CELL_W);
     }
     if (*notice)
         text_line(c, x + 18, y + height - 48, notice, 0xa6b5c6, (width - 36) / CELL_W);
     draw_text(c, x + 18, y + height - 26,
+              page != MENU_PAGE_MAIN ? "Up/Down move    Enter select    Esc back" :
               started ? "Up/Down move    Enter select    Esc close" : "Up/Down move    Enter select",
               0xbccadb, 1);
 }
@@ -410,12 +479,14 @@ void render_model_menu(sr_canvas *c, bool ollama, const model_option *models,
     int height = 110 + rows * row_h;
     int x = (c->w - width) / 2, y = (c->h - height) / 2;
     draw_fill(c, 0, 0, c->w, c->h, 0x0c1018, 0.72f);
-    draw_fill(c, x, y, width, height, 0x151d29, 1);
-    draw_stroke(c, x, y, width, height, 2, 0x826b47, 1);
+    art_menu_panel(c, x, y, width, height);
     draw_text(c, x + 18, y + 13, ollama ? "Ollama models" : "llama.cpp models", 0xffde8c, 1);
     for (int i = first; i < first + rows; i++) {
         int row_y = y + 42 + (i - first) * row_h;
-        if (i == selected) draw_fill(c, x + 11, row_y, width - 22, row_h - 2, 0x354356, 1);
+        if (i == selected) {
+            draw_fill(c, x + 11, row_y, width - 22, row_h - 2, 0x354356, 1);
+            draw_fill(c, x + 11, row_y, 3, row_h - 2, 0xe0c070, 1);
+        }
         text_line(c, x + 20, row_y + 5, ollama ? models[i].name : llama_model,
                   0xf2efeb, (width - 40) / CELL_W);
     }
@@ -441,7 +512,7 @@ static void score_value(char out[32], long long value, int metric)
 
 int render_leaderboard(sr_canvas *c, const score_entry *scores, int count,
                        int scroll, int level, int metric, bool models, const char *notice,
-                       const score_entry *attempt)
+                       const score_entry *attempt, bool campaign)
 {
     int width = CANVAS_W < 1000 ? CANVAS_W - 76 : 900;
     int height = CANVAS_H - 100, x = (CANVAS_W - width) / 2, y = 50;
@@ -454,11 +525,13 @@ int render_leaderboard(sr_canvas *c, const score_entry *scores, int count,
     char text[512];
     int cols = (width - 40) / CELL_W;
     draw_fill(c, 0, 0, CANVAS_W, CANVAS_H, 0x0c1018, 0.72f);
-    draw_fill(c, x, y, width, height, 0x151d29, 1);
-    draw_stroke(c, x, y, width, height, 2, 0x826b47, 1);
-    draw_text(c, x + 20, y + 13, models ? "Model leaderboard" : "Player leaderboard", 0xffde8c, 1);
+    art_menu_panel(c, x, y, width, height);
+    draw_text(c, x + 20, y + 13, campaign ? "Campaign board" :
+              models ? "Model leaderboard" : "Player leaderboard", 0xffde8c, 1);
     int measure = models ? metric : SCORE_TOKENS;
-    if (attempt && attempt->id && attempt->level == level)
+    if (campaign)
+        snprintf(text, sizeof text, "%d rooms   %s", level, leaderboard_metric[measure]);
+    else if (attempt && attempt->id && attempt->level == level)
         snprintf(text, sizeof text, "Room %d   %s   |   Current run  %lld tokens  %.2fs",
                  level, leaderboard_metric[measure], attempt->measure[SCORE_TOKENS],
                  (double)attempt->measure[SCORE_TIME] / 1000.0);
@@ -481,7 +554,8 @@ int render_leaderboard(sr_canvas *c, const score_entry *scores, int count,
                  entry->rank, value, entry->model, entry->player);
         text_line(c, x + 20, row_y, text, entry->rank == 1 ? 0xffdf94 : 0xd0d4dc, cols);
     }
-    draw_text(c, x + 20, y + height - 26,
+    draw_text(c, x + 20, y + height - 26, campaign ?
+              "Left/Right length    M metric    Tab switch board    Up/Down scroll    Esc back" :
               "Left/Right room    M metric    Tab switch board    Up/Down scroll    Esc back",
               0xbccadb, 1);
     return limit;
@@ -547,8 +621,7 @@ int render_model_details(sr_canvas *c, model_details_tab tab, int scroll,
     if (!c) return limit;
 
     draw_fill(c, 0, 0, CANVAS_W, CANVAS_H, 0x0c1018, 0.72f);
-    draw_fill(c, x, y, width, height, 0x151d29, 1);
-    draw_stroke(c, x, y, width, height, 2, 0x826b47, 1);
+    art_menu_panel(c, x, y, width, height);
     draw_text(c, x + 20, y + 14, "Model prompt and tools", 0xffde8c, 1);
     for (int i = 0; i < DETAILS_COUNT; i++) {
         int tx = x + 20 + i * 104;
@@ -584,8 +657,7 @@ void render_prompt_editor(sr_canvas *c, const char *draft, size_t cursor, const 
     }
     int first = cursor_row >= rows ? cursor_row - rows + 1 : 0;
     draw_fill(c, 0, 0, CANVAS_W, CANVAS_H, 0x0c1018, 0.72f);
-    draw_fill(c, x, y, width, height, 0x151d29, 1);
-    draw_stroke(c, x, y, width, height, 2, 0x826b47, 1);
+    art_menu_panel(c, x, y, width, height);
     draw_text(c, x + 20, y + 14, "Edit system prompt", 0xffde8c, 1);
     for (int line = 0; *draft && line < first + rows; line++) {
         const char *end = draft;

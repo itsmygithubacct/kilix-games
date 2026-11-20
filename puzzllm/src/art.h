@@ -40,5 +40,8 @@ void art_kilix(sr_canvas *c, float x, float y, int dir, int step_ticks, int idle
 enum { ART_KILIX_HEIGHT = 84 };
 /* A small speech-bubble style prompt above Kilix ("Enter: use omp"). */
 void art_prompt(sr_canvas *c, float x, float y, const char *text);
+/* The menu and model-list panel: shadow, header band, gold frame.
+ * Title and rows are drawn by the caller on top. */
+void art_menu_panel(sr_canvas *c, float x, float y, float w, float h);
 
 #endif

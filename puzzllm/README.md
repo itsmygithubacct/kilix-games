@@ -89,16 +89,22 @@ Hints come one at a time, every 45 seconds or on H. Progress is kept in
 reached. If an agent or shell session ends, press Enter on its screen to
 start a new one.
 
-The game opens on its menu. Use Up and Down to choose **Start game** or
-continue your save, **Exit game**, **Reset Game**, **Reset Level**, or an agent model.
-Press Enter to select. Both resets ask for confirmation and back up the current
-workspace. **Reset Game** returns to the menu at level 1. **Reset Level**
-reopens the current level with a fresh workspace, coding session, and shell.
-The **llama.cpp models** and **Ollama models** entries open separate lists.
-Choose the configured GGUF or a model installed on the local Ollama
-service. Confirming a model from the opening menu starts the game.
-Model changes restart the agent with a fresh
-conversation in the same workspace. Model choices apply until you quit.
+The game opens on its menu in this order: **Harness**, **Model**, then
+**Start game** (or resume, or continue a saved level). Below those are
+**Scores**, **Display**, **Reset**, and **Exit game**. Enter opens a group.
+Escape steps back one page, and closes the menu once play has started.
+
+**Harness** toggles between OMP and Pi for a local model. **Model** chooses
+Codex, Grok, llama.cpp, or Ollama, and holds the prompt, thinking, and
+compute settings. The llama.cpp and Ollama rows open their model lists.
+Confirming a model from the opening menu starts the game. Model changes
+restart the agent with a fresh conversation in the same workspace. Model
+choices apply until you quit.
+
+**Reset** asks before **Reset Level** or **Reset Game**, and backs up the
+current workspace. **Reset Game** returns to the menu at level 1.
+**Reset Level** reopens the current level with a fresh workspace, coding
+session, and shell.
 
 The resource bar shows the running token total reported by the current
 agent session. It resets when a new session starts. A dash means usage has
@@ -116,6 +122,26 @@ to compare each model's best result by tokens, elapsed time, or peak
 CPU, RAM, GPU, VRAM, or disk throughput. Unavailable resource samples
 are omitted for that metric. Tab switches to player runs ranked by tokens
 within each model.
+
+**Campaign** locks the current model for every playable room. Turn it on
+from the game menu. The choice is saved, and the game reopens on that
+model. While it is on, Codex, Grok, llama.cpp, and Ollama stay on the
+locked model. Finish every playable room with reported token use from
+that model and the campaign is ranked. The unfinished stub room is not
+part of the campaign. Walking through a room again keeps that room's
+first result. **Campaign board** ranks finished campaigns. Tokens and
+time are totals. CPU, RAM, GPU, VRAM, and disk use the highest room
+peak. **Clear campaign board** asks for confirmation, then removes those
+rankings. The current run and the room leaderboard stay. Reset Game
+keeps the locked model and starts its rooms over. Reset Level redoes
+that one room.
+
+Each room writes its goal to `GOAL.md` in the sandbox home, so the agent
+and the shell can read it at `~/GOAL.md`. Entering a room replaces the
+file with that room's goal. The same entry writes every hint for the room
+to `~/HINTS.md`. **Display** → **Hint file** turns that file off. It is on
+by default. Turning it off removes `HINTS.md`, and later rooms do not
+write it again until it is turned back on.
 
 **Harness** toggles between OMP and [Pi](https://pi.dev/) for the selected
 Ollama or llama.cpp model. If Pi is missing, the game installs it on first
@@ -211,8 +237,8 @@ makes a room that is never finished, which is a stub. `require` can be
 (at least one of them, in any case), `lacks-ci A | B` (none of them),
 `equals TEXT` (ignoring surrounding whitespace), `max-bytes N`,
 `bytes N` (exactly N bytes, up to 16 MiB) or `only CHARS`
-(no other byte anywhere). `room` picks the room's look (`stone` or
-`brick`). A new level is a new block, not new code. The full format is in
+(no other byte anywhere). `room` picks the room's look: `stone`, `brick`, `press`, `archive`,
+`vault`, `dock`, or `soon`. A new level is a new block, not new code. The full format is in
 [`src/levels.h`](src/levels.h).
 
 The levels so far:
@@ -353,6 +379,13 @@ key releases, so he starts on the press and stops on the release.
   cells whose masks come from the pixel net. It is built when the Makefile
   finds a Neuronte checkout at `NEURONTE` (default `~/projects/neuronte`), and
   its weights are `neuronte-split-v4.nrt`, the file zell-neuronte uses.
+  Room art and room text stay on that file. The terminal panes also open
+  newer `neuronte-split-vN` files, `neuronte-term-*` bundles, and
+  `neuronte-emoji-vN` from the weight file's directory and the usual
+  Neuronte weight directories, and draw each glyph from the first file
+  trained on it. Bundles from split-v9 onward need a Neuronte that opens
+  tiled members. When `~/projects/neuronte` is older and a checkout of
+  its `origin/main` is visible, the Makefile builds that checkout.
 - **System font**, the default. Fontconfig selects the system monospace
   font and FreeType draws it in the game's terminal cells. Building needs
   the Fontconfig and FreeType development packages, and running needs an

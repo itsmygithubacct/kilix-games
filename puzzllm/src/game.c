@@ -18,6 +18,9 @@
 #include <string.h>
 #include <sys/stat.h>
 
+static bool save_hints_file(const game *g);
+static bool remove_workspace_file(const game *g, const char *name);
+
 static int load_level(const char *state, const char *name, int level_count)
 {
     char path[4096];
@@ -427,6 +430,50 @@ static const char *hosted_agent(const game *g)
     return g->use_codex ? "Codex" : g->use_grok ? "Grok" : NULL;
 }
 
+static void model_label_for(bool codex, bool grok, const char *ollama, char out[SCORE_MODEL_CAP])
+{
+    char model[SCORE_MODEL_CAP];
+    const char *weights = getenv("PUZZLLM_MODEL");
+    const char *leaf = weights ? strrchr(weights, '/') : NULL;
+    const char *hosted = codex ? "Codex" : grok ? "Grok" : NULL;
+    snprintf(model, sizeof model, "%s%s", hosted ? "" : (ollama && *ollama ? "Ollama/" : "llama.cpp/"),
+             hosted ? hosted : ollama && *ollama ? ollama :
+             weights && *weights ? (leaf ? leaf + 1 : weights) : "Qwen3.5-0.8B-Q8_0.gguf");
+    leaderboard_label(out, SCORE_MODEL_CAP, model);
+}
+
+static void player_name(char out[SCORE_PLAYER_CAP])
+{
+    const char *player = getenv("PUZZLLM_PLAYER");
+    if (!player || !*player) {
+        struct passwd *account = getpwuid(getuid());
+        player = account ? account->pw_name : "Player";
+    }
+    leaderboard_label(out, SCORE_PLAYER_CAP, player);
+    if (!out[0]) snprintf(out, SCORE_PLAYER_CAP, "Player");
+}
+
+static unsigned long long fresh_score_id(void)
+{
+    unsigned long long id = 0;
+    if (getrandom(&id, sizeof id, 0) != (ssize_t)sizeof id || !id)
+        id = ((unsigned long long)getpid() << 16) ^ 0x9e3779b97f4a7c15ULL;
+    if (!id) id = 1;
+    return id;
+}
+
+static void apply_locked_model(game *g, const char *label)
+{
+    bool codex = strncmp(label, "Codex", 5) == 0 && (label[5] == 0 || label[5] == '/');
+    bool grok = !codex && strncmp(label, "Grok", 4) == 0 && (label[4] == 0 || label[4] == '/');
+    g->use_codex = g->act.codex = codex;
+    g->use_grok = g->act.grok = grok;
+    g->ollama_model[0] = 0;
+    if (!codex && !grok && strncmp(label, "Ollama/", 7) == 0)
+        snprintf(g->ollama_model, sizeof g->ollama_model, "%s", label + 7);
+    if (codex || grok) g->thinking_support = THINK_UNAVAILABLE;
+}
+
 static void stop_metrics(agent_metrics *metrics)
 {
     pty_stop(&metrics->worker);
@@ -548,27 +595,15 @@ static void checkpoint_ranked_attempt(game *g)
 static void begin_ranked_agent(game *g)
 {
     score_entry *score = &g->ranked_attempt;
-    char model[SCORE_MODEL_CAP], clean[SCORE_MODEL_CAP];
-    const char *weights = getenv("PUZZLLM_MODEL");
-    const char *leaf = weights ? strrchr(weights, '/') : NULL;
-    snprintf(model, sizeof model, "%s%s", hosted_agent(g) ? "" :
-             (g->ollama_model[0] ? "Ollama/" : "llama.cpp/"),
-             hosted_agent(g) ? hosted_agent(g) : g->ollama_model[0] ? g->ollama_model :
-             weights && *weights ? (leaf ? leaf + 1 : weights) : "Qwen3.5-0.8B-Q8_0.gguf");
-    leaderboard_label(clean, sizeof clean, model);
+    char clean[SCORE_MODEL_CAP];
+    model_label_for(g->use_codex, g->use_grok, g->ollama_model, clean);
     bool same = !strcmp(score->model, clean) ||
                 (g->use_codex && !strncmp(score->model, "Codex/", 6));
     if ((!score->id || (!score->measure[SCORE_TOKENS] && !same)) &&
         !g->sc.goal_met) {
         *score = (score_entry){.level = cur_level(g)->number};
         if (getrandom(&score->id, sizeof score->id, 0) != sizeof score->id) score->id = 0;
-        const char *player = getenv("PUZZLLM_PLAYER");
-        if (!player || !*player) {
-            struct passwd *account = getpwuid(getuid());
-            player = account ? account->pw_name : "Player";
-        }
-        leaderboard_label(score->player, sizeof score->player, player);
-        if (!score->player[0]) snprintf(score->player, sizeof score->player, "Player");
+        player_name(score->player);
         snprintf(score->model, sizeof score->model, "%s", clean);
         for (int j = SCORE_CPU; j < SCORE_METRICS; j++) score->measure[j] = -1;
     } else if (score->id && !same) {
@@ -660,7 +695,8 @@ static void open_menu(game *g)
     char helper[4096];
     char *argv[] = {helper, "list-details", NULL};
     menu->open = true;
-    menu->selected = 0;
+    menu->page = MENU_PAGE_MAIN;
+    menu->selected = MENU_HARNESS;
     menu->model_submenu = 0;
     memset(g->held_until, 0, sizeof g->held_until);
     if (!g->spawn || menu->loading) return;
@@ -730,6 +766,14 @@ static void start_play(game *g)
 
 static void reset_from_menu(game *g)
 {
+    if (g->menu.selected == MENU_CLEAR_CAMPAIGN) {
+        g->menu.confirm_reset = false;
+        if (campaign_board_clear(g->state))
+            snprintf(g->menu.notice, sizeof g->menu.notice, "Campaign board cleared.");
+        else
+            snprintf(g->menu.notice, sizeof g->menu.notice, "Could not clear the campaign board.");
+        return;
+    }
     bool level_only = g->menu.selected == MENU_RESET_LEVEL;
     int level = level_only ? g->sc.level : 0;
     g->menu.confirm_reset = false;
@@ -767,10 +811,22 @@ static void reset_from_menu(game *g)
     g->transition_pending = false;
     g->tick_debt = g->poll_timer = 0;
     if (level_only) clear_rank_attempt(g->state, level);
+    g->menu.notice[0] = 0;
+    if (g->campaign) {
+        char player[SCORE_PLAYER_CAP];
+        player_name(player);
+        bool kept = level_only ?
+            campaign_drop_level(g->state, g->levels.items[level].number, fresh_score_id()) :
+            campaign_restart(g->state, g->campaign_model, player, fresh_score_id());
+        if (!kept)
+            snprintf(g->menu.notice, sizeof g->menu.notice, "Could not update the campaign run.");
+    }
     game_enter_level(g, level);
+    g->menu.page = MENU_PAGE_MAIN;
     g->menu.selected = MENU_RESUME;
     if (level_only) start_play(g);
-    else snprintf(g->menu.notice, sizeof g->menu.notice, "Game reset. Previous files backed up.");
+    else if (!g->menu.notice[0])
+        snprintf(g->menu.notice, sizeof g->menu.notice, "Game reset. Previous files backed up.");
 }
 
 static thinking_support bundled_thinking(void)
@@ -1054,9 +1110,21 @@ static void prompt_editor_key(game *g, const key_event *ev)
     }
 }
 
+static bool campaign_choice_allowed(const game *g, bool codex, bool grok, const char *name)
+{
+    char label[SCORE_MODEL_CAP];
+    if (!g->campaign) return true;
+    model_label_for(codex, grok, name, label);
+    return campaign_same_model(g->campaign_model, label);
+}
+
 static void select_model(game *g, bool codex, bool grok, const model_option *model)
 {
     const char *name = model ? model->name : "";
+    if (g->campaign && !campaign_choice_allowed(g, codex, grok, name)) {
+        snprintf(g->menu.notice, sizeof g->menu.notice, "Campaign is locked to %s.", g->campaign_model);
+        return;
+    }
     thinking_support support = (codex || grok) ? THINK_UNAVAILABLE :
                                model ? model->thinking : bundled_thinking();
     if (codex != g->use_codex || grok != g->use_grok || strcmp(name, g->ollama_model) != 0 ||
@@ -1110,17 +1178,39 @@ static void rank_menu_refresh(game_menu *menu)
     menu->score_scroll = 0;
 }
 
-static void open_leaderboard(game *g)
+static int playable_level_numbers(const game *g, int out[LEVEL_MAX])
+{
+    int count = 0;
+    for (int i = 0; i < g->levels.count; i++)
+        if (g->levels.items[i].check != CHECK_NONE) out[count++] = g->levels.items[i].number;
+    return count;
+}
+
+static void open_score_board(game *g, bool campaign)
 {
     game_menu *menu = &g->menu;
     free(menu->scores);
-    if (!leaderboard_load(g->state, &menu->scores, &menu->score_count))
-        snprintf(menu->notice, sizeof menu->notice, "Could not load the local leaderboard.");
+    bool loaded = campaign ? campaign_load(g->state, &menu->scores, &menu->score_count) :
+                  leaderboard_load(g->state, &menu->scores, &menu->score_count);
+    if (!loaded)
+        snprintf(menu->notice, sizeof menu->notice, campaign ?
+                 "Could not load the campaign board." : "Could not load the local leaderboard.");
     menu->leaderboard_open = true;
+    menu->campaign_board = campaign;
     menu->model_scores = true;
-    menu->score_level = cur_level(g)->number;
+    if (campaign) {
+        int needed[LEVEL_MAX];
+        menu->score_level = playable_level_numbers(g, needed);
+    } else {
+        menu->score_level = cur_level(g)->number;
+    }
     menu->score_metric = SCORE_TOKENS;
     rank_menu_refresh(menu);
+}
+
+static void open_leaderboard(game *g)
+{
+    open_score_board(g, false);
 }
 
 static void rank_menu_key(game *g, const key_event *ev)
@@ -1155,15 +1245,32 @@ static void rank_menu_key(game *g, const key_event *ev)
     case KEY_PAGE_DOWN: step = 12; break;
     default: return;
     }
-    int limit = render_leaderboard(NULL, menu->scores, menu->score_count, 0, 0, 0, false, "", NULL);
+    int limit = render_leaderboard(NULL, menu->scores, menu->score_count, 0, 0, 0, false, "", NULL, false);
     int next = menu->score_scroll + step;
     menu->score_scroll = next < 0 ? 0 : next > limit ? limit : next;
+}
+
+static int menu_row_index(const game *g)
+{
+    int rows[12];
+    int n = menu_page_rows(g->menu.page, draw_neuronte_available(), rows, 12);
+    for (int i = 0; i < n; i++) if (rows[i] == g->menu.selected) return i;
+    return 0;
+}
+
+static void menu_move(game *g, int index)
+{
+    int rows[12];
+    int n = menu_page_rows(g->menu.page, draw_neuronte_available(), rows, 12);
+    if (n <= 0) return;
+    if (index < 0) index = 0;
+    if (index >= n) index = n - 1;
+    g->menu.selected = rows[index];
 }
 
 static void menu_key(game *g, const key_event *ev)
 {
     game_menu *menu = &g->menu;
-    int last = draw_neuronte_available() ? MENU_NEURONTE : MENU_OLLAMA;
     if (menu->leaderboard_open) {
         rank_menu_key(g, ev);
         return;
@@ -1189,24 +1296,56 @@ static void menu_key(game *g, const key_event *ev)
     }
     switch (ev->key) {
     case KEY_UP:
-        if (menu->selected > 0) menu->selected--;
+        menu_move(g, menu_row_index(g) - 1);
         break;
     case KEY_DOWN:
-        if (menu->selected < last) menu->selected++;
+        menu_move(g, menu_row_index(g) + 1);
         break;
     case KEY_HOME:
-        menu->selected = 0;
+        menu_move(g, 0);
         break;
     case KEY_END:
-        menu->selected = last;
+        menu_move(g, 100);
         break;
     case KEY_ENTER:
         if (ev->action == 2) break;
         menu->notice[0] = 0;
+        if (menu->selected == MENU_MODEL || menu->selected == MENU_SCORES ||
+            menu->selected == MENU_DISPLAY || menu->selected == MENU_RESETS) {
+            menu->page = menu->selected == MENU_MODEL ? MENU_PAGE_MODEL :
+                         menu->selected == MENU_SCORES ? MENU_PAGE_SCORES :
+                         menu->selected == MENU_DISPLAY ? MENU_PAGE_DISPLAY : MENU_PAGE_RESET;
+            menu_move(g, 0);
+            break;
+        }
         if (menu->selected == MENU_RESUME) start_play(g);
         if (menu->selected == MENU_QUIT) g->quit = true;
-        if (menu->selected == MENU_RESET || menu->selected == MENU_RESET_LEVEL)
+        if (menu->selected == MENU_RESET || menu->selected == MENU_RESET_LEVEL ||
+            menu->selected == MENU_CLEAR_CAMPAIGN)
             menu->confirm_reset = true;
+        if (menu->selected == MENU_CAMPAIGN) {
+            bool enabled = !g->campaign;
+            char label[SCORE_MODEL_CAP], player[SCORE_PLAYER_CAP];
+            model_label_for(g->use_codex, g->use_grok, g->ollama_model, label);
+            if (enabled && !(g->campaign_model[0] && campaign_same_model(g->campaign_model, label))) {
+                player_name(player);
+                if (!campaign_restart(g->state, label, player, fresh_score_id())) {
+                    snprintf(menu->notice, sizeof menu->notice, "Could not start the campaign.");
+                    break;
+                }
+                snprintf(g->campaign_model, sizeof g->campaign_model, "%s", label);
+            }
+            if (g->state_lock < 0 || !save_state_line(g->state, "campaign", enabled ? "on" : "off"))
+                snprintf(menu->notice, sizeof menu->notice, "Could not save the campaign setting.");
+            else {
+                g->campaign = enabled;
+                if (enabled)
+                    snprintf(menu->notice, sizeof menu->notice, "Campaign locked to %s.", g->campaign_model);
+                else
+                    snprintf(menu->notice, sizeof menu->notice, "Campaign is off.");
+            }
+        }
+        if (menu->selected == MENU_CAMPAIGN_BOARD) open_score_board(g, true);
         if (menu->selected == MENU_HARNESS && !hosted_agent(g)) {
             bool pi = !g->use_pi;
             if (g->state_lock >= 0 && save_state_line(g->state, "harness", pi ? "pi" : "omp")) {
@@ -1247,6 +1386,17 @@ static void menu_key(game *g, const key_event *ev)
             else
                 snprintf(menu->notice, sizeof menu->notice, "Could not save the level buttons setting.");
         }
+        if (menu->selected == MENU_HINTS_FILE) {
+            bool enabled = !g->hints_file;
+            if (g->state_lock < 0 || !save_state_line(g->state, "hints-file", enabled ? "on" : "off"))
+                snprintf(menu->notice, sizeof menu->notice, "Could not save the hint file setting.");
+            else if (!(enabled ? save_hints_file(g) : remove_workspace_file(g, "HINTS.md"))) {
+                save_state_line(g->state, "hints-file", g->hints_file ? "on" : "off");
+                snprintf(menu->notice, sizeof menu->notice, "Could not save the hint file setting.");
+            } else {
+                g->hints_file = enabled;
+            }
+        }
         if (menu->selected == MENU_NEURONTE && draw_neuronte_available()) {
             bool enabled = !draw_neuronte_enabled();
             if (!draw_set_neuronte(enabled))
@@ -1276,6 +1426,61 @@ static void menu_key(game *g, const key_event *ev)
     }
 }
 
+static bool write_workspace_file(const game *g, const char *name, const char *temp,
+                                 const char *body, size_t length)
+{
+    int dirfd = open(g->workspace, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (dirfd < 0) return false;
+    unlinkat(dirfd, temp, 0);
+    int fd = openat(dirfd, temp, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+    bool ok = false;
+    if (fd >= 0) {
+        ok = write(fd, body, length) == (ssize_t)length;
+        if (close(fd) != 0) ok = false;
+        if (ok) ok = renameat(dirfd, temp, dirfd, name) == 0;
+        if (!ok) unlinkat(dirfd, temp, 0);
+    }
+    close(dirfd);
+    return ok;
+}
+
+static bool remove_workspace_file(const game *g, const char *name)
+{
+    int dirfd = open(g->workspace, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (dirfd < 0) return false;
+    bool ok = unlinkat(dirfd, name, 0) == 0 || errno == ENOENT;
+    close(dirfd);
+    return ok;
+}
+
+static bool save_goal_file(const game *g)
+{
+    const level *lv = cur_level(g);
+    char body[LEVEL_TEXT + 32];
+    int length = snprintf(body, sizeof body, "# Goal\n\n%s\n", lv->goal);
+    if (length < 0 || (size_t)length >= sizeof body) return false;
+    return write_workspace_file(g, "GOAL.md", ".goal-save", body, (size_t)length);
+}
+
+static bool save_hints_file(const game *g)
+{
+    const level *lv = cur_level(g);
+    char body[LEVEL_HINT_MAX * (LEVEL_TEXT + 16) + 64];
+    int length = snprintf(body, sizeof body, "# Hints\n");
+    if (length < 0 || (size_t)length >= sizeof body) return false;
+    if (lv->nhints == 0) {
+        int extra = snprintf(body + length, sizeof body - (size_t)length, "\nThis room has no hints.\n");
+        if (extra < 0 || (size_t)length + (size_t)extra >= sizeof body) return false;
+        length += extra;
+    }
+    for (int i = 0; i < lv->nhints; i++) {
+        int extra = snprintf(body + length, sizeof body - (size_t)length, "\n%d. %s\n", i + 1, lv->hints[i]);
+        if (extra < 0 || (size_t)length + (size_t)extra >= sizeof body) return false;
+        length += extra;
+    }
+    return write_workspace_file(g, "HINTS.md", ".hints-save", body, (size_t)length);
+}
+
 void game_enter_level(game *g, int level)
 {
     if (g->state_lock >= 0) seed_system_files(g);
@@ -1303,6 +1508,16 @@ void game_enter_level(game *g, int level)
     else
         game_poll_goal(g);
     if (g->sc.goal_met) g->sc.door = 1.0f;   /* already done earlier */
+    if (g->state_lock >= 0) {
+        if (!save_goal_file(g))
+            activity_add(&g->act, ACT_ERROR, "Could not save ~/GOAL.md.");
+        if (g->hints_file) {
+            if (!save_hints_file(g))
+                activity_add(&g->act, ACT_ERROR, "Could not save ~/HINTS.md.");
+        } else if (!remove_workspace_file(g, "HINTS.md")) {
+            activity_add(&g->act, ACT_ERROR, "Could not remove ~/HINTS.md.");
+        }
+    }
 }
 
 bool game_init(game *g, const char *root, const char *state, bool spawn,
@@ -1351,6 +1566,13 @@ bool game_init(game *g, const char *root, const char *state, bool spawn,
     g->tooltips = load_preference(state, "tooltips", tips) && strcmp(tips, "on") == 0;
     char buttons[8];
     g->room_buttons = load_preference(state, "room-buttons", buttons) && strcmp(buttons, "on") == 0;
+    char hints_file[8];
+    g->hints_file = !(load_preference(state, "hints-file", hints_file) && strcmp(hints_file, "off") == 0);
+    char campaign[8];
+    if (!campaign_active_model(state, g->campaign_model)) g->campaign_model[0] = 0;
+    g->campaign = load_preference(state, "campaign", campaign) && strcmp(campaign, "on") == 0 &&
+                  g->campaign_model[0];
+    if (g->campaign) apply_locked_model(g, g->campaign_model);
     scene_init(&g->sc, 0, g->levels.count);
 
     room_transition move;
@@ -1533,14 +1755,21 @@ static void press_room_button(game *g, room_button button)
     case BUTTON_METRICS:
         open_menu(g);
         g->menu.notice[0] = 0;
-        if (button == BUTTON_HARNESS) g->menu.selected = MENU_HARNESS;
-        if (button == BUTTON_MODEL)
+        if (button == BUTTON_HARNESS) {
+            g->menu.page = MENU_PAGE_MAIN;
+            g->menu.selected = MENU_HARNESS;
+        }
+        if (button == BUTTON_MODEL) {
+            g->menu.page = MENU_PAGE_MODEL;
             g->menu.selected = g->use_codex ? MENU_CODEX : g->use_grok ? MENU_GROK : g->ollama_model[0] ? MENU_OLLAMA : MENU_LOCAL;
+        }
         if (button == BUTTON_RESET_LEVEL || button == BUTTON_RESET_GAME) {
+            g->menu.page = MENU_PAGE_RESET;
             g->menu.selected = button == BUTTON_RESET_LEVEL ? MENU_RESET_LEVEL : MENU_RESET;
             g->menu.confirm_reset = true;
         }
         if (button == BUTTON_METRICS) {
+            g->menu.page = MENU_PAGE_SCORES;
             g->menu.selected = MENU_LEADERBOARD;
             open_leaderboard(g);
         }
@@ -1581,13 +1810,23 @@ void game_key(game *g, const key_event *ev)
         (ev->key == KEY_F12 && ev->mods == game_mod)) {
         if (press && ev->action != 2) {
             if (g->menu.prompt_edit) g->menu.prompt_edit = false;
-            else if (g->menu.leaderboard_open) g->menu.leaderboard_open = false;
+            else if (g->menu.leaderboard_open) {
+                g->menu.leaderboard_open = false;
+                g->menu.campaign_board = false;
+            }
             else if (g->menu.details_open) {
                 g->menu.details_open = false;
                 pty_stop(&g->menu.prompt_counter);
             }
             else if (g->menu.confirm_reset) g->menu.confirm_reset = false;
             else if (g->menu.model_submenu) g->menu.model_submenu = 0;
+            else if (g->menu.page != MENU_PAGE_MAIN) {
+                int page = g->menu.page;
+                g->menu.page = MENU_PAGE_MAIN;
+                g->menu.selected = page == MENU_PAGE_MODEL ? MENU_MODEL :
+                                   page == MENU_PAGE_SCORES ? MENU_SCORES :
+                                   page == MENU_PAGE_DISPLAY ? MENU_DISPLAY : MENU_RESETS;
+            }
             else if (!g->menu.open) open_menu(g);
             else if (g->started) g->menu.open = false;
         }
@@ -1906,6 +2145,15 @@ void game_update(game *g, double dt)
                     score->measure[SCORE_TOKENS] > 0 && strcmp(score->model, "*") &&
                     !leaderboard_submit(g->state, score))
                     activity_add(&g->act, ACT_ERROR, "Could not save the leaderboard result.");
+                if (move.direction > 0 && g->sc.goal_met && g->campaign) {
+                    int needed[LEVEL_MAX];
+                    int count = playable_level_numbers(g, needed);
+                    bool ranked = false;
+                    if (!campaign_note(g->state, score, needed, count, &ranked))
+                        activity_add(&g->act, ACT_ERROR, "Could not save the campaign.");
+                    else if (ranked)
+                        activity_add(&g->act, ACT_INFO, "Campaign complete. It is on the campaign board.");
+                }
                 if (finish_transition(g, move)) {
                     arrive_in_room(g, move);
                 } else {
@@ -1985,7 +2233,7 @@ void game_render(game *g, sr_canvas *c)
     else if (g->menu.leaderboard_open)
         render_leaderboard(c, g->menu.scores, g->menu.score_count, g->menu.score_scroll,
                            g->menu.score_level, g->menu.score_metric, g->menu.model_scores,
-                           g->menu.notice, &g->ranked_attempt);
+                           g->menu.notice, &g->ranked_attempt, g->menu.campaign_board);
     else if (g->menu.model_submenu)
         render_model_menu(c, g->menu.model_submenu == MENU_OLLAMA, g->menu.models,
                           g->menu.count, g->menu.model_selected,
@@ -1994,5 +2242,6 @@ void game_render(game *g, sr_canvas *c)
         render_menu(c, g->menu.selected, v.agent_model,
                     g->started, g->sc.level + 1, g->menu.confirm_reset, g->menu.notice,
                     g->thinking_support, g->thinking_enabled, v.hosted_agent, g->use_pi,
-                    g->compute, g->tooltips, g->room_buttons);
+                    g->compute, g->tooltips, g->room_buttons, g->campaign, g->campaign_model,
+                    g->hints_file, g->menu.page);
 }

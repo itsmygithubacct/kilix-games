@@ -20,9 +20,11 @@
 
 #ifdef PUZZLLM_NEURONTE
 #include "neuronte.h"
+#include "neuronte_sdk_terminal.h"
 #ifndef PUZZLLM_NEURONTE_WEIGHTS_DEFAULT
 #define PUZZLLM_NEURONTE_WEIGHTS_DEFAULT "neuronte-split-v4.nrt"
 #endif
+static nsdk_terminal *term_faces;
 #endif
 
 enum { CW = DRAW_CELL_W, CH = DRAW_CELL_H };
@@ -447,7 +449,13 @@ bool draw_set_neuronte(bool enabled)
         snprintf(font_path, sizeof font_path, "%s", weights_path());
         font_state = neuronte_open_file(font_path, &font) == 0 ? 1 : -1;
         if (font_state < 0) font = NULL;
-        else warm_cache();
+        else {
+            /* Room art and room text stay on this handle. Terminal cells
+             * also search newer splits, term bundles, and emoji. */
+            if (nsdk_terminal_open(font, font_path, &term_faces) != NEURONTE_OK)
+                term_faces = NULL;
+            warm_cache();
+        }
     }
     neuronte_enabled = font_state > 0;
     return neuronte_enabled;
@@ -670,12 +678,34 @@ void draw_glyph(sr_canvas *c, int x, int y, int w, int h, uint32_t scalar,
     if (nn()) {
         unsigned neuronte_style = (style & DRAW_GLYPH_BOLD ? NEURONTE_STYLE_BOLD : 0) |
                                   (style & DRAW_GLYPH_ITALIC ? NEURONTE_STYLE_ITALIC : 0);
+        if (term_faces != NULL) {
+            int span = 1, cw = w, ch = h;
+            if (h == CH && (w == CW || w == CW * 2)) {
+                span = w / CW;
+                cw = CW;
+                ch = CH;
+            }
+            nsdk_terminal_draw(term_faces, c->px, c->w, c->w, c->h, x, y, cw, ch, span, scalar,
+                               nn_color(rgb, 1.0f), neuronte_style);
+            return;
+        }
         nn_scalar(c, scalar, x, y, w, h, rgb, 1.0f, neuronte_style);
         return;
     }
 #endif
     if (h == CH && system_glyph(c, x, y, w, scalar, rgb & 0xffffffu, 255, style)) return;
     raster_glyph(c, x, y, scalar, rgb & 0xffffffu, 255, (style & DRAW_GLYPH_BOLD) != 0);
+}
+
+int draw_glyph_trained(uint32_t scalar)
+{
+#ifdef PUZZLLM_NEURONTE
+    if (term_faces != NULL && nsdk_terminal_trained(term_faces, scalar) == 1)
+        return 1;
+#else
+    (void)scalar;
+#endif
+    return 0;
 }
 
 void draw_picture(sr_canvas *c, const uint32_t *px, int sw, int sh,

@@ -11,22 +11,41 @@
 
 typedef struct palette {
     uint32_t floor_a, floor_b, wall, wall_mortar, wall_shadow, runner,
-             runner_edge, door_wood, door_dark, frame;
+             runner_edge, runner_mark, door_wood, door_dark, frame;
 } palette;
+
+static int brick_wall(const char *style)
+{
+    return style && (strcmp(style, "brick") == 0 || strcmp(style, "press") == 0 ||
+                     strcmp(style, "archive") == 0 || strcmp(style, "dock") == 0);
+}
 
 static palette room_palette(const char *style)
 {
     palette p;
-    if (style != NULL && strcmp(style, "brick") == 0) {
+    if (brick_wall(style)) {
         p.floor_a = 0x5a4636; p.floor_b = 0x503e30;
         p.wall = 0x8a4b3a; p.wall_mortar = 0x5e3328; p.wall_shadow = 0x3a201a;
-        p.runner = 0x2f5f6f; p.runner_edge = 0xc8a050;
         p.door_wood = 0x6b4a2b; p.door_dark = 0x47301b; p.frame = 0x2a2a30;
-    } else {   /* "stone" and anything unknown */
+    } else {   /* "stone", "vault", "soon", and anything unknown */
         p.floor_a = 0x3d4250; p.floor_b = 0x363a47;
         p.wall = 0x58606f; p.wall_mortar = 0x3e4451; p.wall_shadow = 0x252831;
-        p.runner = 0x7a2f35; p.runner_edge = 0xc8a050;
         p.door_wood = 0x7a5530; p.door_dark = 0x523720; p.frame = 0x1e2026;
+    }
+    p.runner = 0x2f5f6f; p.runner_edge = 0xc8a050; p.runner_mark = 0xe7d7a2;
+    if (style == NULL) return p;
+    if (strcmp(style, "brick") == 0) {
+        p.runner = 0x7a2f35; p.runner_mark = 0xf0c0a0;
+    } else if (strcmp(style, "press") == 0) {
+        p.runner = 0x1d6a45; p.runner_edge = 0x8fd0a8; p.runner_mark = 0xd8ffe8;
+    } else if (strcmp(style, "archive") == 0) {
+        p.runner = 0x8d6230; p.runner_edge = 0xe2c48a; p.runner_mark = 0xffe3b0;
+    } else if (strcmp(style, "vault") == 0) {
+        p.runner = 0xb0893e; p.runner_edge = 0xf0d78a; p.runner_mark = 0xfff1c4;
+    } else if (strcmp(style, "dock") == 0) {
+        p.runner = 0x1e5c68; p.runner_edge = 0x8ec8d4; p.runner_mark = 0xd4f4f8;
+    } else if (strcmp(style, "soon") == 0) {
+        p.runner = 0x4a4e58; p.runner_edge = 0x9aa0aa; p.runner_mark = 0xd8dce4;
     }
     return p;
 }
@@ -34,7 +53,29 @@ static palette room_palette(const char *style)
 static const art_sprite *room_wall(const room_art *art, const char *style)
 {
     if (!art) return NULL;
-    return style && strcmp(style, "brick") == 0 ? &art->brick : &art->stone;
+    return brick_wall(style) ? &art->brick : &art->stone;
+}
+
+/* A mark on the aisle runner. Each room style has its own shape so the
+ * levels read differently down the center of the room. */
+static void runner_motif(sr_canvas *c, const char *style, palette p, int mid, int y)
+{
+    if (style && strcmp(style, "press") == 0) {
+        draw_fill(c, mid - 1, y, 2, 8, p.runner_mark, 1);
+    } else if (style && strcmp(style, "archive") == 0) {
+        draw_fill(c, mid - 4, y, 8, 2, p.runner_mark, 1);
+        draw_fill(c, mid - 4, y + 4, 8, 2, p.runner_mark, 1);
+    } else if (style && strcmp(style, "vault") == 0) {
+        draw_fill(c, mid - 4, y, 8, 6, p.runner_mark, 1);
+        draw_fill(c, mid - 2, y + 2, 4, 2, 0x5a3e16, 1);
+    } else if (style && strcmp(style, "dock") == 0) {
+        draw_fill(c, mid - 5, y + 2, 10, 2, p.runner_mark, 1);
+    } else if (style && strcmp(style, "soon") == 0) {
+        draw_fill(c, mid - 1, y, 2, 2, p.runner_mark, 1);
+        draw_fill(c, mid - 1, y + 5, 2, 2, p.runner_mark, 1);
+    } else {
+        draw_fill(c, mid - 2, y, 4, 4, p.runner_mark, 1);
+    }
 }
 
 static void draw_wall_fallback(sr_canvas *c, palette p)
@@ -72,7 +113,8 @@ void art_room(sr_canvas *c, const room_art *art, const char *style)
                 draw_fill(c, x, y, 32, 32,
                           ((x / 32 + y / 32) & 1) ? p.floor_a : p.floor_b, 1);
     }
-    draw_fill(c, 0, WALL_H - 6, CANVAS_W, 6, p.wall_shadow, 1.0f);
+    draw_fill(c, 0, WALL_H - 6, CANVAS_W, 4, p.wall_shadow, 1.0f);
+    draw_fill(c, 0, WALL_H - 2, CANVAS_W, 2, p.runner, 1.0f);
     draw_fill(c, 0, WALL_H, CANVAS_W, 10, 0x000000, 0.25f);
     /* side walls */
     draw_fill(c, 0, 0, 8, CANVAS_H, p.wall_shadow, 1.0f);
@@ -85,8 +127,11 @@ void art_room(sr_canvas *c, const room_art *art, const char *style)
               runner_h, sr_scale_rgb(p.runner, 0.58f), 1);
     draw_fill(c, AISLE_X0 - 2, WALL_H, AISLE_X1 - AISLE_X0 + 4,
               runner_h, p.runner, 1);
-    for (int y = WALL_H + 24; y < WALL_H + runner_h; y += 24)
-        draw_fill(c, AISLE_X0 - 2, y, AISLE_X1 - AISLE_X0 + 4, 1, 0x000000, 0.12f);
+    draw_fill(c, AISLE_X0 - 8, WALL_H, (AISLE_X1 - AISLE_X0) + 16, 3,
+              p.runner_mark, 1);
+    int mid = (AISLE_X0 + AISLE_X1) / 2;
+    for (int y = WALL_H + 16; y < WALL_H + runner_h - 10; y += 22)
+        runner_motif(c, style, p, mid, y);
     /* HUD strip */
     draw_fill(c, 0, HUD_Y, CANVAS_W, CANVAS_H - HUD_Y, 0x000000, 0.55f);
 }
@@ -99,8 +144,11 @@ void art_door(sr_canvas *c, const room_art *art, const char *style, float open, 
 
     if (open < 0) open = 0;
     if (open > 1) open = 1;
-    /* frame */
+    /* frame, with a lip in this room's runner color */
     draw_fill(c, DOOR_X - 8, DOOR_Y - 8, DOOR_W + 16, DOOR_H + 8, p.frame, 1.0f);
+    draw_fill(c, DOOR_X - 6, DOOR_Y - 6, DOOR_W + 12, 2, p.runner, 1);
+    draw_fill(c, DOOR_X - 6, DOOR_Y - 6, 2, DOOR_H + 6, p.runner, 1);
+    draw_fill(c, DOOR_X + DOOR_W + 4, DOOR_Y - 6, 2, DOOR_H + 6, p.runner, 1);
     draw_fill(c, DOOR_X, DOOR_Y, DOOR_W, DOOR_H, 0x000000, 1);
     /* door leaf slides up into the wall */
     lift = open * (DOOR_H - 6);
@@ -183,6 +231,30 @@ void art_prompt(sr_canvas *c, float x, float y, const char *text)
     draw_fill(c, bx, y - 26, (float)w, 22, 0x101216, 0.9f);
     draw_stroke(c, bx, y - 26, (float)w, 22, 1, 0xd8b440, 1.0f);
     draw_text(c, bx + 8, y - 23, text, 0xfff0c0, 1.0f);
+}
+
+void art_menu_panel(sr_canvas *c, float x, float y, float w, float h)
+{
+    float tick = 10;
+
+    draw_fill(c, x + 8, y + 10, w, h, 0x000000, 0.45f);
+    draw_fill(c, x, y, w, h, 0x121820, 1);
+    draw_fill(c, x, y, w, 34, 0x1c2836, 1);
+    draw_fill(c, x, y + 33, w, 1, 0xc8a050, 1);
+    if (h >= 160) {
+        draw_fill(c, x, y + h - 36, w, 36, 0x0e141c, 1);
+        draw_fill(c, x, y + h - 36, w, 1, 0x5c4a30, 1);
+    }
+    draw_stroke(c, x, y, w, h, 2, 0xc8a050, 1);
+    draw_stroke(c, x + 4, y + 4, w - 8, h - 8, 1, 0x3d3426, 1);
+    draw_fill(c, x + 6, y + 6, tick, 2, 0xe0c070, 1);
+    draw_fill(c, x + 6, y + 6, 2, tick, 0xe0c070, 1);
+    draw_fill(c, x + w - 6 - tick, y + 6, tick, 2, 0xe0c070, 1);
+    draw_fill(c, x + w - 8, y + 6, 2, tick, 0xe0c070, 1);
+    draw_fill(c, x + 6, y + h - 8, tick, 2, 0xe0c070, 1);
+    draw_fill(c, x + 6, y + h - 6 - tick, 2, tick, 0xe0c070, 1);
+    draw_fill(c, x + w - 6 - tick, y + h - 8, tick, 2, 0xe0c070, 1);
+    draw_fill(c, x + w - 8, y + h - 6 - tick, 2, tick, 0xe0c070, 1);
 }
 
 static void load_sprite(art_sprite *sprite, const char *root, const char *name)

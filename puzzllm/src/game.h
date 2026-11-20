@@ -40,6 +40,7 @@ typedef struct game_menu {
     bool confirm_reset;
     bool details_open;
     bool leaderboard_open;
+    bool campaign_board;
     score_entry *scores;
     int score_count, score_scroll, score_level, score_metric;
     bool model_scores;
@@ -55,7 +56,8 @@ typedef struct game_menu {
     char prompt_count[48];
     char prompt_input[128];
     size_t prompt_input_len;
-    char notice[160];
+    char notice[320];
+    int page;
     int selected;
     model_option *models;
     int count;
@@ -121,7 +123,8 @@ typedef struct game {
     thinking_support thinking_support;
     bool thinking_enabled;
     compute_mode compute;
-    bool tooltips, room_buttons;
+    bool tooltips, room_buttons, hints_file, campaign;
+    char campaign_model[SCORE_MODEL_CAP];
     bool transition_pending;
     char omp_note[96], shell_note[96];
 } game;

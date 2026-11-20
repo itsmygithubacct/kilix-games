@@ -59,6 +59,18 @@ static void write_file(const char *path, const char *data, size_t n)
     close(fd);
 }
 
+static bool file_contains(const char *path, const char *needle)
+{
+    char buf[1200];
+    FILE *f = fopen(path, "r");
+    size_t n;
+    if (!f) return false;
+    n = fread(buf, 1, sizeof buf - 1, f);
+    fclose(f);
+    buf[n] = 0;
+    return strstr(buf, needle) != NULL;
+}
+
 static void sub(char *out, size_t cap, const char *name)
 {
     snprintf(out, cap, "%s/%s", scratch, name);
@@ -1052,6 +1064,83 @@ static void test_draw(void)
     sr_canvas_free(&neural);
 }
 
+/* omp's startup row: pi, tab, shift, play, hexagon, and a two-cell folder. */
+static int raw_changed(const sr_canvas *c, int x, int y, int w, int h, uint32_t bg)
+{
+    int n = 0;
+    for (int yy = y; yy < y + h; yy++)
+        for (int xx = x; xx < x + w; xx++)
+            if (c->px[yy * c->w + xx] != bg) n++;
+    return n;
+}
+
+static int high_alpha(const sr_canvas *c, int x, int y, int w, int h)
+{
+    int n = 0;
+    for (int yy = y; yy < y + h; yy++)
+        for (int xx = x; xx < x + w; xx++)
+            if ((c->px[yy * c->w + xx] >> 24) >= 200) n++;
+    return n;
+}
+
+static void test_omp_glyphs(void)
+{
+#ifdef PUZZLLM_TEST_NEURONTE
+    static const uint32_t scalar[] = {0x03c0u, 0x21e5u, 0x21e7u, 0x25b6u, 0x2b22u, 0x1f4c1u};
+    static const char *name[] = {"pi", "tab", "shift", "play", "hexagon", "folder"};
+    static const int col[] = {0, 16, 32, 48, 64, 80, 96};
+    static const uint32_t row[] = {0x03c0u, 0x21e5u, 0x21e7u, 0x25b6u, 0x2b22u, 0x1f4c1u, (uint32_t)'|'};
+    sr_canvas dark, light;
+    int i, differ;
+    draw_force_raster(false);
+    if (!draw_init()) {
+        CHECK(false, "omp glyphs: Neuronte weights open");
+        return;
+    }
+    for (i = 0; i < 6; i++)
+        CHECK(draw_glyph_trained(scalar[i]) == 1, "omp glyph %s is trained", name[i]);
+    if (!sr_canvas_init(&dark, 112, 16) || !sr_canvas_init(&light, 112, 16)) {
+        CHECK(false, "omp glyph canvases");
+        return;
+    }
+    memset(dark.px, 0, (size_t)dark.w * (size_t)dark.h * 4);
+    for (i = 0; i < light.w * light.h; i++) light.px[i] = 0xffffffffu;
+    for (i = 0; i < 7; i++) {
+        int w = row[i] == 0x1f4c1u ? 16 : 8;
+        draw_glyph(&dark, col[i], 0, w, 16, row[i], 0xffffffu, 0);
+        draw_glyph(&light, col[i], 0, w, 16, row[i], 0x000000u, 0);
+    }
+    differ = 0;
+    for (int y = 0; y < 16; y++)
+        for (int x = 0; x < 8; x++)
+            if (dark.px[y * dark.w + 16 + x] != dark.px[y * dark.w + 32 + x]) differ++;
+    CHECK(differ > 8, "tab and shift arrows differ (%d)", differ);
+    CHECK(raw_changed(&dark, 80, 0, 8, 16, 0) > 4 && raw_changed(&dark, 88, 0, 8, 16, 0) > 4,
+          "folder paints both cells");
+    differ = 0;
+    for (int y = 0; y < 16; y++)
+        for (int x = 0; x < 8; x++)
+            if (dark.px[y * dark.w + 80 + x] != dark.px[y * dark.w + 88 + x]) differ++;
+    CHECK(differ > 0, "folder halves are not the same cell twice");
+    CHECK(raw_changed(&dark, 96, 0, 8, 16, 0) > 4, "the marker after the folder starts at the next column");
+    CHECK(raw_changed(&dark, 8, 0, 8, 16, 0) == 0 && raw_changed(&dark, 104, 0, 8, 16, 0) == 0,
+          "glyphs stay inside their columns");
+    CHECK(high_alpha(&dark, 48, 0, 8, 16) > 0 && high_alpha(&dark, 64, 0, 8, 16) > 0,
+          "play and hexagon have crisp ink");
+    CHECK(raw_changed(&dark, 0, 0, 112, 16, 0) > 20 && raw_changed(&light, 0, 0, 112, 16, 0xffffffffu) > 20,
+          "the row is visible on dark and light");
+    for (i = 0; i < 6; i++) {
+        int w = scalar[i] == 0x1f4c1u ? 16 : 8;
+        CHECK(raw_changed(&dark, col[i], 0, w, 16, 0) > 4, "dark ink for %s", name[i]);
+        CHECK(raw_changed(&light, col[i], 0, w, 16, 0xffffffffu) > 4, "light ink for %s", name[i]);
+    }
+    sr_canvas_free(&dark);
+    sr_canvas_free(&light);
+#else
+    (void)0;
+#endif
+}
+
 /* ---------------- rendering ---------------- */
 
 
@@ -1067,6 +1156,14 @@ static void test_render_and_flow(void)
     CHECK(game_init(&G, ".", state, false, err, sizeof err), "game_init: %s", err);
     CHECK(G.sc.level == 0 && !G.sc.goal_met, "starts in room 1, goal not met");
     CHECK(G.hints_shown == 1, "first hint is shown");
+    snprintf(prog, sizeof prog, "%s/workspace/GOAL.md", state);
+    CHECK(file_contains(prog, "# Goal") && file_contains(prog, "Hello, World"),
+          "room 1 writes its goal to ~/GOAL.md");
+    snprintf(prog, sizeof prog, "%s/workspace/HINTS.md", state);
+    CHECK(G.hints_file && file_contains(prog, "# Hints") &&
+          file_contains(prog, "1. Walk to the agent") &&
+          file_contains(prog, "5. You may also finish the goal yourself"),
+          "room 1 writes every hint to ~/HINTS.md");
 
     CHECK(sr_canvas_init(&shut, CANVAS_W, CANVAS_H) && sr_canvas_init(&open, CANVAS_W, CANVAS_H) &&
           sr_canvas_init(&cur, CANVAS_W, CANVAS_H), "canvases");
@@ -1117,6 +1214,12 @@ static void test_render_and_flow(void)
         for (int i = 0; i < 600 && G.sc.level == 0; i++) game_update(&G, 1.0 / 60);
     }
     CHECK(G.sc.level == 1, "walked into room 2");
+    snprintf(prog, sizeof prog, "%s/workspace/GOAL.md", state);
+    CHECK(file_contains(prog, "strawberry") && !file_contains(prog, "Hello, World"),
+          "room 2 replaces ~/GOAL.md with its goal");
+    snprintf(prog, sizeof prog, "%s/workspace/HINTS.md", state);
+    CHECK(file_contains(prog, "count every r") && !file_contains(prog, "Walk to the agent"),
+          "room 2 replaces ~/HINTS.md with its hints");
     score_entry *scores = NULL;
     int score_count = 0;
     CHECK(leaderboard_load(state, &scores, &score_count) && score_count == 1 &&
@@ -1186,6 +1289,62 @@ static void test_render_and_flow(void)
     sr_canvas_free(&cur);
 }
 
+
+static void menu_press(uint32_t key)
+{
+    key_event ev = {.key = key, .action = 1};
+    if (key == KEY_ESCAPE && !G.menu.open && G.sc.focus != FOCUS_ROOM) {
+        ev.key = KEY_F12;
+        ev.mods = MOD_CTRL | MOD_SHIFT;
+    }
+    game_key(&G, &ev);
+}
+
+static int menu_item_page(int item)
+{
+    for (int page = MENU_PAGE_MAIN; page <= MENU_PAGE_RESET; page++) {
+        int rows[12];
+        int n = menu_page_rows(page, draw_neuronte_available(), rows, 12);
+        for (int i = 0; i < n; i++) if (rows[i] == item) return page;
+    }
+    return MENU_PAGE_MAIN;
+}
+
+static void menu_to(int item)
+{
+    if (!G.menu.open) menu_press(KEY_ESCAPE);
+    if (G.menu.prompt_edit || G.menu.details_open || G.menu.leaderboard_open ||
+        G.menu.confirm_reset || G.menu.model_submenu)
+        menu_press(KEY_ESCAPE);
+    int page = menu_item_page(item);
+    if (G.menu.page != MENU_PAGE_MAIN && G.menu.page != page)
+        menu_press(KEY_ESCAPE);
+    if (G.menu.page == MENU_PAGE_MAIN && page != MENU_PAGE_MAIN) {
+        int group = page == MENU_PAGE_MODEL ? MENU_MODEL :
+                    page == MENU_PAGE_SCORES ? MENU_SCORES :
+                    page == MENU_PAGE_DISPLAY ? MENU_DISPLAY : MENU_RESETS;
+        menu_press(KEY_HOME);
+        for (int guard = 0; G.menu.selected != group && guard < 12; guard++)
+            menu_press(KEY_DOWN);
+        menu_press(KEY_ENTER);
+    }
+    menu_press(KEY_HOME);
+    for (int guard = 0; G.menu.selected != item && guard < 12; guard++)
+        menu_press(KEY_DOWN);
+}
+
+static void menu_close(void)
+{
+    if (!G.menu.open) return;
+    if (G.menu.prompt_edit || G.menu.details_open || G.menu.leaderboard_open ||
+        G.menu.confirm_reset || G.menu.model_submenu)
+        menu_press(KEY_ESCAPE);
+    if (G.menu.open && G.menu.page != MENU_PAGE_MAIN)
+        menu_press(KEY_ESCAPE);
+    if (G.menu.open && G.started)
+        menu_press(KEY_ESCAPE);
+}
+
 static void test_menu(void)
 {
     char err[256], state[2300];
@@ -1207,46 +1366,31 @@ static void test_menu(void)
     G.menu.models[0] = (model_option){"first:latest", THINK_SWITCHABLE};
     G.menu.models[1] = (model_option){"last:latest", THINK_UNAVAILABLE};
     G.menu.count = 2;
-    ev.key = KEY_DOWN;
-    for (int i = 0; i < MENU_OLLAMA; i++) game_key(&G, &ev);
-    ev.key = KEY_ENTER;
-    game_key(&G, &ev);
+    CHECK(G.menu.page == MENU_PAGE_MAIN && G.menu.selected == MENU_HARNESS,
+          "the menu opens on Harness");
+    menu_press(KEY_DOWN);
+    CHECK(G.menu.selected == MENU_MODEL, "Model follows Harness");
+    menu_press(KEY_DOWN);
+    CHECK(G.menu.selected == MENU_RESUME, "Start game follows Model");
+    menu_to(MENU_OLLAMA);
+    menu_press(KEY_ENTER);
     CHECK(G.menu.open && G.menu.model_submenu == MENU_OLLAMA,
           "Ollama opens its own model list");
-    ev.key = KEY_ESCAPE;
-    game_key(&G, &ev);
-    CHECK(G.menu.open && !G.menu.model_submenu && G.menu.selected == MENU_OLLAMA,
-          "Escape returns from the model list to its main menu row");
-    ev.key = KEY_ENTER;
-    game_key(&G, &ev);
-    ev.key = KEY_END;
-    game_key(&G, &ev);
-    ev.key = KEY_ENTER;
-    game_key(&G, &ev);
+    menu_press(KEY_ESCAPE);
+    CHECK(G.menu.open && !G.menu.model_submenu && G.menu.page == MENU_PAGE_MODEL &&
+          G.menu.selected == MENU_OLLAMA,
+          "Escape returns from the model list to Ollama");
+    menu_press(KEY_ENTER);
+    menu_press(KEY_END);
+    menu_press(KEY_ENTER);
     CHECK(!G.menu.open && strcmp(G.ollama_model, "last:latest") == 0,
           "selecting a listed model applies it and closes the menu");
     CHECK(G.sc.focus == FOCUS_SHELL && G.sc.level == 0,
           "model choice preserves room and terminal focus");
-    ev.key = KEY_F12;
-    ev.mods = MOD_CTRL | MOD_SHIFT;
-    game_key(&G, &ev);
-    ev.mods = 0;
-    ev.key = KEY_DOWN;
-    game_key(&G, &ev);
-    ev.key = KEY_ENTER;
-    game_key(&G, &ev);
+    menu_to(MENU_QUIT);
+    menu_press(KEY_ENTER);
     CHECK(G.quit, "exit game uses normal quit path");
     game_shutdown(&G);
-}
-
-static void menu_press(uint32_t key)
-{
-    key_event ev = {.key = key, .action = 1};
-    if (key == KEY_ESCAPE && !G.menu.open && G.sc.focus != FOCUS_ROOM) {
-        ev.key = KEY_F12;
-        ev.mods = MOD_CTRL | MOD_SHIFT;
-    }
-    game_key(&G, &ev);
 }
 
 static void test_room_buttons(void)
@@ -1260,8 +1404,7 @@ static void test_room_buttons(void)
     menu_press(KEY_ENTER);
     game_click(&G, button.x + 4, button.y + 4);
     CHECK(!G.room_buttons && !G.menu.open, "level buttons start off and ignore input");
-    menu_press(KEY_ESCAPE);
-    for (int i = 0; i < MENU_ROOM_BUTTONS; i++) menu_press(KEY_DOWN);
+    menu_to(MENU_ROOM_BUTTONS);
     menu_press(KEY_ENTER);
     CHECK(G.room_buttons, "the menu enables level buttons");
     game_shutdown(&G);
@@ -1270,16 +1413,14 @@ static void test_room_buttons(void)
     G.sc.x = button.x + button.w / 2;
     G.sc.y = button.y + button.h / 2;
     menu_press(KEY_ENTER);
-    CHECK(G.menu.confirm_reset && G.menu.selected == MENU_RESET_LEVEL,
+    CHECK(G.menu.confirm_reset && G.menu.page == MENU_PAGE_RESET && G.menu.selected == MENU_RESET_LEVEL,
           "standing on Reset level opens the reset confirmation");
-    menu_press(KEY_ESCAPE);
-    menu_press(KEY_ESCAPE);
+    menu_close();
     button = layout_room_button(BUTTON_METRICS);
     game_click(&G, button.x + 4, button.y + 4);
     CHECK(G.menu.leaderboard_open && G.menu.score_level == 1,
           "clicking Metrics opens the current room leaderboard");
-    menu_press(KEY_ESCAPE);
-    menu_press(KEY_ESCAPE);
+    menu_close();
     button = layout_room_button(BUTTON_CLEAR_MODEL);
     feed(&G.omp_vt, "old coding session");
     game_click(&G, button.x + 4, button.y + 4);
@@ -1287,17 +1428,19 @@ static void test_room_buttons(void)
 
     button = layout_room_button(BUTTON_MODEL);
     game_click(&G, button.x + 4, button.y + 4);
-    CHECK(G.menu.open && G.menu.selected == MENU_LOCAL, "Model opens the backend selector");
-    menu_press(KEY_ESCAPE);
+    CHECK(G.menu.open && G.menu.page == MENU_PAGE_MODEL && G.menu.selected == MENU_LOCAL,
+          "Model opens the backend selector");
+    menu_close();
     button = layout_room_button(BUTTON_HARNESS);
     game_click(&G, button.x + 4, button.y + 4);
-    CHECK(G.menu.open && G.menu.selected == MENU_HARNESS, "Harness opens its setting");
-    menu_press(KEY_ESCAPE);
+    CHECK(G.menu.open && G.menu.page == MENU_PAGE_MAIN && G.menu.selected == MENU_HARNESS,
+          "Harness opens its setting");
+    menu_close();
     button = layout_room_button(BUTTON_RESET_GAME);
     game_click(&G, button.x + 4, button.y + 4);
-    CHECK(G.menu.confirm_reset && G.menu.selected == MENU_RESET, "Reset game asks for confirmation");
-    menu_press(KEY_ESCAPE);
-    menu_press(KEY_ESCAPE);
+    CHECK(G.menu.confirm_reset && G.menu.page == MENU_PAGE_RESET && G.menu.selected == MENU_RESET,
+          "Reset game asks for confirmation");
+    menu_close();
 
     char *idle[] = {"/bin/cat", NULL};
     int transfer[2];
@@ -1319,6 +1462,114 @@ static void test_room_buttons(void)
     } else CHECK(false, "shell log button test stream initialized");
     game_shutdown(&G);
 }
+static void test_campaign(void)
+{
+    char err[256], state[2300], path[2500], locked[SCORE_MODEL_CAP];
+    int needed[] = {1, 2, 3, 4, 5, 6};
+    score_entry room = {.level = 1, .id = 9, .measure = {100, 10, -1, -1, -1, -1, -1}};
+    score_entry *board = NULL;
+    int count = 0;
+    long long tokens = 100;
+    bool ranked = false;
+
+    sub(state, sizeof state, "campaign-state");
+    CHECK(game_init(&G, ".", state, false, err, sizeof err), "campaign game: %s", err);
+    CHECK(!G.campaign, "campaign starts off");
+    snprintf(path, sizeof path, "%s/workspace/GOAL.md", state);
+    CHECK(file_contains(path, "Hello, World"), "campaign save still publishes ~/GOAL.md");
+
+    menu_to(MENU_CAMPAIGN);
+    menu_press(KEY_ENTER);
+    CHECK(G.campaign && G.campaign_model[0] && strstr(G.menu.notice, "locked"),
+          "campaign locks the current model");
+    snprintf(locked, sizeof locked, "%s", G.campaign_model);
+    snprintf(room.model, sizeof room.model, "%s", locked);
+    snprintf(room.player, sizeof room.player, "Player");
+
+    menu_to(MENU_CODEX);
+    menu_press(KEY_ENTER);
+    CHECK(!G.use_codex && G.menu.open && strstr(G.menu.notice, "locked"),
+          "campaign rejects a different model");
+
+    CHECK(campaign_note(state, &room, needed, 6, NULL), "record the first campaign room");
+    CHECK(campaign_load(state, &board, &count) && count == 0, "one room does not rank a campaign");
+    free(board);
+    board = NULL;
+    room.measure[SCORE_TOKENS] = 999;
+    CHECK(campaign_note(state, &room, needed, 6, NULL), "a repeated room keeps the first result");
+    room.measure[SCORE_TOKENS] = 10;
+    for (int level = 2; level <= 6; level++) {
+        room.level = level;
+        tokens += room.measure[SCORE_TOKENS];
+        ranked = false;
+        CHECK(campaign_note(state, &room, needed, 6, &ranked), "record campaign room %d", level);
+        CHECK(ranked == (level == 6), "the campaign ranks only when every room is done");
+    }
+    CHECK(campaign_load(state, &board, &count) && count == 1 && board[0].level == 6 &&
+          board[0].measure[SCORE_TOKENS] == tokens,
+          "a finished campaign sums the first result from each room");
+    free(board);
+    board = NULL;
+
+    CHECK(campaign_restart(state, "Other", "Player", 77), "start a second campaign run");
+    for (int level = 1; level <= 6; level++) {
+        room.level = level;
+        room.id = 77;
+        room.measure[SCORE_TOKENS] = 5;
+        snprintf(room.model, sizeof room.model, "Other");
+        ranked = false;
+        CHECK(campaign_note(state, &room, needed, 6, &ranked), "record the shorter campaign");
+    }
+    CHECK(ranked, "the second campaign is ranked");
+
+    menu_to(MENU_CAMPAIGN_BOARD);
+    menu_press(KEY_ENTER);
+    CHECK(G.menu.leaderboard_open && G.menu.campaign_board && G.menu.score_count == 2 &&
+          G.menu.scores[0].measure[SCORE_TOKENS] == 30 && G.menu.scores[0].rank == 1,
+          "the campaign board ranks the lower token total first");
+    menu_press(KEY_ESCAPE);
+
+    score_entry keep = {.level = 1, .id = 5, .measure = {3, 1, -1, -1, -1, -1, -1},
+                        .model = "Z", .player = "one"};
+    CHECK(leaderboard_submit(state, &keep), "room score stays available");
+    menu_to(MENU_CLEAR_CAMPAIGN);
+    menu_press(KEY_ENTER);
+    CHECK(G.menu.confirm_reset, "clearing the campaign board asks first");
+    menu_press(KEY_ESCAPE);
+    CHECK(!G.menu.confirm_reset && campaign_load(state, &board, &count) && count == 2,
+          "Escape keeps the campaign board");
+    free(board);
+    board = NULL;
+    count = 0;
+    menu_press(KEY_ENTER);
+    menu_press(KEY_ENTER);
+    CHECK(campaign_load(state, &board, &count) && count == 0, "the campaign board is empty");
+    free(board);
+    board = NULL;
+    count = 0;
+    CHECK(leaderboard_load(state, &board, &count) && count == 1 && board[0].id == 5,
+          "clearing the campaign board leaves room scores");
+    free(board);
+
+    menu_to(MENU_CAMPAIGN);
+    menu_press(KEY_ENTER);
+    CHECK(!G.campaign && strstr(G.menu.notice, "off"), "campaign can be turned off");
+    menu_to(MENU_CODEX);
+    menu_press(KEY_ENTER);
+    CHECK(G.use_codex && !G.menu.open, "the model can change after campaign is off");
+
+    menu_press(KEY_ESCAPE);
+    menu_to(MENU_CAMPAIGN);
+    menu_press(KEY_ENTER);
+    CHECK(G.campaign && strcmp(G.campaign_model, "Codex") == 0, "turning campaign on locks Codex");
+    game_shutdown(&G);
+    CHECK(game_init(&G, ".", state, false, err, sizeof err) && G.campaign && G.use_codex,
+          "a campaign reopens on its locked model");
+    snprintf(path, sizeof path, "%s/workspace/GOAL.md", state);
+    CHECK(file_contains(path, "Hello, World"), "reopening still writes ~/GOAL.md");
+    game_shutdown(&G);
+}
+
 static void test_leaderboard(void)
 {
     char err[256], state[2300];
@@ -1333,8 +1584,7 @@ static void test_leaderboard(void)
     for (size_t i = 0; i < sizeof runs / sizeof *runs; i++)
         CHECK(leaderboard_submit(state, &runs[i]), "save leaderboard run %zu", i);
     CHECK(leaderboard_submit(state, &runs[0]), "submission is idempotent");
-    menu_press(KEY_ESCAPE);
-    for (int i = 0; i < MENU_LEADERBOARD; i++) menu_press(KEY_DOWN);
+    menu_to(MENU_LEADERBOARD);
     menu_press(KEY_ENTER);
     CHECK(G.menu.leaderboard_open && G.menu.score_count == 4 && G.menu.scores[0].id == 2 &&
           G.menu.scores[0].rank == 1 && G.menu.scores[1].id == 3,
@@ -1364,10 +1614,11 @@ static void test_renderer_menu(void)
     CHECK(game_init(&G, ".", state, false, err, sizeof err), "renderer menu: %s", err);
     CHECK(!game_neuronte_preference(state) && strcmp(draw_renderer(), "system font") == 0,
           "a new save defaults to the system font");
-    menu_press(KEY_ESCAPE);
+    menu_to(MENU_TOOLTIPS);
     menu_press(KEY_END);
     if (draw_neuronte_available()) {
-        CHECK(G.menu.selected == MENU_NEURONTE, "Neuronte setting is available");
+        CHECK(G.menu.page == MENU_PAGE_DISPLAY && G.menu.selected == MENU_NEURONTE,
+              "Neuronte setting is available");
         menu_press(KEY_ENTER);
         CHECK(draw_neuronte_enabled() && game_neuronte_preference(state),
               "enabling switches renderer and saves the setting");
@@ -1375,7 +1626,8 @@ static void test_renderer_menu(void)
         CHECK(!draw_neuronte_enabled() && !game_neuronte_preference(state),
               "disabling restores the system font and saves the setting");
     } else {
-        CHECK(G.menu.selected == MENU_OLLAMA, "Neuronte setting is hidden when unavailable");
+        CHECK(G.menu.page == MENU_PAGE_DISPLAY && G.menu.selected == MENU_HINTS_FILE,
+              "Neuronte setting is hidden when unavailable");
     }
     game_shutdown(&G);
 }
@@ -1386,8 +1638,7 @@ static void test_codex_menu(void)
     sub(state, sizeof state, "codex-menu");
     CHECK(game_init(&G, ".", state, false, err, sizeof err), "codex menu: %s", err);
     G.sc.focus = FOCUS_SHELL;
-    menu_press(KEY_ESCAPE);
-    for (int i = 0; i < MENU_CODEX; i++) menu_press(KEY_DOWN);
+    menu_to(MENU_CODEX);
     menu_press(KEY_ENTER);
     CHECK(G.use_codex && G.act.codex && !G.menu.open && G.sc.focus == FOCUS_SHELL,
           "Codex selection changes the agent and the activity source");
@@ -1396,14 +1647,12 @@ static void test_codex_menu(void)
     activity_session_line(&G.act, event, strlen(event));
     CHECK(has_line(&G.act, "tool exec_command"), "Codex tool calls reach the activity screen");
 
-    menu_press(KEY_ESCAPE);
-    for (int i = 0; i < MENU_GROK; i++) menu_press(KEY_DOWN);
+    menu_to(MENU_GROK);
     menu_press(KEY_ENTER);
     CHECK(G.use_grok && G.act.grok && !G.use_codex && !G.menu.open &&
           G.thinking_support == THINK_UNAVAILABLE,
           "Grok is a separate hosted option alongside Codex");
-    menu_press(KEY_ESCAPE);
-    for (int i = 0; i < MENU_LOCAL; i++) menu_press(KEY_DOWN);
+    menu_to(MENU_LOCAL);
     menu_press(KEY_ENTER);
     menu_press(KEY_ENTER);
     CHECK(!G.use_codex && !G.act.codex && !G.use_grok && !G.act.grok,
@@ -1423,29 +1672,26 @@ static void test_thinking_menu(void)
     G.menu.models[0] = (model_option){"thinking:latest", THINK_SWITCHABLE};
     G.menu.models[1] = (model_option){"plain:latest", THINK_UNAVAILABLE};
     G.menu.count = 2;
-    for (int i = 0; i < MENU_OLLAMA; i++) menu_press(KEY_DOWN);
+    menu_to(MENU_OLLAMA);
     menu_press(KEY_ENTER);
     menu_press(KEY_ENTER);
     CHECK(G.thinking_support == THINK_SWITCHABLE && !G.thinking_enabled,
           "a thinking-capable model starts off");
 
-    menu_press(KEY_ESCAPE);
-    for (int i = 0; i < MENU_THINKING; i++) menu_press(KEY_DOWN);
+    menu_to(MENU_THINKING);
     menu_press(KEY_ENTER);
     CHECK(G.thinking_enabled, "thinking can be enabled on a thinking model");
     menu_press(KEY_ENTER);
     CHECK(!G.thinking_enabled, "thinking can be disabled again");
     menu_press(KEY_ENTER);
 
-    menu_press(KEY_HOME);
-    for (int i = 0; i < MENU_OLLAMA; i++) menu_press(KEY_DOWN);
+    menu_to(MENU_OLLAMA);
     menu_press(KEY_ENTER);
     menu_press(KEY_END);
     menu_press(KEY_ENTER);
     CHECK(G.thinking_support == THINK_UNAVAILABLE && !G.thinking_enabled,
           "switching to a different model resets thinking");
-    menu_press(KEY_ESCAPE);
-    for (int i = 0; i < MENU_THINKING; i++) menu_press(KEY_DOWN);
+    menu_to(MENU_THINKING);
     menu_press(KEY_ENTER);
     CHECK(!G.thinking_enabled, "the switch stays off on a non-thinking model");
     game_shutdown(&G);
@@ -1457,8 +1703,7 @@ static void test_model_details_menu(void)
     sub(state, sizeof state, "model-details");
     layout_set(LAYOUT_MIN_W, LAYOUT_MIN_H);
     CHECK(game_init(&G, ".", state, false, err, sizeof err), "model details menu: %s", err);
-    menu_press(KEY_ESCAPE);
-    for (int i = 0; i < MENU_MODEL_DETAILS; i++) menu_press(KEY_DOWN);
+    menu_to(MENU_MODEL_DETAILS);
     menu_press(KEY_ENTER);
     CHECK(G.menu.open && G.menu.details_open && G.menu.details_tab == DETAILS_LLAMA,
           "model details opens on the active backend");
@@ -1503,8 +1748,7 @@ static void test_model_details_menu(void)
           "Escape returns to the menu without changing the model");
     game_shutdown(&G);
     CHECK(game_init(&G, ".", state, false, err, sizeof err), "reopen prompt file: %s", err);
-    menu_press(KEY_ESCAPE);
-    for (int i = 0; i < MENU_MODEL_DETAILS; i++) menu_press(KEY_DOWN);
+    menu_to(MENU_MODEL_DETAILS);
     menu_press(KEY_ENTER);
     menu_press(KEY_LEFT);
     CHECK(strstr(G.menu.prompt, "Read its results."), "opening the game preserves edited system files");
@@ -1528,11 +1772,10 @@ static void test_tooltips(void)
                      sr_canvas_init(&on, CANVAS_W, CANVAS_H);
     CHECK(allocated, "tooltip canvases allocated");
     if (allocated) game_render(&G, &off);
-    menu_press(KEY_ESCAPE);
-    for (int i = 0; i < MENU_TOOLTIPS; i++) menu_press(KEY_DOWN);
+    menu_to(MENU_TOOLTIPS);
     menu_press(KEY_ENTER);
     CHECK(G.tooltips && G.menu.open, "menu turns tooltips on");
-    menu_press(KEY_ESCAPE);
+    menu_close();
     if (allocated) {
         game_render(&G, &on);
         CHECK(differing(&off, &on, (rect){40, WALK_Y0 - 120, 320, 40}) > 0,
@@ -1544,8 +1787,7 @@ static void test_tooltips(void)
 
     CHECK(game_init(&G, ".", state, false, err, sizeof err) && G.tooltips,
           "tooltip preference survives relaunch");
-    menu_press(KEY_ESCAPE);
-    for (int i = 0; i < MENU_TOOLTIPS; i++) menu_press(KEY_DOWN);
+    menu_to(MENU_TOOLTIPS);
     menu_press(KEY_ENTER);
     CHECK(!G.tooltips, "menu turns tooltips off again");
     game_shutdown(&G);
@@ -1557,8 +1799,7 @@ static void test_compute_menu(void)
     sub(state, sizeof state, "compute-state");
     CHECK(game_init(&G, ".", state, false, err, sizeof err), "compute menu: %s", err);
     CHECK(G.compute == COMPUTE_AUTO, "compute defaults to Auto");
-    menu_press(KEY_ESCAPE);
-    for (int i = 0; i < MENU_COMPUTE; i++) menu_press(KEY_DOWN);
+    menu_to(MENU_COMPUTE);
     menu_press(KEY_ENTER);
     CHECK(G.compute == COMPUTE_CPU, "compute menu selects CPU");
     menu_press(KEY_ENTER);
@@ -1567,11 +1808,9 @@ static void test_compute_menu(void)
 
     CHECK(game_init(&G, ".", state, false, err, sizeof err), "compute reload: %s", err);
     CHECK(G.compute == COMPUTE_GPU, "compute setting persists");
-    menu_press(KEY_ESCAPE);
-    for (int i = 0; i < MENU_CODEX; i++) menu_press(KEY_DOWN);
+    menu_to(MENU_CODEX);
     menu_press(KEY_ENTER);
-    menu_press(KEY_ESCAPE);
-    for (int i = 0; i < MENU_COMPUTE; i++) menu_press(KEY_DOWN);
+    menu_to(MENU_COMPUTE);
     menu_press(KEY_ENTER);
     CHECK(G.use_codex && G.compute == COMPUTE_GPU, "Codex keeps the local compute setting");
     G.use_codex = false;
@@ -1596,7 +1835,7 @@ static void test_start_and_reset_menu(void)
     menu_press(KEY_ESCAPE);
     CHECK(G.menu.open, "Escape keeps the initial menu open");
     G.spawn = false;  /* Drive the menu without running the terminal children. */
-    for (int i = 0; i < MENU_LOCAL; i++) menu_press(KEY_DOWN);
+    menu_to(MENU_LOCAL);
     menu_press(KEY_ENTER);
     CHECK(G.menu.model_submenu == MENU_LOCAL && !G.started,
           "llama.cpp opens its own model list before starting");
@@ -1604,8 +1843,7 @@ static void test_start_and_reset_menu(void)
     CHECK(G.started && !G.menu.open && G.sc.level == 2,
           "selecting a model starts the game and continues the existing save");
 
-    menu_press(KEY_ESCAPE);
-    for (int i = 0; i < MENU_RESET_LEVEL; i++) menu_press(KEY_DOWN);
+    menu_to(MENU_RESET_LEVEL);
     menu_press(KEY_ENTER);
     CHECK(G.menu.confirm_reset && access(file, F_OK) == 0,
           "reset level asks before changing the workspace");
@@ -1620,9 +1858,7 @@ static void test_start_and_reset_menu(void)
     globfree(&level_backup);
     write_file(file, "keep me", 7);
 
-    menu_press(KEY_ESCAPE);
-    menu_press(KEY_DOWN);
-    menu_press(KEY_DOWN);
+    menu_to(MENU_RESET);
     menu_press(KEY_ENTER);
     CHECK(G.menu.confirm_reset && G.sc.level == 2 && access(file, F_OK) == 0,
           "reset asks before changing the save");
@@ -1653,8 +1889,7 @@ static void test_harness_menu(void)
     sub(state, sizeof state, "harness-menu");
     CHECK(game_init(&G, ".", state, false, err, sizeof err), "harness menu: %s", err);
     CHECK(!G.use_pi, "OMP is the default harness");
-    menu_press(KEY_ESCAPE);
-    for (int i = 0; i < MENU_HARNESS; i++) menu_press(KEY_DOWN);
+    menu_to(MENU_HARNESS);
     menu_press(KEY_ENTER);
     CHECK(G.use_pi && G.act.pi && !G.use_codex && !G.ollama_model[0],
           "Pi switches the local harness and activity source without changing the model");
@@ -1689,6 +1924,35 @@ static void test_pane_sprite_layer(void)
     }
     sr_canvas_free(&before);
     sr_canvas_free(&after);
+    game_shutdown(&G);
+}
+
+
+static void test_hints_file(void)
+{
+    char err[256], state[2300], path[2500], goal[2500];
+    sub(state, sizeof state, "hints-file");
+    CHECK(game_init(&G, ".", state, false, err, sizeof err), "hints file: %s", err);
+    snprintf(path, sizeof path, "%s/workspace/HINTS.md", state);
+    snprintf(goal, sizeof goal, "%s/workspace/GOAL.md", state);
+    CHECK(G.hints_file && file_contains(path, "1. Walk to the agent"),
+          "the hint file is on by default");
+    menu_to(MENU_HINTS_FILE);
+    menu_press(KEY_ENTER);
+    CHECK(!G.hints_file && access(path, F_OK) != 0, "turning the hint file off removes ~/HINTS.md");
+    write_file(path, "stale hint\n", 11);
+    game_enter_level(&G, 0);
+    CHECK(access(path, F_OK) != 0 && file_contains(goal, "Hello, World"),
+          "entering the room removes a disabled hint file and keeps the goal");
+    game_shutdown(&G);
+    CHECK(game_init(&G, ".", state, false, err, sizeof err) && !G.hints_file,
+          "the hint file stays off after reopening the save");
+    snprintf(path, sizeof path, "%s/workspace/HINTS.md", state);
+    CHECK(access(path, F_OK) != 0, "reopening does not recreate a disabled hint file");
+    menu_to(MENU_HINTS_FILE);
+    menu_press(KEY_ENTER);
+    CHECK(G.hints_file && file_contains(path, "Walk to the agent"),
+          "turning the hint file on writes ~/HINTS.md again");
     game_shutdown(&G);
 }
 
@@ -2004,12 +2268,14 @@ int main(void)
     test_thinking_menu();
     test_codex_menu();
     test_leaderboard();
+    test_campaign();
     test_room_buttons();
     test_renderer_menu();
     test_room_art();
     test_pane_sprite_layer();
     test_compute_menu();
     test_tooltips();
+    test_hints_file();
     test_model_details_menu();
     test_start_and_reset_menu();
     test_harness_menu();
@@ -2026,6 +2292,7 @@ int main(void)
     test_ticks();
     test_layout();
     test_draw();
+    test_omp_glyphs();
     test_damage();
     layout_set(LAYOUT_DEFAULT_W, LAYOUT_DEFAULT_H);
     draw_force_raster(true);

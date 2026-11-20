@@ -44,7 +44,11 @@ typedef struct view {
 
 typedef enum compute_mode { COMPUTE_AUTO, COMPUTE_CPU, COMPUTE_GPU } compute_mode;
 
-enum { MENU_RESUME, MENU_QUIT, MENU_RESET, MENU_RESET_LEVEL, MENU_THINKING, MENU_COMPUTE, MENU_TOOLTIPS, MENU_ROOM_BUTTONS, MENU_MODEL_DETAILS, MENU_LEADERBOARD, MENU_HARNESS, MENU_CODEX, MENU_GROK, MENU_LOCAL, MENU_OLLAMA, MENU_NEURONTE };
+enum { MENU_RESUME, MENU_QUIT, MENU_RESET, MENU_RESET_LEVEL, MENU_THINKING, MENU_COMPUTE, MENU_TOOLTIPS, MENU_ROOM_BUTTONS, MENU_HINTS_FILE, MENU_MODEL_DETAILS, MENU_LEADERBOARD, MENU_CAMPAIGN, MENU_CAMPAIGN_BOARD, MENU_CLEAR_CAMPAIGN, MENU_HARNESS, MENU_CODEX, MENU_GROK, MENU_LOCAL, MENU_OLLAMA, MENU_NEURONTE, MENU_MODEL, MENU_SCORES, MENU_DISPLAY, MENU_RESETS };
+
+enum { MENU_PAGE_MAIN, MENU_PAGE_MODEL, MENU_PAGE_SCORES, MENU_PAGE_DISPLAY, MENU_PAGE_RESET };
+
+int menu_page_rows(int page, bool neuronte, int *out, int cap);
 
 enum { MODEL_SPEC_CAP = 16384 };
 typedef enum model_details_tab { DETAILS_OLLAMA, DETAILS_LLAMA, DETAILS_CODEX, DETAILS_PI, DETAILS_GROK, DETAILS_COUNT } model_details_tab;
@@ -56,14 +60,15 @@ void render_prompt_editor(sr_canvas *c, const char *draft, size_t cursor, const 
 struct model_option;
 void render_menu(sr_canvas *c, int selected, const char *active_model,
                  bool started, int level, bool confirm_reset, const char *notice, int thinking_support, bool thinking_enabled, const char *hosted_agent,
-                 bool pi, compute_mode compute, bool tooltips, bool room_buttons);
+                 bool pi, compute_mode compute, bool tooltips, bool room_buttons,
+                 bool campaign, const char *campaign_model, bool hints_file, int page);
 void render_model_menu(sr_canvas *c, bool ollama, const struct model_option *models,
                        int count, int selected, bool loading, bool failed,
                        const char *llama_model);
 struct score_entry;
 int render_leaderboard(sr_canvas *c, const struct score_entry *scores, int count,
                        int scroll, int level, int metric, bool models, const char *notice,
-                       const struct score_entry *attempt);
+                       const struct score_entry *attempt, bool campaign);
 size_t render_copy_selection(const view *v, char *out, size_t cap);
 int render_scroll_limit(const view *v, screen_id id);
 void render_frame(sr_canvas *c, const view *v);

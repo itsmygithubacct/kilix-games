@@ -30,7 +30,7 @@ require: equals 3
 
 level: 3
 title: A million ones
-room: brick
+room: press
 goal: Make 1.txt hold exactly 1,000,000 ones and nothing else: no spaces, no line ending.
 hint: Nobody types a million characters. Ask the agent to make the file with a command or a short program.
 hint: echo and print add a line ending at the end, and that one extra byte fails the goal.
@@ -45,7 +45,7 @@ require: only 1
 
 level: 4
 title: Count the files
-room: brick
+room: archive
 goal: Fix ~/count_files.sh. From ~, running it with Bash should print the number of regular files directly inside "sample files". It should also accept a folder path as its first argument.
 hint: Run bash count_files.sh in ~, then compare its output with ls -la "sample files".
 hint: A hidden regular file counts. Folders, their contents, and symlinks do not count.
@@ -55,7 +55,7 @@ check: count-files
 
 level: 5
 title: The treasure chest
-room: stone
+room: vault
 goal: Open the password-protected chest.zip and extract key.txt to unlock the door.
 hint: The password is lowercase.
 hint: The password is four letters long.
@@ -65,7 +65,7 @@ check: chest
 
 level: 6
 title: Follow the log
-room: brick
+room: dock
 goal: Run ./run_check.sh in the player shell. Ask the agent to read the latest failure and write its run ID and failing filename to ~/report.txt, separated by one space.
 hint: Use the Shell log button to give the agent the path to the shell transcript.
 hint: The agent can also read the player shell with tmux capture-pane -p -S - -t shell.
@@ -74,6 +74,6 @@ check: follow-log
 
 level: 7
 title: Next challenge coming
-room: stone
+room: soon
 goal: This room is still being built. Come back for the next challenge.
 check: none

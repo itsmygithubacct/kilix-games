@@ -281,10 +281,37 @@ DEFECTS = [
      "src/draw.c",
      "        neuronte_draw_utf8(font, c->px, c->w, c->w, c->h, px, py, CW, CH, s, len,\n"
      "                           nn_color(rgb, alpha));\n        return;\n",
-     "", "test-unit", "neuronte"),
+     "        while (at < len) {\n"
+     "            uint32_t cp;\n"
+     "            size_t n = utf8_next(s + at, len - at, &cp);\n"
+     "            if (n == 0) break;\n"
+     "            raster_glyph(c, px, py, cp, rgb & 0xffffffu, a, false);\n"
+     "            px += CW;\n"
+     "            at += n;\n"
+     "        }\n"
+     "        return;\n", "test-unit", "neuronte"),
     ("octant cells take the wrong sub-cell",
      "src/draw.c", "static const unsigned char number[8] = {0, 1, 2, 3, 6, 7, 4, 5};",
      "static const unsigned char number[8] = {0, 1, 2, 3, 4, 5, 6, 7};", "test-unit", "neuronte"),
+    ("an untrained omp glyph is reported as trained",
+     "src/draw.c", "nsdk_terminal_trained(term_faces, scalar) == 1",
+     "nsdk_terminal_trained(term_faces, scalar) == 7", "test-unit", "neuronte"),
+    ("campaign mode still changes the model",
+     "src/game.c", "if (g->campaign && !campaign_choice_allowed(g, codex, grok, name))",
+     "if (false && !campaign_choice_allowed(g, codex, grok, name))", "test-unit"),
+    ("an unfinished campaign is ranked",
+     "src/leaderboard.c", "bool ready = campaign_rooms_ready(&run, needed, needed_count);",
+     "bool ready = true;", "test-unit"),
+    ("clear campaign board leaves the scores",
+     "src/leaderboard.c", "return unlink(path) == 0 || errno == ENOENT;",
+     "return true;", "test-unit"),
+    ("the room leaves the previous goal in the sandbox",
+     "src/game.c", "if (!save_goal_file(g))", "if (0)", "test-unit"),
+    ("the room leaves its hints out of the sandbox",
+     "src/game.c", "if (g->hints_file) {", "if (false) {", "test-unit"),
+    ("turning the hint file off leaves HINTS.md",
+     "src/game.c", 'else if (!remove_workspace_file(g, "HINTS.md"))',
+     "else if (0)", "test-unit"),
 ]
 
 

@@ -33,7 +33,22 @@ override CPPFLAGS += $(NEUROTERM_CPPFLAGS) -I$(KILIX_ASSETS)/include
 # RENDER=neuronte insists on it. At run time PUZZLLM_NEURONTE_WEIGHTS names
 # the weight file, and the game draws with soft-raster if it does not open.
 NEURONTE ?= $(HOME)/projects/neuronte
+NEURONTE_SDK ?= $(HOME)/gpu_terminal/kilix-modules/neuronte-sdk
+# Split-v9 has a tiled member, so it opens only on a Neuronte that has
+# neuronte_set_untrained. An explicit NEURONTE= is kept. The default tree
+# is replaced only when it is older and a checkout of origin/main is visible.
+ifeq ($(origin NEURONTE), file)
+ifeq ($(shell grep -q 'neuronte_set_untrained' $(NEURONTE)/include/neuronte.h && echo yes || true),)
+DISCOVERED_NEURONTE := $(shell python3 $(NEURONTE_SDK)/scripts/discover_neuronte_src.py 2>/dev/null || true)
+ifneq ($(DISCOVERED_NEURONTE),)
+NEURONTE := $(DISCOVERED_NEURONTE)
+endif
+endif
+endif
 NEURONTE_WEIGHTS ?= $(NEURONTE)/weights/neuronte-split-v4.nrt
+# A directory of split-v9, term, and emoji bundles found on this machine.
+# Empty when those files are not installed. Not a committed path.
+TERMINAL_WEIGHTS_DIR := $(shell python3 $(NEURONTE_SDK)/scripts/discover_terminal_weights.py 2>/dev/null || true)
 RENDER ?= auto
 HAVE_NEURONTE := $(if $(wildcard $(NEURONTE)/include/neuronte.h),$(if $(wildcard $(NEURONTE)/src/neuronte.c),yes))
 ifeq ($(RENDER),neuronte)
@@ -46,12 +61,20 @@ USE_NEURONTE :=
 else
 USE_NEURONTE := $(HAVE_NEURONTE)
 endif
-RENDER_IDENT := $(if $(USE_NEURONTE),neuronte $(abspath $(NEURONTE)) $(NEURONTE_WEIGHTS),raster)
+RENDER_IDENT := $(if $(USE_NEURONTE),neuronte $(abspath $(NEURONTE)) $(NEURONTE_WEIGHTS) $(TERMINAL_WEIGHTS_DIR),raster)
 ifeq ($(USE_NEURONTE),yes)
-NEURONTE_OBJ := $(O)/neuronte/neuronte.o $(O)/neuronte/utf8.o
+ifeq ($(wildcard $(NEURONTE_SDK)/include/neuronte_sdk_terminal.h),)
+$(error NEURONTE_SDK '$(NEURONTE_SDK)' has no include/neuronte_sdk_terminal.h)
+endif
+NEURONTE_OBJ := $(O)/neuronte/neuronte.o $(O)/neuronte/utf8.o $(O)/nsdk_terminal.o
 CORE_OBJ += $(NEURONTE_OBJ)
-DRAW_CPPFLAGS := -I$(NEURONTE)/include -DPUZZLLM_NEURONTE \
-	-DPUZZLLM_NEURONTE_WEIGHTS_DEFAULT='"$(NEURONTE_WEIGHTS)"'
+DRAW_CPPFLAGS := -I$(NEURONTE)/include -I$(NEURONTE_SDK)/include -DPUZZLLM_NEURONTE \
+	-DPUZZLLM_NEURONTE_WEIGHTS_DEFAULT='"$(NEURONTE_WEIGHTS)"' \
+	-DNSDK_TERMINAL_EXTRA_DIR='"$(TERMINAL_WEIGHTS_DIR)"'
+ifneq ($(shell grep -q neuronte_set_untrained $(NEURONTE)/include/neuronte.h && echo yes || true),)
+DRAW_CPPFLAGS += -DNSDK_HAVE_UNTRAINED
+endif
+DRAW_DEPS := $(NEURONTE_SDK)/include/neuronte_sdk_terminal.h
 LDLIBS += -lm
 endif
 GAME_OBJ := $(CORE_OBJ) $(O)/termio.o $(O)/main.o
@@ -89,7 +112,11 @@ FORCE:
 $(RENDER_STAMP): FORCE | $(O)
 	@printf '%s\n' '$(RENDER_IDENT)' | cmp -s - $@ || printf '%s\n' '$(RENDER_IDENT)' > $@
 
-$(O)/draw.o: src/draw.c $(RENDER_STAMP) | $(O)
+$(O)/draw.o: src/draw.c $(RENDER_STAMP) $(DRAW_DEPS) | $(O)
+	$(CC) $(CPPFLAGS) $(DRAW_CPPFLAGS) $(DEPFLAGS) $(CFLAGS) -c -o $@ $<
+
+$(O)/nsdk_terminal.o: $(NEURONTE_SDK)/src/nsdk_terminal.c \
+		$(NEURONTE_SDK)/include/neuronte_sdk_terminal.h $(RENDER_STAMP) | $(O)
 	$(CC) $(CPPFLAGS) $(DRAW_CPPFLAGS) $(DEPFLAGS) $(CFLAGS) -c -o $@ $<
 
 $(O)/neuronte:
