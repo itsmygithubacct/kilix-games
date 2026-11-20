@@ -246,6 +246,61 @@ else:
         events = [json.loads(line) for line in result.splitlines()]
         self.assertEqual([r["verdict"] for r in events if r["event"] == "answer"], ["invalid"] * 4)
 
+    def test_worker_saves_versioned_rankings_and_restores_without_journals(self):
+        self.result("run", self.state, "codex", "chosen-model")
+        path = self.state/"bench/yesno/rankings.json"
+        original = path.read_bytes()
+        board = json.loads(original)
+        self.assertEqual((board["schema_version"], board["benchmark"], board["split"], board["total_runs"]),
+                         (1, "OneBit", "dev", 1))
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        self.assertIn(b'\n  "models": [\n', original)
+        group, = board["models"]
+        self.assertEqual((group["provider"], group["model"], group["rank"], group["finished"], group["avg_percent"]),
+                         ("codex", "chosen-model", 1, 1, 50.0))
+        run, = group["history"]
+        self.assertEqual(run["file"], self.reports()[0].name)
+        self.assertRegex(run["started"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$")
+        self.assertTrue(run["journal_available"])
+        restored = self.root/"restored"
+        recovered = restored/"bench/yesno/rankings.json"
+        recovered.parent.mkdir(parents=True)
+        recovered.write_bytes(original)
+        self.result("run", restored, "codex", "chosen-model")
+        group, = json.loads(recovered.read_bytes())["models"]
+        self.assertEqual((group["runs"], group["finished"], group["avg_correct"]), (2, 2, 2.0))
+        previous = next(r for r in group["history"] if r["file"] == run["file"])
+        self.assertFalse(previous["journal_available"])
+        self.assertEqual(previous["status"], "Complete")
+        self.assertIn("Complete (summary only)", [r.get("status") for r in self.result("records", restored)])
+
+    def test_snapshot_repair_and_failed_atomic_replace_preserve_previous_data(self):
+        self.result("run", self.state, "codex", "one")
+        folder = self.state/"bench/yesno"
+        path = folder/"rankings.json"
+        original = path.read_bytes()
+        same = path.stat().st_ino
+        self.result("records", self.state)
+        self.assertEqual((path.stat().st_ino, path.read_bytes()), (same, original))
+        self.reports()[0].rename(folder/"archived")
+        with patch("puzzllm_yesno_records.os.replace", side_effect=OSError("fixture interrupted write")):
+            with self.assertRaises(OSError):
+                worker.save_rankings(folder)
+        self.assertEqual(path.read_bytes(), original)
+        self.assertEqual(list(folder.glob(".rankings-*")), [])
+        (folder/"archived").rename(folder/json.loads(original)["models"][0]["history"][0]["file"])
+        path.write_bytes(b"part of an invalid file")
+        self.result("latest", self.state)
+        self.assertEqual(path.read_bytes(), original)
+        backup, = folder.glob("rankings-damaged-*.json")
+        self.assertEqual(backup.read_bytes(), b"part of an invalid file")
+        newer = b'{"schema_version":22}\n'
+        path.write_bytes(newer)
+        events = self.result("records", self.state)
+        self.assertEqual(path.read_bytes(), newer)
+        self.assertEqual(events[0]["runs"], 1)
+        self.assertIn("Unrecognized", events[-1]["text"])
+
     def test_detaching_rejoining_and_concurrent_start_keep_one_run(self):
         watch = self.process("run", self.state, "grok", delay=0.45)
         self.wait_for(lambda: self.log.exists())
@@ -260,12 +315,27 @@ else:
             self.assertEqual(sum(e["event"] == "answer" for e in events), 4)
         self.assertEqual(len(self.reports()), 1)
         self.assertEqual([provider for provider, _, _ in rows(self.log)], ["grok"] * 4)
+        group, = json.loads((self.state/"bench/yesno/rankings.json").read_bytes())["models"]
+        self.assertEqual((group["runs"], group["finished"], group["history"][0]["status"]), (1, 1, "Complete"))
+
+    def test_rankings_finish_on_disk_with_every_monitor_closed(self):
+        path = self.state/"bench/yesno/rankings.json"
+        watch = self.process("run", self.state, "grok", "named", delay=0.2)
+        self.wait_for(self.log.exists)
+        watch.terminate()
+        watch.communicate(timeout=4)
+        self.wait_for(lambda: json.loads(path.read_bytes())["models"][0]["finished"] == 1)
+        data = json.loads(path.read_bytes())
+        self.assertEqual((data["total_runs"], data["models"][0]["model"], data["models"][0]["avg_correct"]),
+                         (1, "named", 2.0))
 
     def test_stop_is_explicit_and_survives_replay(self):
         watch = self.process("run", self.state, "grok", delay=30)
         self.wait_for(self.log.exists)
         result, _ = watch.communicate("stop\n", timeout=7)
         self.assertEqual(json.loads(result.splitlines()[-1])["event"], "stopped")
+        group, = json.loads((self.state/"bench/yesno/rankings.json").read_bytes())["models"]
+        self.assertEqual((group["runs"], group["rank"], group["history"][0]["status"]), (1, None, "Stopped"))
         result, _ = self.process("latest", self.state).communicate(timeout=4)
         self.assertEqual(json.loads(result.splitlines()[-1])["event"], "stopped")
         self.assertEqual(len(rows(self.log)), 1)

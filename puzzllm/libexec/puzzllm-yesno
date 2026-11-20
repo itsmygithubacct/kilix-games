@@ -21,7 +21,7 @@ from urllib.request import Request, urlopen
 import uuid
 
 from puzzllm_yesno_models import executable, hosted_catalog, stop_child
-from puzzllm_yesno_records import model_id, standings
+from puzzllm_yesno_records import model_id, ranking_events, rankings_document, save_rankings
 
 INSTRUCTION = "Respond with only YES or NO."
 PROVIDERS = ("ollama", "llama.cpp", "codex", "grok", "claude")
@@ -237,6 +237,15 @@ def perform(provider, model, output, path):
     def record(event, **fields):
         output.write(json.dumps(dict(event=event, **fields), ensure_ascii=False) + "\n")
         output.flush()
+        if event == "answer":
+            os.fdatasync(output.fileno())
+
+    def checkpoint():
+        try:
+            os.fsync(output.fileno())
+            save_rankings(path.parent)
+        except (OSError, ValueError, TypeError, KeyError) as error:
+            record("storage_warning", text=f"Could not save rankings.json ({error})")
 
     stop_file = path.with_suffix(".stop")
     finished = threading.Event()
@@ -252,6 +261,8 @@ def perform(provider, model, output, path):
     monitor = threading.Thread(target=check_stop, daemon=True)
     monitor.start()
     try:
+        checkpoint()
+        requested_id = model_id(provider, model)
         identity = None
         def identify(name):
             nonlocal identity
@@ -259,6 +270,8 @@ def perform(provider, model, output, path):
             if name and name != identity:
                 record("identity", model=name)
                 identity = name
+                if name != requested_id:
+                    checkpoint()
         if not model and provider in PROVIDERS[2:]:
             _, model = hosted_catalog(provider, need_default=True)
             if provider == "claude" and model:
@@ -296,6 +309,7 @@ def perform(provider, model, output, path):
     finally:
         finished.set()
         monitor.join()
+        checkpoint()
         stop_file.unlink(missing_ok=True)
 
 
@@ -323,7 +337,8 @@ def follow(path):
                 for line in lines:
                     row = json.loads(line)
                     display(row)
-                    last = row["event"]
+                    if row["event"] != "storage_warning":
+                        last = row["event"]
                 continue
             if not live:
                 break
@@ -339,6 +354,10 @@ def follow(path):
 
 
 def latest(folder):
+    try:
+        save_rankings(folder)
+    except (OSError, ValueError, TypeError, KeyError) as error:
+        emit("storage_warning", text=f"Could not save rankings.json ({error})")
     path = max(folder.glob("*.jsonl"), default=None)
     return follow(path) if path else 0
 
@@ -414,12 +433,22 @@ def main():
             if args.action == "latest":
                 return latest(folder)
             elif args.action == "records":
-                for row in standings(folder):
+                warning = None
+                try:
+                    document = save_rankings(folder)
+                except (OSError, ValueError, TypeError, KeyError) as error:
+                    document = rankings_document(folder)
+                    warning = f"Could not save rankings.json ({error})"
+                for row in ranking_events(document):
                     emit(**row)
+                if warning:
+                    emit("error", text=warning)
             elif args.action == "report":
                 path = folder / args.file
                 if path.name != args.file or path.suffix != ".jsonl" or path.is_symlink():
                     raise ValueError("Invalid benchmark report name.")
+                if not path.is_file():
+                    raise FileNotFoundError("The score is saved in rankings.json. The question journal is unavailable.")
                 return follow(path)
             else:
                 if args.provider in PROVIDERS[:2] and not args.model:

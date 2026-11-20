@@ -148,6 +148,17 @@ then select a run to inspect its answers. **U** refreshes the rankings.
 Older journals that omitted the default model's ID appear under
 **Unrecorded default** with their original results.
 
+The worker saves the rankings to `~/.local/share/puzzllm/bench/yesno/rankings.json`
+at the start and end of each run, including stopped and failed runs. The
+file follows `XDG_DATA_HOME` or the game's `PUZZLLM_STATE` override. It is
+versioned, human-readable UTF-8 JSON. Each model has its rank, run count,
+finished count, average correct, mean accuracy in percent, and a history
+with UTC start times and journal filenames. Unranked models have a null
+rank. Opening the bench imports older journals. Each update atomically
+replaces the JSON file. Copy the entire `bench/yesno/` directory to back
+up both the standings and the individual answers. Restoring just the
+rankings file keeps the recorded scores and run summaries.
+
 The bench uses the OneBit data from the installed `kilix-bench` package
 or the checkout named by `PUZZLLM_YESNO_BENCH`. Ollama uses `OLLAMA_HOST`.
 GGUF discovery uses `KILIX_LLM_MODELS_DIR` and `PUZZLLM_MODEL`. A selected

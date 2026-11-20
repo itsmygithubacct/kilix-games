@@ -132,7 +132,8 @@ static void records(sr_canvas *c, const yesno_bench *b)
     } else {
         snprintf(text, sizeof text, "%s / %s", group->provider, *group->model ? group->model : "Unrecorded default");
     }
-    line(c, PAD, 81, r.w, text, MUTED, false);
+    line(c, PAD, 81, r.w, b->catalog_notice[0] ? b->catalog_notice : text,
+         b->catalog_notice[0] ? RED : MUTED, false);
     int cols[] = {r.x+10, r.x+76, r.x+r.w-365, r.x+r.w-294, r.x+r.w-207, r.x+r.w-89, r.x+r.w};
     int run_cols[] = {r.x+10, r.x+r.w/3, r.x+2*r.w/3, r.x+5*r.w/6, r.x+r.w};
     const char *headings[] = {"Rank", "Model", "Runs", "Finished", "Avg correct", "Avg %"};
@@ -141,9 +142,8 @@ static void records(sr_canvas *c, const yesno_bench *b)
         draw_text(c, ranks ? cols[i] : run_cols[i], r.y-23, ranks ? headings[i] : run_headings[i], MUTED, 1);
     int rows = r.h / BENCH_ROW_H, first = yesno_picker_first(b, rows);
     int count = yesno_options(b);
-    if (!count || b->catalog_notice[0]) {
-        const char *message = b->catalog_notice[0] ? b->catalog_notice :
-                              b->catalog.process.pid ? "Reading saved runs..." : "No benchmark runs recorded.";
+    if (!count) {
+        const char *message = b->catalog.process.pid ? "Reading saved runs..." : "No benchmark runs recorded.";
         line(c, r.x+10, r.y+7, r.w-20, message, MUTED, false);
         return;
     }

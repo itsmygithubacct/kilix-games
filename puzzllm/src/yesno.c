@@ -186,6 +186,8 @@ static void worker_event(yesno_bench *b, const json_doc *doc, int root)
     } else if (!strcmp(event, "end")) {
         b->status = BENCH_COMPLETE;
         b->refresh_rankings = true;
+    } else if (!strcmp(event, "storage_warning")) {
+        copy_field(b->notice, sizeof b->notice, field(doc, root, "text"));
     } else if (!strcmp(event, "status") || !strcmp(event, "error") || !strcmp(event, "stopped")) {
         copy_field(b->notice, sizeof b->notice, field(doc, root, "text"));
         if (!strcmp(event, "error")) b->status = BENCH_FAILED;
