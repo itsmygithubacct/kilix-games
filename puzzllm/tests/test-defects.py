@@ -15,6 +15,9 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # (name, file, old, new, make target[, "neuronte" when it needs that build])
 DEFECTS = [
+    ("the shell covers the coding window during capture",
+     "libexec/puzzllm_kilix_bridge.py", 'x = "1024" if kind == "shell" else "0"',
+     'x = "0"', "test-kilix-display"),
     ("the file-count grader accepts a hard-coded answer",
      "libexec/puzzllm-count-check", "check '/empty folder' '/empty folder' || exit 13\ncheck '/other files' '/other files' || exit 13",
      "exit 0", "test-cli"),

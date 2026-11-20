@@ -425,6 +425,7 @@ update_check_interval 0
 EOF
     args+=(--bind "$state/kx" /opt/puzzllm/kx
            --ro-bind "$here/puzzllm-kilix" /opt/puzzllm/bin/puzzllm-kilix
+           --ro-bind "$here/puzzllm_kilix_bridge.py" /opt/puzzllm/bin/puzzllm_kilix_bridge.py
            --ro-bind "$src" "$src"
            --ro-bind "$(dirname "$config")" /opt/puzzllm/kilix-config)
     # The broker loads libkitty-pty-broker.so from $ORIGIN. Binding only the
