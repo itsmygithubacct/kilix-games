@@ -82,9 +82,10 @@ continue your save, **Exit game**, **Reset Game**, **Reset Level**, or an agent 
 Press Enter to select. Both resets ask for confirmation and back up the current
 workspace. **Reset Game** returns to the menu at level 1. **Reset Level**
 reopens the current level with a fresh workspace, coding session, and shell.
-Selecting a model from the opening menu starts the game. The list refreshes each time you open
-the menu and includes the default llama.cpp model and the models installed
-on the local Ollama service. Model changes restart the agent with a fresh
+The **llama.cpp models** and **Ollama models** entries open separate lists.
+Choose the configured GGUF or a model installed on the local Ollama
+service. Confirming a model from the opening menu starts the game.
+Model changes restart the agent with a fresh
 conversation in the same workspace. Model choices apply until you quit.
 
 The resource bar shows the running token total reported by the current
@@ -142,9 +143,11 @@ passes and an empty file does not. The player may also create the file by
 hand in the shell; that counts the same. A 0.8B model often says it wrote
 the file when it did not, so check with `ls` and `cat` in the shell.
 
-When you leave a room, the coding agent stops before its files move into
-`~/level_N/`. The system actions feed clears. Focus the coding pane
-in the next room to start a fresh session.
+Follow the carpet up through an unlocked door to advance. Walk down off
+the bottom of the carpet to return to the previous room or exit the game
+from Room 1. When you change rooms, the coding agent stops and the game
+saves the departing room's files in `~/level_N/`. Revisiting a room
+restores its files. Focus the coding pane to start a fresh session.
 With the game closed, run `bin/puzzllm --reset-progress` to start at level 1.
 The previous workspace is kept under a `reset-*` directory in the game state.
 

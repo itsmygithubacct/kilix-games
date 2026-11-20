@@ -40,7 +40,7 @@ bool scene_walkable(const scene *s, float x, float y)
             return false;
     }
     if (x >= WALK_X0 && x <= WALK_X1 && y >= WALK_Y0 && y <= WALK_Y1) return true;
-    if (x >= AISLE_X0 && x <= AISLE_X1 && y <= WALK_Y1) {
+    if (x >= AISLE_X0 && x <= AISLE_X1 && y <= CANVAS_H + SCENE_WALK_SPEED) {
         if (y >= AISLE_Y0) return true;
         /* past the threshold only through an open door */
         if (scene_door_passable(s) && y >= DOOR_EXIT_Y - 4) return true;
@@ -85,6 +85,7 @@ scene_event scene_tick(scene *s, int dx, int dy)
     if (s->moving) s->step_ticks++;
     else s->step_ticks = 0;
 
+    if (s->moving && dy > 0 && s->y >= CANVAS_H) return SCENE_BOTTOM_EXIT;
     if (scene_door_passable(s) && s->y < DOOR_EXIT_Y &&
         s->level + 1 < s->level_count)
         return SCENE_NEXT_ROOM;

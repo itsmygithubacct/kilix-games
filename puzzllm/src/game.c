@@ -181,6 +181,18 @@ bool game_reset_progress(const char *state)
     return ok;
 }
 
+static bool move_room_entry(int source, const char *name, int dest)
+{
+    char candidate[256];
+    snprintf(candidate, sizeof candidate, "%s", name);
+    for (unsigned suffix = 1; ; suffix++) {
+        if (renameat2(source, name, dest, candidate, RENAME_NOREPLACE) == 0 ||
+            errno == ENOENT) return true;
+        if (errno != EEXIST) return false;
+        snprintf(candidate, sizeof candidate, "%.240s.%u", name, suffix);
+    }
+}
+
 static bool archive_workspace(const char *workspace, int number)
 {
     char folder[32];
@@ -210,29 +222,97 @@ static bool archive_workspace(const char *workspace, int number)
             if (fstatat(source, name, &st, AT_SYMLINK_NOFOLLOW) == 0 &&
                 S_ISDIR(st.st_mode)) continue;
         }
-        char candidate[256];
-        snprintf(candidate, sizeof candidate, "%s", name);
-        for (unsigned suffix = 1; ; suffix++) {
-            if (renameat2(source, name, dest, candidate, RENAME_NOREPLACE) == 0 ||
-                errno == ENOENT) break;
-            if (errno != EEXIST) {
-                ok = false;
-                break;
-            }
-            snprintf(candidate, sizeof candidate, "%.240s.%u", name, suffix);
-        }
+        ok = move_room_entry(source, name, dest);
     }
     if (dest >= 0) close(dest);
     closedir(dir);
     return ok;
 }
 
-/* The marker lets a restart finish an interrupted move before starting play. */
-static bool finish_transition(const game *g, int previous)
+static bool restore_workspace(const char *workspace, int number)
+{
+    char folder[32];
+    snprintf(folder, sizeof folder, "level_%d", number);
+    int dest = open(workspace, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (dest < 0) return false;
+    int source = openat(dest, folder, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (source < 0) {
+        bool absent = errno == ENOENT;
+        close(dest);
+        return absent;
+    }
+    DIR *dir = fdopendir(source);
+    if (!dir) {
+        close(source);
+        close(dest);
+        return false;
+    }
+    bool ok = true;
+    while (ok) {
+        errno = 0;
+        struct dirent *entry = readdir(dir);
+        if (!entry) {
+            ok = errno == 0;
+            break;
+        }
+        const char *name = entry->d_name;
+        if (strcmp(name, ".") && strcmp(name, ".."))
+            ok = move_room_entry(source, name, dest);
+    }
+    closedir(dir);
+    close(dest);
+    return ok;
+}
+
+typedef struct room_transition {
+    int from, direction;
+    bool restoring;
+} room_transition;
+
+static bool read_transition(const game *g, room_transition *move)
 {
     char marker[4096];
-    if (!archive_workspace(g->workspace, previous + 1) ||
-        !game_save_progress(g->state, previous + 1)) return false;
+    snprintf(marker, sizeof marker, "%s/transition", g->state);
+    FILE *file = fopen(marker, "r");
+    *move = (room_transition){0};
+    if (!file) return errno == ENOENT;
+    char phase[16];
+    int room;
+    int fields = fscanf(file, "%15s %d", phase, &room);
+    fclose(file);
+    if (fields != 2 || room < 1 || room > g->levels.count) return false;
+    move->from = room - 1;
+    if (!strcmp(phase, "level") || !strcmp(phase, "restore-next"))
+        move->direction = 1;
+    else if (!strcmp(phase, "back") || !strcmp(phase, "restore-back"))
+        move->direction = -1;
+    else return false;
+    move->restoring = strncmp(phase, "restore-", 8) == 0;
+    int target = move->from + move->direction;
+    return target >= 0 && target < g->levels.count;
+}
+
+static bool save_transition(const game *g, room_transition move)
+{
+    char line[48];
+    const char *phase = move.direction > 0 ? (move.restoring ? "restore-next" : "level") :
+                                           (move.restoring ? "restore-back" : "back");
+    snprintf(line, sizeof line, "%s %d", phase, move.from + 1);
+    return save_state_line(g->state, "transition", line);
+}
+
+/* Record the restore phase before moving any files back into the live home. */
+static bool finish_transition(const game *g, room_transition move)
+{
+    if (!move.restoring) {
+        if (!archive_workspace(g->workspace, move.from + 1)) return false;
+        move.restoring = true;
+        if (!save_transition(g, move)) return false;
+    }
+    int target = move.from + move.direction;
+    if (!restore_workspace(g->workspace, target + 1) ||
+        !game_save_progress(g->state, target)) return false;
+    char marker[4096];
     snprintf(marker, sizeof marker, "%s/transition", g->state);
     return unlink(marker) == 0;
 }
@@ -439,6 +519,7 @@ static void open_menu(game *g)
     char *argv[] = {helper, "list-details", NULL};
     menu->open = true;
     menu->selected = 0;
+    menu->model_submenu = 0;
     memset(g->held_until, 0, sizeof g->held_until);
     if (!g->spawn || menu->loading) return;
     clear_models(menu);
@@ -828,10 +909,55 @@ static void prompt_editor_key(game *g, const key_event *ev)
     }
 }
 
+static void select_model(game *g, bool codex, const model_option *model)
+{
+    const char *name = model ? model->name : "";
+    thinking_support support = codex ? THINK_UNAVAILABLE :
+                               model ? model->thinking : bundled_thinking();
+    if (codex != g->use_codex || strcmp(name, g->ollama_model) != 0 ||
+        support != g->thinking_support) {
+        g->thinking_enabled = false;
+        g->thinking_support = support;
+        snprintf(g->ollama_model, sizeof g->ollama_model, "%s", name);
+        if (g->use_codex != codex) {
+            g->use_codex = codex;
+            g->act.codex = codex;
+            activity_begin_room(&g->act, g->state, g->workspace);
+        }
+        restart_agent(g);
+    } else if (g->spawn && g->started && pty_poll_exit(&g->omp)) {
+        restart_agent(g);
+    }
+    g->menu.model_submenu = 0;
+    start_play(g);
+}
+
+static void model_menu_key(game *g, const key_event *ev)
+{
+    game_menu *menu = &g->menu;
+    bool ollama = menu->model_submenu == MENU_OLLAMA;
+    int count = ollama ? menu->count : 1;
+    if (!count) return;
+    switch (ev->key) {
+    case KEY_UP:
+        if (menu->model_selected > 0) menu->model_selected--;
+        break;
+    case KEY_DOWN:
+        if (menu->model_selected < count - 1) menu->model_selected++;
+        break;
+    case KEY_HOME: menu->model_selected = 0; break;
+    case KEY_END: menu->model_selected = count - 1; break;
+    case KEY_ENTER:
+        if (ev->action == 1)
+            select_model(g, false, ollama ? &menu->models[menu->model_selected] : NULL);
+        break;
+    default: break;
+    }
+}
+
 static void menu_key(game *g, const key_event *ev)
 {
     game_menu *menu = &g->menu;
-    int last = menu->count + MENU_LOCAL;
     if (menu->details_open) {
         if (menu->prompt_edit) prompt_editor_key(g, ev);
         else if (ev->key == KEY_ENTER && ev->action == 1 && menu->details_tab != DETAILS_CODEX) {
@@ -846,18 +972,22 @@ static void menu_key(game *g, const key_event *ev)
         if (ev->key == KEY_ENTER && ev->action != 2) reset_from_menu(g);
         return;
     }
+    if (menu->model_submenu) {
+        model_menu_key(g, ev);
+        return;
+    }
     switch (ev->key) {
     case KEY_UP:
         if (menu->selected > 0) menu->selected--;
         break;
     case KEY_DOWN:
-        if (menu->selected < last) menu->selected++;
+        if (menu->selected < MENU_OLLAMA) menu->selected++;
         break;
     case KEY_HOME:
         menu->selected = 0;
         break;
     case KEY_END:
-        menu->selected = last;
+        menu->selected = MENU_OLLAMA;
         break;
     case KEY_ENTER:
         if (ev->action == 2) break;
@@ -904,28 +1034,10 @@ static void menu_key(game *g, const key_event *ev)
                                 g->ollama_model[0] ? DETAILS_OLLAMA : DETAILS_LLAMA;
             refresh_model_details(g);
         }
-        if (menu->selected >= MENU_CODEX) {
-            bool codex = menu->selected == MENU_CODEX;
-            const model_option *model = menu->selected >= MENU_FIRST_OLLAMA ?
-                                        &menu->models[menu->selected - MENU_FIRST_OLLAMA] : NULL;
-            const char *name = model ? model->name : "";
-            thinking_support support = codex ? THINK_UNAVAILABLE :
-                                       model ? model->thinking : bundled_thinking();
-            if (codex != g->use_codex || strcmp(name, g->ollama_model) != 0 ||
-                support != g->thinking_support) {
-                g->thinking_enabled = false;
-                g->thinking_support = support;
-                snprintf(g->ollama_model, sizeof g->ollama_model, "%s", name);
-                if (g->use_codex != codex) {
-                    g->use_codex = codex;
-                    g->act.codex = codex;
-                    activity_begin_room(&g->act, g->state, g->workspace);
-                }
-                restart_agent(g);
-            } else if (g->spawn && g->started && pty_poll_exit(&g->omp)) {
-                restart_agent(g);
-            }
-            start_play(g);
+        if (menu->selected == MENU_CODEX) select_model(g, true, NULL);
+        if (menu->selected == MENU_LOCAL || menu->selected == MENU_OLLAMA) {
+            menu->model_submenu = menu->selected;
+            menu->model_selected = 0;
         }
         break;
     default:
@@ -1004,10 +1116,10 @@ bool game_init(game *g, const char *root, const char *state, bool spawn,
     g->tooltips = load_preference(state, "tooltips", tips) && strcmp(tips, "on") == 0;
     scene_init(&g->sc, 0, g->levels.count);
 
-    int previous = load_level(state, "transition", g->levels.count);
-    if (g->state_lock >= 0 && previous >= 0 && (previous + 1 >= g->levels.count ||
-                          !finish_transition(g, previous))) {
-        snprintf(err, errcap, "could not finish archiving room %d", previous + 1);
+    room_transition move;
+    if (g->state_lock >= 0 && (!read_transition(g, &move) ||
+        (move.direction && !finish_transition(g, move)))) {
+        snprintf(err, errcap, "could not recover the saved room transition");
         game_shutdown(g);
         return false;
     }
@@ -1181,6 +1293,7 @@ void game_key(game *g, const key_event *ev)
                 pty_stop(&g->menu.prompt_counter);
             }
             else if (g->menu.confirm_reset) g->menu.confirm_reset = false;
+            else if (g->menu.model_submenu) g->menu.model_submenu = 0;
             else if (!g->menu.open) open_menu(g);
             else if (g->started) g->menu.open = false;
         }
@@ -1400,6 +1513,17 @@ static void pump(pty_proc *p, neuroterm *t, char *note, size_t notecap, const ch
         snprintf(note, notecap, "%s exited - press Enter here to restart", who);
 }
 
+static void arrive_in_room(game *g, room_transition move)
+{
+    game_enter_level(g, move.from + move.direction);
+    if (move.direction < 0) {
+        g->sc.y = AISLE_Y0 + SCENE_WALK_SPEED;
+        g->sc.dir = 0;
+    }
+    g->transition_pending = false;
+    memset(g->held_until, 0, sizeof g->held_until);
+}
+
 void game_update(game *g, double dt)
 {
     poll_prompt_count(&g->menu);
@@ -1414,10 +1538,9 @@ void game_update(game *g, double dt)
         g->poll_timer -= dt;
         if (g->poll_timer > 0) return;
         g->poll_timer = 0.5;
-        if (finish_transition(g, g->sc.level)) {
-            g->transition_pending = false;
-            game_enter_level(g, g->sc.level + 1);
-        }
+        room_transition move;
+        if (read_transition(g, &move) && move.direction && finish_transition(g, move))
+            arrive_in_room(g, move);
         return;
     }
     g->now += dt;
@@ -1447,13 +1570,20 @@ void game_update(game *g, double dt)
         if (g->held_until[2] > t) dy -= 1;
         if (g->held_until[3] > t) dy += 1;
         ev = scene_tick(&g->sc, dx, dy);
-        if (ev == SCENE_NEXT_ROOM) {
-            if (!save_level(g->state, "transition", g->sc.level)) {
+        if (ev == SCENE_BOTTOM_EXIT && g->sc.level == 0) {
+            g->quit = true;
+            break;
+        }
+        if (ev == SCENE_NEXT_ROOM || ev == SCENE_BOTTOM_EXIT) {
+            room_transition move = {.from = g->sc.level,
+                                    .direction = ev == SCENE_NEXT_ROOM ? 1 : -1};
+            if (!save_transition(g, move)) {
                 activity_add(&g->act, ACT_ERROR, "Could not save room transition.");
+                if (move.direction < 0) g->sc.y = CANVAS_H - 2;
             } else {
                 stop_room_agent(g);
-                if (finish_transition(g, g->sc.level)) {
-                    game_enter_level(g, g->sc.level + 1);
+                if (finish_transition(g, move)) {
+                    arrive_in_room(g, move);
                 } else {
                     activity_add(&g->act, ACT_ERROR, "Could not archive room files. Retrying.");
                     g->transition_pending = true;
@@ -1509,6 +1639,14 @@ static view game_view(const game *g)
     return v;
 }
 
+static const char *configured_gguf_label(void)
+{
+    const char *weights = getenv("PUZZLLM_MODEL");
+    if (!weights || !*weights) return "Qwen 3.5 (default GGUF)";
+    const char *leaf = strrchr(weights, '/');
+    return leaf && leaf[1] ? leaf + 1 : weights;
+}
+
 void game_render(game *g, sr_canvas *c)
 {
     view v = game_view(g);
@@ -1519,9 +1657,12 @@ void game_render(game *g, sr_canvas *c)
         render_model_details(c, g->menu.details_tab, g->menu.details_scroll,
                              g->menu.prompt, g->menu.write_schema,
                              g->menu.prompt_count);
+    else if (g->menu.model_submenu)
+        render_model_menu(c, g->menu.model_submenu == MENU_OLLAMA, g->menu.models,
+                          g->menu.count, g->menu.model_selected,
+                          g->menu.loading, g->menu.load_failed, configured_gguf_label());
     else if (g->menu.open)
-        render_menu(c, g->menu.models, g->menu.count, g->menu.selected,
-                    v.agent_model, g->menu.loading, g->menu.load_failed,
+        render_menu(c, g->menu.selected, v.agent_model,
                     g->started, g->sc.level + 1, g->menu.confirm_reset, g->menu.notice,
                     g->thinking_support, g->thinking_enabled, g->use_codex, g->use_pi,
                     g->compute, g->tooltips);

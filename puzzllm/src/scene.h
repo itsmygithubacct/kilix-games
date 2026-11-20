@@ -28,7 +28,8 @@ typedef struct scene {
 typedef enum scene_event {
     SCENE_NONE = 0,
     SCENE_DOOR_OPENED,   /* the door finished opening this tick */
-    SCENE_NEXT_ROOM      /* Kilix walked through the open door */
+    SCENE_NEXT_ROOM,     /* Kilix walked through the open door */
+    SCENE_BOTTOM_EXIT
 } scene_event;
 
 /* Zell's clock and pace: 60 ticks a second, 3.5 pixels a tick walking. */

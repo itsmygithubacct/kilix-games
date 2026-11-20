@@ -316,8 +316,7 @@ static void room_background(sr_canvas *c, const room_art *art, const char *style
     memcpy(c->px, bg.px, (size_t)c->w * (size_t)c->h * sizeof *c->px);
 }
 
-void render_menu(sr_canvas *c, const model_option *models, int count, int selected,
-                 const char *active_model, bool loading, bool failed,
+void render_menu(sr_canvas *c, int selected, const char *active_model,
                  bool started, int level, bool confirm_reset, const char *notice, int support, bool thinking_enabled, bool codex,
                  bool pi, compute_mode compute, bool tooltips)
 {
@@ -326,14 +325,11 @@ void render_menu(sr_canvas *c, const model_option *models, int count, int select
         [MENU_RESET_LEVEL] = "Reset Level",
         [MENU_MODEL_DETAILS] = "Model prompt and tools",
         [MENU_CODEX] = "Codex (OpenAI)",
-        [MENU_LOCAL] = "Qwen 3.5 (llama.cpp)",
+        [MENU_LOCAL] = "llama.cpp models >",
+        [MENU_OLLAMA] = "Ollama models >",
     };
     int width = 560, row_h = 27;
-    int rows = (c->h - 180) / row_h;
-    int options = count + MENU_FIRST_OLLAMA;
-    if (rows > 14) rows = 14;
-    if (rows > options) rows = options;
-    int first = selected >= rows ? selected - rows + 1 : 0;
+    int rows = MENU_OLLAMA + 1;
     int height = 125 + rows * row_h;
     int x = (c->w - width) / 2;
     int y = (c->h - height) / 2;
@@ -356,11 +352,11 @@ void render_menu(sr_canvas *c, const model_option *models, int count, int select
     draw_fill(c, x, y, width, height, 0x151d29, 1);
     draw_stroke(c, x, y, width, height, 2, 0x826b47, 1);
     draw_text(c, x + 18, y + 13, "Game menu", 0xffde8c, 1);
-    snprintf(label, sizeof label, "Agent model: %s", *active_model ? active_model : actions[MENU_LOCAL]);
+    snprintf(label, sizeof label, "Agent model: %s", *active_model ? active_model : "Qwen 3.5 (llama.cpp)");
     text_line(c, x + 18, y + 39, label, 0xbccadb, (width - 36) / CELL_W);
 
-    for (int i = first; i < first + rows; i++) {
-        int row_y = y + 62 + (i - first) * row_h;
+    for (int i = 0; i < rows; i++) {
+        int row_y = y + 62 + i * row_h;
         if (i == selected)
             draw_fill(c, x + 11, row_y, width - 22, row_h - 2, 0x354356, 1);
         if (i == MENU_RESUME) {
@@ -379,26 +375,48 @@ void render_menu(sr_canvas *c, const model_option *models, int count, int select
             snprintf(label, sizeof label, "Harness: %s", codex ? "Codex" : pi ? "Pi (pi.dev)" : "OMP");
         else if (i == MENU_TOOLTIPS)
             snprintf(label, sizeof label, "Tooltips: %s", tooltips ? "On" : "Off");
-        else if (i < MENU_FIRST_OLLAMA)
-            snprintf(label, sizeof label, "%s", actions[i]);
         else
-            snprintf(label, sizeof label, "%s (Ollama)", models[i - MENU_FIRST_OLLAMA].name);
+            snprintf(label, sizeof label, "%s", actions[i]);
         bool disabled = (i == MENU_THINKING && support == THINK_UNAVAILABLE) ||
                         ((i == MENU_COMPUTE || i == MENU_HARNESS) && codex);
         uint32_t color = disabled ? 0xa6b5c6 : 0xf2efeb;
         text_line(c, x + 20, row_y + 5, label, color, (width - 40) / CELL_W);
     }
-    if (*notice || loading || failed || count == 0 || options > rows) {
-        if (*notice) snprintf(label, sizeof label, "%s", notice);
-        else if (loading) snprintf(label, sizeof label, "Looking for installed Ollama models...");
-        else if (failed) snprintf(label, sizeof label, "Could not reach the local Ollama service.");
-        else if (count == 0) snprintf(label, sizeof label, "No installed Ollama models found.");
-        else snprintf(label, sizeof label, "Options %d-%d of %d", first + 1, first + rows, options);
-        text_line(c, x + 18, y + height - 48, label, 0xa6b5c6, (width - 36) / CELL_W);
-    }
+    if (*notice)
+        text_line(c, x + 18, y + height - 48, notice, 0xa6b5c6, (width - 36) / CELL_W);
     draw_text(c, x + 18, y + height - 26,
               started ? "Up/Down move    Enter select    Esc close" : "Up/Down move    Enter select",
               0xbccadb, 1);
+}
+
+void render_model_menu(sr_canvas *c, bool ollama, const model_option *models,
+                       int count, int selected, bool loading, bool failed,
+                       const char *llama_model)
+{
+    int width = 560, row_h = 27;
+    int options = ollama ? count : 1;
+    int rows = (c->h - 180) / row_h;
+    if (rows > 14) rows = 14;
+    if (rows > options) rows = options;
+    int first = rows > 0 && selected >= rows ? selected - rows + 1 : 0;
+    int height = 110 + rows * row_h;
+    int x = (c->w - width) / 2, y = (c->h - height) / 2;
+    draw_fill(c, 0, 0, c->w, c->h, 0x0c1018, 0.72f);
+    draw_fill(c, x, y, width, height, 0x151d29, 1);
+    draw_stroke(c, x, y, width, height, 2, 0x826b47, 1);
+    draw_text(c, x + 18, y + 13, ollama ? "Ollama models" : "llama.cpp models", 0xffde8c, 1);
+    for (int i = first; i < first + rows; i++) {
+        int row_y = y + 42 + (i - first) * row_h;
+        if (i == selected) draw_fill(c, x + 11, row_y, width - 22, row_h - 2, 0x354356, 1);
+        text_line(c, x + 20, row_y + 5, ollama ? models[i].name : llama_model,
+                  0xf2efeb, (width - 40) / CELL_W);
+    }
+    if (ollama && !count) {
+        const char *status = loading ? "Looking for installed Ollama models..." :
+            failed ? "Could not reach the local Ollama service." : "No installed Ollama models found.";
+        text_line(c, x + 18, y + 42, status, 0xa6b5c6, (width - 36) / CELL_W);
+    }
+    draw_text(c, x + 18, y + height - 26, "Up/Down move    Enter select    Esc back", 0xbccadb, 1);
 }
 
 static void details_block(pane_text *pane, const char *text)

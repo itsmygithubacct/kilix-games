@@ -44,7 +44,7 @@ typedef struct view {
 
 typedef enum compute_mode { COMPUTE_AUTO, COMPUTE_CPU, COMPUTE_GPU } compute_mode;
 
-enum { MENU_RESUME, MENU_QUIT, MENU_RESET, MENU_RESET_LEVEL, MENU_THINKING, MENU_COMPUTE, MENU_TOOLTIPS, MENU_MODEL_DETAILS, MENU_HARNESS, MENU_CODEX, MENU_LOCAL, MENU_FIRST_OLLAMA };
+enum { MENU_RESUME, MENU_QUIT, MENU_RESET, MENU_RESET_LEVEL, MENU_THINKING, MENU_COMPUTE, MENU_TOOLTIPS, MENU_MODEL_DETAILS, MENU_HARNESS, MENU_CODEX, MENU_LOCAL, MENU_OLLAMA };
 
 enum { MODEL_SPEC_CAP = 16384 };
 typedef enum model_details_tab { DETAILS_OLLAMA, DETAILS_LLAMA, DETAILS_CODEX, DETAILS_PI, DETAILS_COUNT } model_details_tab;
@@ -54,10 +54,12 @@ int render_model_details(sr_canvas *c, model_details_tab tab, int scroll,
 void render_prompt_editor(sr_canvas *c, const char *draft, size_t cursor, const char *notice);
 
 struct model_option;
-void render_menu(sr_canvas *c, const struct model_option *models, int count, int selected,
-                 const char *active_model, bool loading, bool failed,
+void render_menu(sr_canvas *c, int selected, const char *active_model,
                  bool started, int level, bool confirm_reset, const char *notice, int thinking_support, bool thinking_enabled, bool codex,
                  bool pi, compute_mode compute, bool tooltips);
+void render_model_menu(sr_canvas *c, bool ollama, const struct model_option *models,
+                       int count, int selected, bool loading, bool failed,
+                       const char *llama_model);
 size_t render_copy_selection(const view *v, char *out, size_t cap);
 int render_scroll_limit(const view *v, screen_id id);
 void render_frame(sr_canvas *c, const view *v);

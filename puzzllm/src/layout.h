@@ -37,10 +37,10 @@ enum {
     SCREEN_MAX_COLS = 150,
     SCREEN_TEXT_ROWS_MAX = 9,
     RESOURCE_H = 36,
-    WALL_H = 100,
-    DOOR_W = 80, DOOR_H = 86, DOOR_Y = 14,
-    AISLE_Y0 = 118,
-    DOOR_EXIT_Y = 84
+    DOOR_W = 80, DOOR_H = 86, DOOR_Y = 43,
+    WALL_H = DOOR_Y + DOOR_H,
+    AISLE_Y0 = WALL_H + 18,
+    DOOR_EXIT_Y = WALL_H - 16
 };
 
 typedef struct layout {

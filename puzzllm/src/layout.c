@@ -11,7 +11,7 @@ static int clamp(int v, int lo, int hi)
 int layout_set(int w, int h)
 {
     layout n;
-    int half, gap = 48, top = 106, panel_gap = 10, status_gap = 6, col_w;
+    int half, gap = 48, top = 16, panel_gap = 10, status_gap = 6, col_w;
 
     w = clamp(w, LAYOUT_MIN_W, LAYOUT_MAX_W);
     h = clamp(h, LAYOUT_MIN_H, LAYOUT_MAX_H);
@@ -33,7 +33,7 @@ int layout_set(int w, int h)
     int height = n.floor_y + 6 - top;
     col_w = half - gap - 16;
     n.omp_x = 16;
-    n.omp_y = 16;
+    n.omp_y = top;
     n.omp_cols = clamp((col_w - 2 * SCREEN_PAD) / CELL_W, 20, SCREEN_MAX_COLS);
     int terminal_bottom = n.hud_y - 28;
     n.omp_rows = (terminal_bottom - n.omp_y - SCREEN_H(0)) / CELL_H;

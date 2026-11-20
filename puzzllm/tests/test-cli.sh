@@ -152,6 +152,20 @@ printf 'level 4\n' > "$PUZZLLM_STATE/transition"
 grep -qx 'Keep this instruction across rooms.' "$workspace/.system/llama-prompt.txt" &&
     pass "prompt settings stay in the sandbox home across rooms" || fail "prompt settings were archived"
 
+# A crash after archiving the departing room resumes the restore phase.
+mkdir -p "$workspace/level_5"
+mv "$workspace/chest.zip" "$workspace/level_5/chest.zip"
+chest_sum=$(sha256sum < "$workspace/level_5/chest.zip")
+printf 'restore-back 5\n' > "$PUZZLLM_STATE/transition"
+"$bin" --check-level 4 > "$scratch/out"; rc=$?
+[ "$rc" -eq 0 ] && grep -qx 'level 4' "$PUZZLLM_STATE/progress" &&
+    [ -f "$workspace/count_files.sh" ] && [ ! -e "$PUZZLLM_STATE/transition" ] &&
+    pass "interrupted backtrack restores room 4 work and progress" || fail "backtrack recovery rc=$rc"
+printf 'level 4\n' > "$PUZZLLM_STATE/transition"
+"$bin" --check-level 5 > "$scratch/out"; rc=$?
+[ "$rc" -eq 1 ] && [ "$(sha256sum < "$workspace/chest.zip")" = "$chest_sum" ] &&
+    pass "returning to room 5 restores the original encrypted archive" || fail "room 5 restore rc=$rc"
+
 # a broken level file is reported with its line
 mkdir -p "$scratch/root/levels"
 printf 'level: 1\ntitle: t\ngoal: g\ncheck: file ../escape\n' > "$scratch/root/levels/levels.txt"

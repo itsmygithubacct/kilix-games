@@ -77,12 +77,12 @@ void art_room(sr_canvas *c, const room_art *art, const char *style)
     /* side walls */
     draw_fill(c, 0, 0, 8, CANVAS_H, p.wall_shadow, 1.0f);
     draw_fill(c, CANVAS_W - 8, 0, 8, CANVAS_H, p.wall_shadow, 1.0f);
-    /* runner from the door down the aisle to the floor */
+    /* The carpet marks both exits down the center of the room. */
     draw_fill(c, AISLE_X0 - 8, WALL_H, (AISLE_X1 - AISLE_X0) + 16,
-                 FLOOR_Y - WALL_H + 40, p.runner_edge, 1.0f);
-    int runner_h = FLOOR_Y - WALL_H + 36;
+                 CANVAS_H - WALL_H, p.runner_edge, 1.0f);
+    int runner_h = CANVAS_H - WALL_H;
     draw_fill(c, AISLE_X0 - 5, WALL_H, AISLE_X1 - AISLE_X0 + 10,
-              runner_h + 2, sr_scale_rgb(p.runner, 0.58f), 1);
+              runner_h, sr_scale_rgb(p.runner, 0.58f), 1);
     draw_fill(c, AISLE_X0 - 2, WALL_H, AISLE_X1 - AISLE_X0 + 4,
               runner_h, p.runner, 1);
     for (int y = WALL_H + 24; y < WALL_H + runner_h; y += 24)
@@ -122,16 +122,15 @@ void art_door(sr_canvas *c, const room_art *art, const char *style, float open, 
             draw_disc(c, DOOR_X + DOOR_W - 12, DOOR_Y + DOOR_H / 2.0f, 4, 4,
                            0xe0c060, 1.0f);
     }
-    /* lamp above the door: red shut, green open */
-    draw_disc(c, DOOR_X + DOOR_W / 2.0f, 6, 4, 4,
-                   open >= 1.0f ? 0x40e070 : 0xe04040, 1.0f);
-    int sign_x = DOOR_X + DOOR_W + 16;
+    int center = DOOR_X + DOOR_W / 2;
     if (next_room > 0) snprintf(sign, sizeof sign, "ROOM %d", next_room);
     else snprintf(sign, sizeof sign, "SOON");
-    draw_fill(c, sign_x, 18, 76, 43, 0x1a1a1a, 0.85f);
-    draw_text(c, sign_x + 6, 22, sign, 0xf0e0b0, 1.0f);
-    draw_text(c, sign_x + 6, 42, open >= 1.0f ? "OPEN" : "LOCKED",
-              open >= 1.0f ? 0x60f080 : 0xf07060, 1.0f);
+    bool unlocked = open >= 0.95f;
+    const char *status = unlocked ? "UNLOCKED" : "LOCKED";
+    draw_fill(c, DOOR_X, 0, DOOR_W, DOOR_Y - 8, 0x1a1a1a, 0.85f);
+    draw_text(c, center - (int)strlen(sign) * CELL_W / 2, 1, sign, 0xf0e0b0, 1.0f);
+    draw_text(c, center - (int)strlen(status) * CELL_W / 2, 17, status,
+              unlocked ? 0x60f080 : 0xf07060, 1.0f);
 }
 
 void art_screen_glass(sr_canvas *c, rect r, uint32_t background)

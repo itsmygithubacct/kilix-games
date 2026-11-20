@@ -608,7 +608,7 @@ static scene_event walk(scene *s, int dx, int dy, float seconds)
     for (int i = 0; i < ticks; i++) {
         scene_event e = scene_tick(s, dx, dy);
         if (e != SCENE_NONE) last = e;
-        if (e == SCENE_NEXT_ROOM) break;
+        if (e == SCENE_NEXT_ROOM || e == SCENE_BOTTOM_EXIT) break;
     }
     return last;
 }
@@ -663,6 +663,12 @@ static void test_scene(void)
     scene_enter_room(&s, 1);
     s.goal_met = true;
     CHECK(walk(&s, 0, -1, 8) != SCENE_NEXT_ROOM, "no room after the last");
+
+    scene_enter_room(&s, 1);
+    CHECK(walk(&s, 0, 1, 1) == SCENE_BOTTOM_EXIT, "walking down the carpet reaches the bottom exit");
+    scene_enter_room(&s, 1);
+    s.x = AISLE_X1 + 20;
+    CHECK(walk(&s, 0, 1, 1) != SCENE_BOTTOM_EXIT, "off the carpet the bottom wall blocks movement");
 
     /* typing into a screen freezes Kilix */
     scene_enter_room(&s, 0);
@@ -822,9 +828,9 @@ static void test_layout(void)
     char err[256], state[2300];
 
     layout_set(1280, 800);
-    CHECK(OMP_COLS == 70 && OMP_ROWS == 43 && SHELL_COLS == 70 && SHELL_ROWS == 19 &&
-          ACT_ROWS == 5 && GOAL_ROWS == 5, "1280x800 fits four panels");
-    CHECK(START_X == 640 && START_Y == 746 && AISLE_X0 == 620 && AISLE_X1 == 660 &&
+    CHECK(OMP_COLS == 70 && OMP_ROWS == 43 && SHELL_COLS == 70 && SHELL_ROWS == 22 &&
+          ACT_ROWS == 7 && GOAL_ROWS == 6, "1280x800 fits four panels");
+    CHECK(START_X == 640 && START_Y == 752 && AISLE_X0 == 620 && AISLE_X1 == 660 &&
           WALK_Y0 == 680 && WALK_Y1 == 768 && DOOR_X == 600, "1280x800 floor and aisle");
     layout_set(300, 200);
     CHECK(CANVAS_W == LAYOUT_MIN_W && CANVAS_H == LAYOUT_MIN_H, "small panes: the minimum");
@@ -847,7 +853,7 @@ static void test_layout(void)
               goal.x + goal.w <= w && shell.y + shell.h >= HUD_Y - 44 &&
               shell.y + shell.h < HUD_Y &&
               act.y + act.h <= FLOOR_Y && omp.y < 24 && omp.y + omp.h >= HUD_Y - 44 &&
-              omp.y + omp.h < HUD_Y && goal.y > WALL_H,
+              omp.y + omp.h < HUD_Y && goal.y == omp.y,
               "%dx%d: screens inside the room", w, h);
         CHECK(!overlaps(omp, aisle) && !overlaps(shell, aisle) &&
               !overlaps(act, aisle) && !overlaps(goal, aisle) &&
@@ -1075,9 +1081,11 @@ static void test_render_and_flow(void)
     CHECK(at(&open, DOOR_X + DOOR_W / 2, DOOR_Y + 30) != at(&shut, DOOR_X + DOOR_W / 2, DOOR_Y + 30),
           "the opening behind the door is visible");
 
-    CHECK(differing(&shut, &open, (rect){DOOR_X + DOOR_W + 16, 42, 76, 19}) > 0 &&
-          differing(&shut, &open, (rect){DOOR_X - 40, 33, 30, 30}) == 0,
-          "lock status changes underneath the room number on the right");
+    CHECK(differing(&shut, &open, (rect){DOOR_X, 17, DOOR_W, 16}) > 0 &&
+          differing(&shut, &open, (rect){DOOR_X, 0, DOOR_W, 16}) == 0,
+          "the lock status changes underneath the room number above the door");
+    CHECK(at(&shut, START_X, CANVAS_H - 1) != at(&shut, AISLE_X0 - 12, CANVAS_H - 1),
+          "the carpet reaches the bottom edge");
 
     /* text on the omp screen reaches the canvas */
     feed(&G.omp_vt, "W");
@@ -1124,6 +1132,28 @@ static void test_render_and_flow(void)
     CHECK(game_init(&G, ".", state, false, err, sizeof err), "restart");
     CHECK(G.sc.level == 1, "resumed in room 2");
     game_render(&G, &cur);
+    char room_file[2400];
+    snprintf(room_file, sizeof room_file, "%s/workspace/room-two-notes.txt", state);
+    write_file(room_file, "keep", 4);
+    key_event down = {.key = KEY_DOWN, .action = 1};
+    G.release_events = true;
+    game_key(&G, &down);
+    for (int i = 0; i < 120 && G.sc.level == 1; i++) game_update(&G, 1.0 / 60);
+    CHECK(G.sc.level == 0 && G.sc.y > DOOR_EXIT_Y && G.sc.y < WALK_Y0 &&
+          game_load_progress(state, G.levels.count) == 0 && G.sc.goal_met &&
+          access(hello, F_OK) == 0 && access(room_file, F_OK) != 0,
+          "bottom exit restores the previous room at its door and archives the current room");
+    key_event up = {.key = KEY_UP, .action = 1};
+    game_key(&G, &up);
+    for (int i = 0; i < 120 && G.sc.level == 0; i++) game_update(&G, 1.0 / 60);
+    CHECK(G.sc.level == 1 && access(room_file, F_OK) == 0, "revisiting room 2 restores its work");
+    game_key(&G, &down);
+    for (int i = 0; i < 120 && G.sc.level == 1; i++) game_update(&G, 1.0 / 60);
+    G.sc.y = CANVAS_H - 4;
+    game_key(&G, &down);
+    for (int i = 0; i < 10 && !G.quit; i++) game_update(&G, 1.0 / 60);
+    CHECK(G.quit && G.sc.level == 0 && access(hello, F_OK) == 0,
+          "walking out of room 1 quits with its current files saved");
     game_shutdown(&G);
 
     /* goal already met on entry: the door is open at once */
@@ -1161,6 +1191,18 @@ static void test_menu(void)
     G.menu.models[0] = (model_option){"first:latest", THINK_SWITCHABLE};
     G.menu.models[1] = (model_option){"last:latest", THINK_UNAVAILABLE};
     G.menu.count = 2;
+    ev.key = KEY_END;
+    game_key(&G, &ev);
+    ev.key = KEY_ENTER;
+    game_key(&G, &ev);
+    CHECK(G.menu.open && G.menu.model_submenu == MENU_OLLAMA,
+          "Ollama opens its own model list");
+    ev.key = KEY_ESCAPE;
+    game_key(&G, &ev);
+    CHECK(G.menu.open && !G.menu.model_submenu && G.menu.selected == MENU_OLLAMA,
+          "Escape returns from the model list to its main menu row");
+    ev.key = KEY_ENTER;
+    game_key(&G, &ev);
     ev.key = KEY_END;
     game_key(&G, &ev);
     ev.key = KEY_ENTER;
@@ -1203,6 +1245,8 @@ static void test_codex_menu(void)
 
     menu_press(KEY_ESCAPE);
     menu_press(KEY_END);
+    menu_press(KEY_UP);
+    menu_press(KEY_ENTER);
     menu_press(KEY_ENTER);
     CHECK(!G.use_codex && !G.act.codex, "the bundled model switches back from Codex");
     game_shutdown(&G);
@@ -1221,7 +1265,7 @@ static void test_thinking_menu(void)
     G.menu.models[1] = (model_option){"plain:latest", THINK_UNAVAILABLE};
     G.menu.count = 2;
     menu_press(KEY_END);
-    menu_press(KEY_UP);
+    menu_press(KEY_ENTER);
     menu_press(KEY_ENTER);
     CHECK(G.thinking_support == THINK_SWITCHABLE && !G.thinking_enabled,
           "a thinking-capable model starts off");
@@ -1234,6 +1278,8 @@ static void test_thinking_menu(void)
     CHECK(!G.thinking_enabled, "thinking can be disabled again");
     menu_press(KEY_ENTER);
 
+    menu_press(KEY_END);
+    menu_press(KEY_ENTER);
     menu_press(KEY_END);
     menu_press(KEY_ENTER);
     CHECK(G.thinking_support == THINK_UNAVAILABLE && !G.thinking_enabled,
@@ -1392,6 +1438,9 @@ static void test_start_and_reset_menu(void)
     G.spawn = false;  /* Drive the menu without running the terminal children. */
     for (int i = 0; i < MENU_LOCAL; i++) menu_press(KEY_DOWN);
     menu_press(KEY_ENTER);
+    CHECK(G.menu.model_submenu == MENU_LOCAL && !G.started,
+          "llama.cpp opens its own model list before starting");
+    menu_press(KEY_ENTER);
     CHECK(G.started && !G.menu.open && G.sc.level == 2,
           "selecting a model starts the game and continues the existing save");
 
@@ -1495,13 +1544,13 @@ static void test_room_art(void)
     if (loaded && sr_canvas_init(&frame, CANVAS_W, CANVAS_H)) {
         int x = 24, y = 50;
         art_room(&frame, &art, "stone");
-        CHECK(at(&frame, x, y) == (art.stone.pixels[y * art.stone.w + x] & 0xffffff),
+        CHECK(at(&frame, x, y) == (art.stone.pixels[(y * art.stone.h / WALL_H) * art.stone.w + x] & 0xffffff),
               "the stone room uses the stone wall texture");
         CHECK(at(&frame, x, WALL_H + y) == (art.floor.pixels[y * art.floor.w + x] & 0xffffff) &&
               at(&frame, x + art.floor.w, WALL_H + y) == at(&frame, x, WALL_H + y),
               "the slate floor texture repeats");
         art_room(&frame, &art, "brick");
-        CHECK(at(&frame, x, y) == (art.brick.pixels[y * art.brick.w + x] & 0xffffff),
+        CHECK(at(&frame, x, y) == (art.brick.pixels[(y * art.brick.h / WALL_H) * art.brick.w + x] & 0xffffff),
               "the brick room uses the brick wall texture");
         art_door(&frame, &art, "brick", 0, 2);
         CHECK(at(&frame, DOOR_X + x, DOOR_Y + y) == (art.door.pixels[y * art.door.w + x] & 0xffffff),
