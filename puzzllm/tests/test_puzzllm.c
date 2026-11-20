@@ -460,6 +460,11 @@ static void test_script_and_stamp(void)
     const char *sample_only = "printf '4\\n9\\n'\n";
     write_file(path, keeper, strlen(keeper));
     CHECK(run_script_check(ws, "keep.sh") == 0, "the keeper passes the hidden inputs");
+    const char *extra_byte = "printf '\\0'\n";
+    write_file(path, extra_byte, strlen(extra_byte));
+    CHECK(run_script_check(ws, "keep.sh") == 12, "empty output must contain zero bytes");
+    write_file(path, "exit 1\n", 7);
+    CHECK(run_script_check(ws, "keep.sh") == 12, "a failed keeper cannot pass an empty result");
     write_file(path, sample_only, strlen(sample_only));
     CHECK(run_script_check(ws, "keep.sh") == 12, "the sample output is not a fixture");
     write_file(path, drops_negatives, strlen(drops_negatives));

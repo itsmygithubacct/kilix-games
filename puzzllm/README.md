@@ -316,7 +316,13 @@ The levels so far:
    with no line ending.
 8. **The mirror.** Write `~/mirror.txt` as that 32-byte seal, one comma, then
    the seal reversed. The file is exactly 65 bytes, with no line ending.
-9. A stub room for the next challenge.
+9. **The keeper.** Write `~/keep.sh` to read integers from stdin and print
+   each one that exceeds its immediate predecessor. The grader supplies
+   several inputs, including ties and negative numbers.
+10. **The stamp.** Run `./run_check.sh` and report the latest run ID and
+    failing filename. Append the number of letters in that filename whose
+    alphabet positions are multiples of three.
+11. A stub room for the next challenge.
 
 The generated pixel art in `assets/` includes blue stone and red brick walls,
 slate floor tiles, and a sliding wooden door. The sliding leaf reveals a black opening.
@@ -383,7 +389,7 @@ lets the model think, which is off by default because 0.8B tends to loop.
 
 ## Tests
 
-`make test` runs four suites, all headless:
+`make test` runs the following headless suites.
 
 - `test-unit` covers the terminal emulator, key encoding, level parsing and
   checks (strawberry and the million ones included), JSON, the activity
@@ -397,10 +403,11 @@ lets the model think, which is off by default because 0.8B tends to loop.
   input.
 - `test-sandbox` covers confinement, persistence, the agent chain, and the
   goal met by hand from the shell.
-- `test-defects` plants 29 defects: six in the sandbox, twenty-three in
-  the game, two of them in the Neuronte renderer (skipped in a build without
-  it). For each, it checks that the right suite turns red. A defect nobody
-  notices fails the run.
+- `test-kilix-display` checks window placement before capture and goal
+  submission across agent restarts.
+- `test-defects` introduces one regression at a time in a scratch copy.
+  Each regression must fail its assigned suite. A raster-only build skips
+  the checks that require Neuronte.
 
 Test scratch stays under `build/`.
 

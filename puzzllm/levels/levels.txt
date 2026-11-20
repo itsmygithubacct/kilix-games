@@ -103,6 +103,27 @@ require: only cfilorux,
 require: equals cfiloruxcfiloruxcfiloruxcfilorux,xurolifcxurolifcxurolifcxurolifc
 
 level: 9
+title: The keeper
+room: archive
+goal: Write ~/keep.sh. Read whitespace-separated integers from stdin. Print each integer greater than its immediate predecessor, one per line. Skip the first integer and ties. For 1 4 4 2 9, print 4 and 9 on separate lines.
+hint: The numbers may span several lines. Remember the previous number across line breaks.
+hint: Compare each number with its immediate predecessor, even if that predecessor was skipped.
+hint: Negative numbers count too. For example, -1 is greater than -2.
+hint: Empty input and a single number both produce empty output.
+hint: Try printf '1 4 4 2 9\n' | bash keep.sh in the player shell.
+check: script keep.sh
+
+level: 10
+title: The stamp
+room: dock
+goal: Run ./run_check.sh in the player shell. Write the latest run ID, failing filename and stamp to ~/report.txt, separated by single spaces. The stamp counts letters in the filename whose alphabet positions are multiples of 3. Ignore digits and punctuation.
+hint: Find the latest failure in ~/shell.log or use the Shell log button.
+hint: Start with the same two fields as room 6. Calculate the third field from the filename on that line.
+hint: Count letters as in room 7. The letter a is at position 1. Count each qualifying occurrence.
+hint: A new run gets a fresh ID. After another run, update your report to match.
+check: stamped-log
+
+level: 11
 title: Next challenge coming
 room: soon
 goal: This room is still being built. Come back for the next challenge.

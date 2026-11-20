@@ -191,6 +191,34 @@ printf '%s\n' "$second" > "$workspace/report.txt"
 "$bin" --check-level 6 > "$scratch/out"; rc=$?
 [ "$rc" -eq 0 ] && pass "room 6 accepts the updated report" || fail "room 6 updated report rc=$rc"
 
+# A save at the former closing room opens the keeper and its new goal.
+printf 'level 9\n' > "$PUZZLLM_STATE/progress"
+printf '%s\n' "printf '4\\n9\\n'" > "$workspace/keep.sh"
+"$bin" --check-level 9 > "$scratch/out"; rc=$?
+[ "$rc" -eq 1 ] && grep -q 'keep.sh' "$workspace/GOAL.md" &&
+    pass "room 9 rejects a script that only prints the example" || fail "room 9 sample rc=$rc"
+cat > "$workspace/keep.sh" <<'EOF'
+awk '{for (i=1; i<=NF; i++) { if (seen && $i+0 > previous) print $i; previous=$i+0; seen=1 }}'
+EOF
+"$bin" --check-level 9 > "$scratch/out"; rc=$?
+[ "$rc" -eq 0 ] && pass "a working keeper opens room 9" || fail "room 9 keeper rc=$rc"
+
+printf 'level 9\n' > "$PUZZLLM_STATE/transition"
+"$bin" --check-level 10 > "$scratch/out"; rc=$?
+[ "$rc" -eq 1 ] && grep -qx 'level 10' "$PUZZLLM_STATE/progress" &&
+    [ -f "$workspace/level_9/keep.sh" ] && [ -x "$workspace/run_check.sh" ] &&
+    pass "room 10 saves the keeper and installs the shell check" || fail "room 10 setup rc=$rc"
+latest=$(run_report)
+filename=${latest#* }
+stamp=$(printf %s "$filename" | tr -cd cfilorux | wc -c)
+printf '%s %d\n' "$latest" "$stamp" > "$workspace/report.txt"
+"$bin" --check-level 10 > "$scratch/out"; rc=$?
+[ "$rc" -eq 0 ] && pass "room 10 accepts the stamped shell report" || fail "room 10 stamp rc=$rc"
+newest=$(run_report)
+"$bin" --check-level 10 > "$scratch/out"; rc=$?
+[ "$rc" -eq 1 ] && [ "$latest" != "$newest" ] &&
+    pass "room 10 closes the door when the report goes stale" || fail "room 10 stale rc=$rc"
+
 # a broken level file is reported with its line
 mkdir -p "$scratch/root/levels"
 printf 'level: 1\ntitle: t\ngoal: g\ncheck: file ../escape\n' > "$scratch/root/levels/levels.txt"
