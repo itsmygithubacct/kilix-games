@@ -65,10 +65,31 @@ find_omp() {
 }
 
 mount_pi() {
-    local entry managed version modules node
+    local entry managed version modules node install_pid
+    local runtime=$state/runtime/pi
     entry=${PUZZLLM_PI:-$(command -v pi || true)}
-    entry=${entry:-$HOME/.local/bin/pi}
-    [ -x "$entry" ] || die "Pi not found (install from pi.dev or set PUZZLLM_PI)"
+    if [ -n "${PUZZLLM_PI:-}" ] && [ ! -x "$entry" ]; then
+        die "PUZZLLM_PI does not point to an executable"
+    fi
+    if [ -z "$entry" ] && [ -x "$HOME/.local/bin/pi" ]; then
+        entry=$HOME/.local/bin/pi
+    fi
+    if [ -z "$entry" ]; then
+        entry=$runtime/node_modules/.bin/pi
+        if [ ! -x "$entry" ]; then
+            [ "$mode" = agent ] || return 0
+            setsid "$here/puzzllm-install-pi" "$runtime" </dev/null &
+            install_pid=$!
+            trap 'kill -TERM -- "-$install_pid" 2>/dev/null || kill -TERM "$install_pid" 2>/dev/null || true; exit 143' HUP INT TERM
+            wait "$install_pid" || die "Pi installation failed. Press Enter in the agent pane to retry."
+            trap - HUP INT TERM
+        fi
+        if [ -x "$runtime/node/bin/node" ]; then
+            node=$runtime/node/bin/node
+        else
+            node=$(command -v node || true)
+        fi
+    fi
     entry=$(readlink -f "$entry")
     # Resolve the official installer's launcher without mounting its profile.
     managed=$(dirname "$(dirname "$entry")")/install
@@ -89,7 +110,7 @@ mount_pi() {
             args+=(--ro-bind "$entry" "$pi_command")
             ;;
     esac
-    node=${PUZZLLM_PI_NODE:-${XDG_DATA_HOME:-$HOME/.local/share}/pi-node/current/bin/node}
+    node=${PUZZLLM_PI_NODE:-${node:-${XDG_DATA_HOME:-$HOME/.local/share}/pi-node/current/bin/node}}
     if [ -z "${PUZZLLM_PI_NODE:-}" ] && [ ! -x "$node" ]; then
         node=$(command -v node || true)
     fi

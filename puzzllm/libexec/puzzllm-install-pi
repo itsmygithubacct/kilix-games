@@ -1,0 +1,52 @@
+#!/bin/bash
+# Install a tested Pi release into the game's private runtime directory.
+set -euo pipefail
+umask 077
+runtime=${1:?usage: puzzllm-install-pi RUNTIME}
+parent=$(dirname "$runtime")
+mkdir -p "$parent"
+exec 9>"$parent/pi-install.lock"
+flock 9
+entry=node_modules/.bin/pi
+[ ! -x "$runtime/$entry" ] || exit 0
+
+stage=$(mktemp -d "$parent/.pi-install.XXXXXX")
+trap 'rm -rf -- "$stage"' EXIT
+trap 'exit 143' HUP INT TERM
+
+printf '[puzzllm] Installing Pi for this game save. First launch needs internet access.\n'
+node=${PUZZLLM_PI_NODE:-$(command -v node || true)}
+if [ -x "$node" ] && "$node" -e '
+    const [major, minor] = process.versions.node.split(".").map(Number);
+    process.exit(major > 22 || major === 22 && minor >= 19 ? 0 : 1);
+' && command -v npm >/dev/null; then
+    export PATH="$(dirname "$node"):$PATH"
+    npm_command=(npm)
+else
+    version=v22.23.5
+    case "$(uname -m)" in
+        x86_64) arch=x64; sha=cdeb8670a0c81f51b4dc4ac61919f9b1ad917b304bf8221eb939570663d240f8 ;;
+        aarch64) arch=arm64; sha=2babb9eb5264860d540849f4b064a6fbdebcdc323657d9d382ce23d313fd5e09 ;;
+        *) printf '[puzzllm] Pi needs Node.js 22.19 or newer and npm on this architecture.\n' >&2; exit 2 ;;
+    esac
+    archive="node-$version-linux-$arch.tar.xz"
+    printf '[puzzllm] Downloading a private Node.js runtime.\n'
+    curl -fsSL --retry 1 --connect-timeout 10 --max-time 120 \
+        "https://nodejs.org/dist/$version/$archive" -o "$stage/$archive"
+    (cd "$stage" && printf '%s  %s\n' "$sha" "$archive" | sha256sum -c -)
+    mkdir "$stage/node"
+    tar -xJf "$stage/$archive" --strip-components=1 -C "$stage/node"
+    rm -- "$stage/$archive"
+    node=$stage/node/bin/node
+    npm_command=("$node" "$stage/node/lib/node_modules/npm/bin/npm-cli.js")
+fi
+
+"${npm_command[@]}" install --global=false --prefix "$stage" --cache "$parent/npm-cache" \
+    --ignore-scripts --no-audit --no-fund --fetch-timeout=30000 --fetch-retries=1 \
+    @earendil-works/pi-coding-agent@1.5.2
+"$node" "$stage/$entry" --version
+if [ -e "$runtime" ]; then
+    previous=$(mktemp -d "$parent/.pi-incomplete.XXXXXX")
+    mv -T -- "$runtime" "$previous/runtime"
+fi
+mv -T -- "$stage" "$runtime"

@@ -93,9 +93,12 @@ agent session. It resets when a new session starts. A dash means usage has
 yet to be reported.
 
 **Harness** toggles between OMP and [Pi](https://pi.dev/) for the selected
-Ollama or llama.cpp model. Install Pi first. Switching restarts the agent
-in the same workspace. The choice is saved, and Pi stores its own game
-configuration and session history under `pi/` in the game state.
+Ollama or llama.cpp model. If Pi is missing, the game installs it on first
+launch into `runtime/pi/` under the game state. That launch needs internet
+access. The installer uses npm and supplies a private Node.js runtime on
+x86-64 and ARM64 Linux when a compatible Node.js and npm are unavailable.
+Switching restarts the agent in the same workspace. The choice is saved,
+and Pi stores its game configuration and session history under `pi/`.
 
 Choose **Codex (OpenAI)** to run the Codex CLI in the agent pane with the
 same game workspace. The option needs Codex CLI with permission-profile
@@ -251,12 +254,12 @@ NeuroTerm's `embed.mk` and `include/neuroterm_terminal.h`.
 | tmux | `tmux` on `PATH` for the player shell | |
 | bubblewrap | `bwrap` on `PATH` | |
 | omp | `omp` on `PATH`, then `~/.local/bin/omp` | `PUZZLLM_OMP` |
-| Pi | `pi` on `PATH`, then `~/.local/bin/pi`, with a compatible Node runtime | `PUZZLLM_PI`, `PUZZLLM_PI_NODE` |
+| Pi | `pi` on `PATH`, then `~/.local/bin/pi`, then the game's private install | `PUZZLLM_PI`, `PUZZLLM_PI_NODE` |
 | llama-server | `llama-server` on `PATH`, then a Kilix LLM bench build under `~/.local/share/kilix-llm/bench/engine/` | `PUZZLLM_LLAMA_SERVER` |
 | Neuronte (drawing; optional) | a checkout at `~/projects/neuronte`, built from its two library sources | `make NEURONTE=DIR`, `RENDER=raster`; weights `PUZZLLM_NEURONTE_WEIGHTS` |
 | Qwen 3.5 weights | `Qwen3.5-0.8B-Q8_0.gguf`, the model Zell routes to as `qwen3.5-0.8b`, in the Kilix LLM models folder | `PUZZLLM_MODEL` |
 
-Nothing is downloaded. If a part is missing, the coding pane says which one.
+Model weights are supplied separately. If a part is missing, the coding pane says which one.
 `libexec/puzzllm-sandbox paths` prints what was found. In the game menu,
 select **Compute** and press Enter to cycle **Auto**, **CPU**, and **GPU**.
 The choice is saved and applies to Ollama and llama.cpp. Auto lets Ollama
