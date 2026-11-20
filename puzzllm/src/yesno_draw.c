@@ -56,22 +56,28 @@ static int paragraph(sr_canvas *c, int x, int y, int width, const char *text, in
 static void dock(sr_canvas *c, const yesno_bench *b)
 {
     bool active = b->status == BENCH_RUNNING && !b->replay;
-    const char *buttons[BENCH_BUTTONS] = {"M  Model", active ? "R  Stop" : "R  Start",
-        b->misses ? "F  Show all" : "F  Misses only", "L  Latest", b->standalone && b->page == BENCH_WATCH ? "Esc  Close" : "Esc  Back"};
+    const char *buttons[BENCH_BUTTONS] = {active ? "M  Next model" : "M  Model", active ? "R  Stop" : "R  Start",
+        b->misses ? "F  Show all" : "F  Misses only", "L  Latest", "B  Rankings",
+        b->standalone && b->page == BENCH_WATCH ? "Esc  Close" : "Esc  Back"};
+    if (b->page != BENCH_WATCH) {
+        buttons[BENCH_MODEL] = NULL;
+        if (b->page != BENCH_REPORT) buttons[BENCH_FILTER] = buttons[BENCH_LATEST] = NULL;
+        buttons[BENCH_RANKINGS] = b->page == BENCH_RANKS ? "U  Refresh" : NULL;
+        buttons[BENCH_START] = b->page == BENCH_RANKS ? "Enter  Runs" :
+                               b->page == BENCH_RUNS ? "Enter  Answers" :
+                               b->page == BENCH_REPORT ? NULL : "Enter  Select";
+    }
     draw_fill(c, 0, c->h-95, c->w, 95, PANEL, 1);
     draw_fill(c, 0, c->h-95, c->w, 1, LINE, 1);
     art_kilix(c, 54, c->h - 9, 0, 0, 0);
     for (int i=0; i<BENCH_BUTTONS; i++) {
-        if (b->page != BENCH_WATCH && i != BENCH_BACK &&
-            !(b->page == BENCH_ENTRY && i == BENCH_START)) continue;
+        if (!buttons[i]) continue;
         rect r = yesno_button_rect(c->w, c->h, i);
         bool primary = i == BENCH_START && !active;
         unsigned fill = primary ? AQUA : 0x263743;
         unsigned fg = primary ? BG : INK;
-        if (i == BENCH_MODEL && b->worker.process.pid > 0) fg = MUTED;
         draw_fill(c, r.x, r.y, r.w, r.h, fill, 1);
-        line(c, r.x+11, r.y+10, r.w-16,
-             b->page == BENCH_ENTRY && i == BENCH_START ? "Enter  Select" : buttons[i], fg, false);
+        line(c, r.x+11, r.y+10, r.w-16, buttons[i], fg, false);
     }
 }
 
@@ -96,7 +102,7 @@ static void picker(sr_canvas *c, const yesno_bench *b)
         return;
     }
     const char *hint = "Select a row or use the arrow keys and Enter.";
-    if (b->page == BENCH_MODELS && b->catalog.process.pid > 0) hint = "Looking for installed models...";
+    if (b->page == BENCH_MODELS && b->catalog.process.pid > 0) hint = "Loading available models...";
     if (b->page == BENCH_MODELS && b->catalog_notice[0]) hint = b->catalog_notice;
     line(c, PAD, 91, r.w, hint, MUTED, false);
     int rows = r.h / BENCH_ROW_H, first = yesno_picker_first(b, rows);
@@ -110,6 +116,69 @@ static void picker(sr_canvas *c, const yesno_bench *b)
         const char *leaf = b->page == BENCH_MODELS && b->picking == 1 && i ? strrchr(option, '/') : NULL;
         if (leaf && draw_text_width(option) > r.w-36) option = leaf+1;
         line(c, r.x+14, y+4, r.w-28, option, selected ? INK : MUTED, false);
+    }
+}
+
+static void records(sr_canvas *c, const yesno_bench *b)
+{
+    rect r = yesno_picker_rect(c->w, c->h);
+    bool ranks = b->page == BENCH_RANKS;
+    const bench_standing *group = ranks ? NULL : &b->standings[b->standing_index];
+    draw_text(c, PAD, 54, ranks ? "Model rankings" : "Run history", AQUA, 1);
+    char text[4500];
+    if (ranks) {
+        snprintf(text, sizeof text, "%d model%s   /   %d run%s     Ranked by mean accuracy across finished runs.",
+                 b->standing_count, b->standing_count == 1 ? "" : "s", b->run_count, b->run_count == 1 ? "" : "s");
+    } else {
+        snprintf(text, sizeof text, "%s / %s", group->provider, *group->model ? group->model : "Unrecorded default");
+    }
+    line(c, PAD, 81, r.w, text, MUTED, false);
+    int cols[] = {r.x+10, r.x+76, r.x+r.w-365, r.x+r.w-294, r.x+r.w-207, r.x+r.w-89, r.x+r.w};
+    int run_cols[] = {r.x+10, r.x+r.w/3, r.x+2*r.w/3, r.x+5*r.w/6, r.x+r.w};
+    const char *headings[] = {"Rank", "Model", "Runs", "Finished", "Avg correct", "Avg %"};
+    const char *run_headings[] = {"Started (UTC)", "Status", "Answered", "Correct"};
+    for (int i=0; i<(ranks ? 6 : 4); i++)
+        draw_text(c, ranks ? cols[i] : run_cols[i], r.y-23, ranks ? headings[i] : run_headings[i], MUTED, 1);
+    int rows = r.h / BENCH_ROW_H, first = yesno_picker_first(b, rows);
+    int count = yesno_options(b);
+    if (!count || b->catalog_notice[0]) {
+        const char *message = b->catalog_notice[0] ? b->catalog_notice :
+                              b->catalog.process.pid ? "Reading saved runs..." : "No benchmark runs recorded.";
+        line(c, r.x+10, r.y+7, r.w-20, message, MUTED, false);
+        return;
+    }
+    for (int row=0; row<rows && first+row<count; row++) {
+        int i = first+row, y = r.y+row*BENCH_ROW_H;
+        bool selected = i == b->cursor;
+        draw_fill(c, r.x, y, r.w, BENCH_ROW_H-1, selected ? 0x304853 : PANEL, 1);
+        if (selected) draw_fill(c, r.x, y, 3, BENCH_ROW_H-1, AQUA, 1);
+        y += 4;
+        if (ranks) {
+            const bench_standing *s = &b->standings[i];
+            if (s->rank) snprintf(text, sizeof text, "%d", s->rank);
+            draw_text(c, cols[0], y, s->rank ? text : "-", GOLD, 1);
+            const char *model = s->model;
+            const char *leaf = !strcmp(s->provider, "llama.cpp") ? strrchr(model, '/') : NULL;
+            snprintf(text, sizeof text, "%s / %s", *s->provider ? s->provider : "Unknown",
+                     leaf ? leaf+1 : *model ? model : "Unrecorded default");
+            line(c, cols[1], y, cols[2]-cols[1]-8, text, INK, false);
+            snprintf(text, sizeof text, "%d", s->runs);
+            draw_text(c, cols[2], y, text, INK, 1);
+            snprintf(text, sizeof text, "%d", s->finished);
+            draw_text(c, cols[3], y, text, MUTED, 1);
+            snprintf(text, sizeof text, "%.1f", s->avg_correct);
+            draw_text(c, cols[4], y, s->finished ? text : "-", INK, 1);
+            snprintf(text, sizeof text, "%.1f%%", s->avg_percent);
+            draw_text(c, cols[5], y, s->finished ? text : "-", AQUA, 1);
+        } else {
+            const bench_saved_run *run = &b->runs[group->first_run+i];
+            line(c, run_cols[0], y, run_cols[1]-run_cols[0]-8, run->started, INK, false);
+            draw_text(c, run_cols[1], y, run->status, AQUA, 1);
+            snprintf(text, sizeof text, "%d / %d", run->answered, run->total);
+            draw_text(c, run_cols[2], y, text, MUTED, 1);
+            snprintf(text, sizeof text, "%d", run->correct);
+            draw_text(c, run_cols[3], y, text, INK, 1);
+        }
     }
 }
 
@@ -178,10 +247,12 @@ static void history(sr_canvas *c, const yesno_bench *b)
 
 void yesno_draw(sr_canvas *c, const yesno_bench *b)
 {
+    if (b->archive) b = b->archive;
     draw_fill(c, 0, 0, c->w, c->h, BG, 1);
-    draw_text(c, PAD, 20, "YES / NO BENCH", GOLD, 1);
-    if (b->page != BENCH_WATCH) {
-        picker(c, b);
+    draw_text(c, PAD, 20, b->page == BENCH_REPORT ? "YES / NO BENCH    SAVED ANSWERS" : "YES / NO BENCH", GOLD, 1);
+    if (b->page != BENCH_WATCH && b->page != BENCH_REPORT) {
+        if (b->page == BENCH_RANKS || b->page == BENCH_RUNS) records(c, b);
+        else picker(c, b);
         dock(c, b);
         return;
     }
@@ -194,7 +265,8 @@ void yesno_draw(sr_canvas *c, const yesno_bench *b)
     const char *model = b->provider == 1 ? strrchr(b->model, '/') : NULL;
     model = model ? model+1 : b->model;
     snprintf(choice, sizeof choice, "%s%s%.480s", yesno_provider(b->provider), *model ? " / " : "", model);
-    line(c, PAD, 54, c->w/2 - PAD, choice, INK, false);
+    bool current = b->page == BENCH_REPORT || b->status == BENCH_RUNNING;
+    line(c, PAD, 54, c->w/2 - PAD, current && *b->run_label ? b->run_label : choice, INK, false);
     snprintf(text, sizeof text, "%d / %d answered", b->count, b->total);
     draw_text(c, c->w-PAD-draw_text_width(text), 54, text, INK, 1);
     int available = c->w - 2*PAD;
@@ -215,8 +287,10 @@ void yesno_draw(sr_canvas *c, const yesno_bench *b)
                   "Start runs the OneBit development questions unattended.", MUTED, 1);
     }
     if (b->report[0]) {
-        if (!strcmp(choice, b->run_label))
+        if (b->page == BENCH_REPORT || !strcmp(choice, b->run_label))
             snprintf(text, sizeof text, "Report   bench/yesno/%.125s", b->report);
+        else if (b->status == BENCH_RUNNING)
+            snprintf(text, sizeof text, "Next run   %.420s     Report   bench/yesno/%.125s", choice, b->report);
         else
             snprintf(text, sizeof text, "Report for %.420s   bench/yesno/%.125s", b->run_label, b->report);
         line(c, PAD, 167, available, text, MUTED, false);

@@ -8,7 +8,6 @@ import json
 import os
 from pathlib import Path
 import select
-import shutil
 import signal
 import socket
 import subprocess
@@ -20,6 +19,9 @@ from urllib.error import HTTPError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 import uuid
+
+from puzzllm_yesno_models import executable, hosted_catalog, stop_child
+from puzzllm_yesno_records import model_id, standings
 
 INSTRUCTION = "Respond with only YES or NO."
 PROVIDERS = ("ollama", "llama.cpp", "codex", "grok", "claude")
@@ -77,22 +79,6 @@ def ensure_ollama(model, status):
     raise RuntimeError("Model download ended before Ollama reported success.")
 
 
-def stop_child(process):
-    # Headless agents may start helpers. Each invocation owns a process group.
-    try:
-        os.killpg(process.pid, signal.SIGTERM)
-        process.wait(timeout=0.35)
-    except subprocess.TimeoutExpired:
-        pass
-    except ProcessLookupError:
-        pass
-    try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-    process.wait()
-
-
 @contextmanager
 def llama_server(model, scratch, status):
     path = Path(model).expanduser().resolve(strict=True)
@@ -136,15 +122,8 @@ def llama_server(model, scratch, status):
             stop_child(server)
 
 
-def hosted_answer(provider, model, question, scratch):
-    home = Path.home()
-    search = os.pathsep.join((os.environ.get("PATH", os.defpath), str(home / ".local/bin"),
-                              str(home / ".grok/bin"), str(home / ".claude/local")))
-    command = os.environ.get("PUZZLLM_" + provider.upper()) or provider
-    binary = shutil.which(os.path.expanduser(command), path=search)
-    if not binary:
-        raise RuntimeError(f"Could not find {command}. Install the CLI or set PUZZLLM_{provider.upper()}.")
-    binary = os.path.abspath(binary)
+def hosted_answer(provider, model, question, scratch, identify=None):
+    binary = executable(provider)
     model_args = ["--model", model] if model else []
     last = scratch / "last-message"
     prompt = question
@@ -161,7 +140,7 @@ def hosted_answer(provider, model, question, scratch):
         prompt = ""
     else:
         args = ["--print", "--system-prompt", INSTRUCTION, "--tools", "", "--strict-mcp-config",
-                "--no-session-persistence", "--output-format", "text", *model_args]
+                "--no-session-persistence", "--output-format", "json", *model_args]
     process = subprocess.Popen([binary, *args], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE, text=True, errors="replace",
                                cwd=scratch, start_new_session=True)
@@ -170,6 +149,18 @@ def hosted_answer(provider, model, question, scratch):
         if process.returncode:
             detail = (stderr.strip() or stdout.strip()).splitlines()
             raise RuntimeError(f"{provider} exited {process.returncode}. " + (detail[-1][:300] if detail else ""))
+        if provider == "claude":
+            try:
+                result = json.loads(stdout)
+            except ValueError:
+                result = None
+            if isinstance(result, dict) and "result" in result:
+                if result.get("is_error"):
+                    raise RuntimeError(str(result["result"])[:300])
+                used = result.get("modelUsage") or {}
+                if identify and isinstance(used, dict) and len(used) == 1:
+                    identify(next(iter(used)))
+                return result["result"]
         return last.read_text() if provider == "codex" else stdout
     finally:
         stop_child(process)
@@ -190,7 +181,7 @@ def onebit():
 
 
 @contextmanager
-def answerer(provider, model, scratch, chat_backend, status):
+def answerer(provider, model, scratch, chat_backend, status, identify=None):
     if provider == "ollama":
         ensure_ollama(model, status)
         url = ollama_url() + "/api/chat"
@@ -220,7 +211,13 @@ def answerer(provider, model, scratch, chat_backend, status):
             backend = chat_backend(url, alias, flavor="llama-server", max_tokens=256, logprobs=False)
             yield lambda question: backend.ask(messages(question), "raw").get("reply") or ""
     else:
-        yield lambda question: hosted_answer(provider, model, question, scratch)
+        def resolved(name):
+            nonlocal model
+            if identify:
+                identify(name)
+            if not model:
+                model = name
+        yield lambda question: hosted_answer(provider, model, question, scratch, resolved)
 
 
 def messages(question):
@@ -255,6 +252,20 @@ def perform(provider, model, output, path):
     monitor = threading.Thread(target=check_stop, daemon=True)
     monitor.start()
     try:
+        identity = None
+        def identify(name):
+            nonlocal identity
+            name = model_id(provider, name)
+            if name and name != identity:
+                record("identity", model=name)
+                identity = name
+        if not model and provider in PROVIDERS[2:]:
+            _, model = hosted_catalog(provider, need_default=True)
+            if provider == "claude" and model:
+                record("selection", model=model)
+        # A hosted alias can resolve to a concrete deployment in the reply.
+        if provider != "claude":
+            identify(model)
         contract, itemset, chat_backend = onebit()
         questions = itemset.load(split="dev")
         record("size", total=len(questions))
@@ -263,7 +274,7 @@ def perform(provider, model, output, path):
         def status(text):
             record("status", text=text)
         with tempfile.TemporaryDirectory(dir=path.parent) as temporary, \
-                answerer(provider, model, Path(temporary), chat_backend, status) as ask:
+                answerer(provider, model, Path(temporary), chat_backend, status, identify) as ask:
             for n, item in enumerate(questions, 1):
                 info = dict(n=n, band=item["band"], question=item["prompt"])
                 record("question", **info)
@@ -377,8 +388,12 @@ def interrupt(_signal, _frame):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="action", required=True)
-    sub.add_parser("models").add_argument("provider", choices=PROVIDERS[:2])
+    sub.add_parser("models").add_argument("provider", choices=PROVIDERS)
     sub.add_parser("latest").add_argument("state", type=Path)
+    sub.add_parser("records").add_argument("state", type=Path)
+    report = sub.add_parser("report")
+    report.add_argument("state", type=Path)
+    report.add_argument("file")
     start = sub.add_parser("run")
     start.add_argument("state", type=Path)
     start.add_argument("provider", choices=PROVIDERS)
@@ -389,12 +404,23 @@ def main():
     signal.signal(signal.SIGHUP, interrupt)
     try:
         if args.action == "models":
-            for model in local_models(args.provider):
+            models = local_models(args.provider) if args.provider in PROVIDERS[:2] else hosted_catalog(args.provider)[0]
+            if not models and args.provider in PROVIDERS[2:]:
+                emit("status", text="The CLI reported no model IDs. Enter a model ID or use the configured default.")
+            for model in models:
                 emit("model", model=model)
         else:
             folder = args.state / "bench" / "yesno"
             if args.action == "latest":
                 return latest(folder)
+            elif args.action == "records":
+                for row in standings(folder):
+                    emit(**row)
+            elif args.action == "report":
+                path = folder / args.file
+                if path.name != args.file or path.suffix != ".jsonl" or path.is_symlink():
+                    raise ValueError("Invalid benchmark report name.")
+                return follow(path)
             else:
                 if args.provider in PROVIDERS[:2] and not args.model:
                     parser.error("a local model is required")

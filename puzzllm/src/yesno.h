@@ -6,10 +6,11 @@
 #include "pty.h"
 #include "soft_raster.h"
 
-typedef enum { BENCH_WATCH, BENCH_PROVIDERS, BENCH_MODELS, BENCH_ENTRY } bench_page;
+typedef enum { BENCH_WATCH, BENCH_PROVIDERS, BENCH_MODELS, BENCH_ENTRY,
+               BENCH_RANKS, BENCH_RUNS, BENCH_REPORT } bench_page;
 typedef enum { BENCH_READY, BENCH_RUNNING, BENCH_COMPLETE, BENCH_STOPPED, BENCH_FAILED } bench_status;
 typedef enum { BENCH_CORRECT, BENCH_WRONG, BENCH_INVALID } bench_verdict;
-enum { BENCH_MODEL, BENCH_START, BENCH_FILTER, BENCH_LATEST, BENCH_BACK, BENCH_BUTTONS };
+enum { BENCH_MODEL, BENCH_START, BENCH_FILTER, BENCH_LATEST, BENCH_RANKINGS, BENCH_BACK, BENCH_BUTTONS };
 
 typedef struct bench_answer {
     int number;
@@ -24,11 +25,22 @@ typedef struct bench_stream {
     size_t len;
 } bench_stream;
 
+typedef struct bench_standing {
+    char provider[32], model[4096];
+    int rank, runs, finished, first_run, loaded;
+    double avg_correct, avg_percent;
+} bench_standing;
+
+typedef struct bench_saved_run {
+    char file[256], started[128], status[32];
+    int correct, answered, total;
+} bench_saved_run;
+
 typedef struct yesno_bench {
     bool open, replay, follow, misses, standalone, redraw;
     bench_page page;
     bench_status status;
-    int provider, picking, cursor;
+    int provider, run_provider, picking, cursor;
     char model[4096], entry[4096], run_label[512], report[128];
     char notice[512], catalog_notice[320], question[1024], band[64];
     int total, asking, correct, wrong, invalid, selected;
@@ -36,6 +48,11 @@ typedef struct yesno_bench {
     int count, capacity;
     char **models;
     int model_count, model_capacity;
+    bench_standing *standings;
+    bench_saved_run *runs;
+    int standing_count, standing_capacity, run_count, run_capacity, standing_index;
+    bool refresh_rankings;
+    struct yesno_bench *archive;
     bench_stream worker, catalog;
 } yesno_bench;
 
@@ -43,7 +60,7 @@ struct game;
 void yesno_init(yesno_bench *b);
 void yesno_close(yesno_bench *b);
 void yesno_open(struct game *g);
-void yesno_poll(yesno_bench *b);
+void yesno_poll(struct game *g);
 void yesno_key(struct game *g, const key_event *ev);
 void yesno_click(struct game *g, int x, int y);
 void yesno_scroll(yesno_bench *b, int rows);

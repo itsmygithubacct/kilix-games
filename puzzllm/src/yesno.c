@@ -29,7 +29,7 @@ static void label(char *out, size_t size, int provider, const char *model)
 
 void yesno_init(yesno_bench *b)
 {
-    b->provider = b->selected = -1;
+    b->provider = b->run_provider = b->selected = -1;
     b->follow = true;
     pty_init(&b->worker.process);
     pty_init(&b->catalog.process);
@@ -52,10 +52,17 @@ static void clear_models(yesno_bench *b)
 
 void yesno_close(yesno_bench *b)
 {
+    if (b->archive) {
+        yesno_close(b->archive);
+        free(b->archive);
+        b->archive = NULL;
+    }
     stop_stream(&b->worker);
     clear_models(b);
     free(b->models);
     free(b->answers);
+    free(b->standings);
+    free(b->runs);
 }
 
 static bool launch(game *g, bench_stream *stream, char *mode, char *arg, char *provider, char *model)
@@ -151,10 +158,12 @@ static void worker_event(yesno_bench *b, const json_doc *doc, int root)
         b->status = BENCH_RUNNING;
         b->total = (int)number(doc, root, "total");
         b->question[0] = b->band[0] = b->notice[0] = 0;
+        b->run_provider = -1;
         copy_field(b->report, sizeof b->report, field(doc, root, "file"));
         for (int i = 0; i < PROVIDERS; i++) {
             if (!strcmp(commands[i], field(doc, root, "provider"))) {
                 const char *model = field(doc, root, "model");
+                b->run_provider = i;
                 label(b->run_label, sizeof b->run_label, i, model);
                 if (b->provider < 0) {
                     b->provider = i;
@@ -163,6 +172,8 @@ static void worker_event(yesno_bench *b, const json_doc *doc, int root)
                 break;
             }
         }
+    } else if (!strcmp(event, "selection") || !strcmp(event, "identity")) {
+        label(b->run_label, sizeof b->run_label, b->run_provider, field(doc, root, "model"));
     } else if (!strcmp(event, "size")) {
         b->total = (int)number(doc, root, "total");
     } else if (!strcmp(event, "question")) {
@@ -174,16 +185,58 @@ static void worker_event(yesno_bench *b, const json_doc *doc, int root)
         answer_event(b, doc, root);
     } else if (!strcmp(event, "end")) {
         b->status = BENCH_COMPLETE;
+        b->refresh_rankings = true;
     } else if (!strcmp(event, "status") || !strcmp(event, "error") || !strcmp(event, "stopped")) {
         copy_field(b->notice, sizeof b->notice, field(doc, root, "text"));
         if (!strcmp(event, "error")) b->status = BENCH_FAILED;
         if (!strcmp(event, "stopped")) b->status = BENCH_STOPPED;
+        if (b->status != BENCH_RUNNING) b->refresh_rankings = true;
     }
 }
 
 static void catalog_event(yesno_bench *b, const json_doc *doc, int root)
 {
+    if (b->catalog_notice[0]) return;
+    const char *event = field(doc, root, "event");
     const char *model = field(doc, root, "model");
+    if (!strcmp(event, "standing")) {
+        if (b->standing_count == b->standing_capacity) {
+            int capacity = b->standing_capacity ? 2*b->standing_capacity : 16;
+            bench_standing *list = realloc(b->standings, (size_t)capacity * sizeof *list);
+            if (!list) goto full;
+            b->standings = list;
+            b->standing_capacity = capacity;
+        }
+        bench_standing *s = &b->standings[b->standing_count++];
+        copy_field(s->provider, sizeof s->provider, field(doc, root, "provider"));
+        copy_field(s->model, sizeof s->model, model);
+        s->rank = (int)number(doc, root, "rank");
+        s->runs = (int)number(doc, root, "runs");
+        s->finished = (int)number(doc, root, "finished");
+        s->avg_correct = number(doc, root, "avg_correct");
+        s->avg_percent = number(doc, root, "avg_percent");
+        s->first_run = b->run_count;
+        s->loaded = 0;
+        return;
+    }
+    if (!strcmp(event, "saved_run") && b->standing_count) {
+        if (b->run_count == b->run_capacity) {
+            int capacity = b->run_capacity ? 2*b->run_capacity : 32;
+            bench_saved_run *list = realloc(b->runs, (size_t)capacity * sizeof *list);
+            if (!list) goto full;
+            b->runs = list;
+            b->run_capacity = capacity;
+        }
+        bench_saved_run *r = &b->runs[b->run_count++];
+        copy_field(r->file, sizeof r->file, field(doc, root, "file"));
+        copy_field(r->started, sizeof r->started, field(doc, root, "started"));
+        copy_field(r->status, sizeof r->status, field(doc, root, "status"));
+        r->correct = (int)number(doc, root, "correct");
+        r->answered = (int)number(doc, root, "answered");
+        r->total = (int)number(doc, root, "total");
+        b->standings[b->standing_count-1].loaded++;
+        return;
+    }
     if (!*model) {
         copy_field(b->catalog_notice, sizeof b->catalog_notice, field(doc, root, "text"));
         return;
@@ -197,6 +250,9 @@ static void catalog_event(yesno_bench *b, const json_doc *doc, int root)
     }
     char *s = strdup(model);
     if (s) b->models[b->model_count++] = s;
+    return;
+full:
+    copy_field(b->catalog_notice, sizeof b->catalog_notice, "Out of memory reading the benchmark history.");
 }
 
 static void poll_stream(yesno_bench *b, bench_stream *stream, bool catalog)
@@ -234,10 +290,29 @@ static void poll_stream(yesno_bench *b, bench_stream *stream, bool catalog)
     }
 }
 
-void yesno_poll(yesno_bench *b)
+static void rankings(game *g)
 {
+    yesno_bench *b = &g->bench;
+    clear_models(b);
+    b->standing_count = b->run_count = b->cursor = 0;
+    b->refresh_rankings = false;
+    b->page = BENCH_RANKS;
+    if (g->spawn && !launch(g, &b->catalog, "records", g->state, NULL, NULL))
+        copy_field(b->catalog_notice, sizeof b->catalog_notice, "Could not read the benchmark history.");
+}
+
+void yesno_poll(game *g)
+{
+    yesno_bench *b = &g->bench;
     poll_stream(b, &b->worker, false);
     poll_stream(b, &b->catalog, true);
+    if (b->archive) {
+        poll_stream(b->archive, &b->archive->worker, false);
+        if (b->archive->redraw) b->redraw = true;
+        b->archive->redraw = false;
+    }
+    if (b->page == BENCH_RANKS && b->refresh_rankings && !b->catalog.process.pid)
+        rankings(g);
 }
 
 static void choose(yesno_bench *b, const char *model)
@@ -251,13 +326,18 @@ static void choose(yesno_bench *b, const char *model)
 int yesno_options(const yesno_bench *b)
 {
     if (b->page == BENCH_PROVIDERS) return PROVIDERS;
-    return b->picking < 2 ? 1 + b->model_count : 2;
+    if (b->page == BENCH_RANKS) return b->standing_count;
+    if (b->page == BENCH_RUNS) return b->standings[b->standing_index].loaded;
+    return b->model_count + (b->picking < 2 ? 1 : 2);
 }
 
 const char *yesno_option(const yesno_bench *b, int row)
 {
     if (b->page == BENCH_PROVIDERS) return yesno_provider(row);
-    if (b->picking >= 2) return row ? "Enter model ID..." : "Use configured default";
+    if (b->picking >= 2) {
+        if (row < 2) return row ? "Enter model ID..." : "Use configured default";
+        return b->models[row-2];
+    }
     if (!row) return b->picking == 0 ? "Enter an Ollama tag..." : "Enter a GGUF file path...";
     return b->models[row-1];
 }
@@ -270,16 +350,30 @@ static void accept(game *g)
         b->cursor = 0;
         b->page = BENCH_MODELS;
         clear_models(b);
-        if (b->picking < 2) launch(g, &b->catalog, "models", (char *)commands[b->picking], NULL, NULL);
+        launch(g, &b->catalog, "models", (char *)commands[b->picking], NULL, NULL);
     } else if (b->page == BENCH_MODELS) {
         if (b->picking >= 2 && !b->cursor) choose(b, "");
-        else if (b->picking < 2 && b->cursor) choose(b, b->models[b->cursor-1]);
+        else if (b->cursor >= (b->picking < 2 ? 1 : 2)) choose(b, yesno_option(b, b->cursor));
         else {
             b->entry[0] = 0;
             b->page = BENCH_ENTRY;
         }
     } else if (b->page == BENCH_ENTRY && b->entry[0]) {
         choose(b, b->entry);
+    } else if (b->page == BENCH_RANKS && b->cursor < b->standing_count) {
+        b->standing_index = b->cursor;
+        b->cursor = 0;
+        b->page = BENCH_RUNS;
+    } else if (b->page == BENCH_RUNS && b->cursor < yesno_options(b)) {
+        bench_saved_run *r = &b->runs[b->standings[b->standing_index].first_run+b->cursor];
+        yesno_bench *view = calloc(1, sizeof *view);
+        if (!view) return;
+        yesno_init(view);
+        b->archive = view;
+        b->page = view->page = BENCH_REPORT;
+        view->replay = launch(g, &view->worker, "report", g->state, r->file, NULL);
+        if (!view->replay)
+            copy_field(view->notice, sizeof view->notice, "Could not open the saved answers.");
     }
 }
 
@@ -289,6 +383,14 @@ static void back(yesno_bench *b)
     case BENCH_ENTRY: b->page = BENCH_MODELS; break;
     case BENCH_MODELS: clear_models(b); b->cursor = b->picking; b->page = BENCH_PROVIDERS; break;
     case BENCH_PROVIDERS: b->page = BENCH_WATCH; break;
+    case BENCH_REPORT:
+        yesno_close(b->archive);
+        free(b->archive);
+        b->archive = NULL;
+        b->page = BENCH_RUNS;
+        break;
+    case BENCH_RUNS: b->cursor = b->standing_index; b->page = BENCH_RANKS; break;
+    case BENCH_RANKS: clear_models(b); b->page = BENCH_WATCH; break;
     case BENCH_WATCH: b->open = false; break;
     }
 }
@@ -297,8 +399,8 @@ static void button(game *g, int id)
 {
     yesno_bench *b = &g->bench;
     switch (id) {
+    case BENCH_RANKINGS: rankings(g); break;
     case BENCH_MODEL:
-        if (b->worker.process.pid > 0) break;
         b->page = BENCH_PROVIDERS;
         b->cursor = b->provider >= 0 ? b->provider : 0;
         break;
@@ -318,8 +420,12 @@ static void button(game *g, int id)
             copy_field(b->notice, sizeof b->notice, "Could not launch the benchmark worker.");
         }
         break;
-    case BENCH_FILTER: b->misses = !b->misses; latest_answer(b); break;
-    case BENCH_LATEST: latest_answer(b); break;
+    case BENCH_FILTER:
+        if (b->archive) b = b->archive;
+        b->misses = !b->misses;
+        latest_answer(b);
+        break;
+    case BENCH_LATEST: latest_answer(b->archive ? b->archive : b); break;
     case BENCH_BACK:
         if (b->standalone && b->page == BENCH_WATCH) g->quit = true;
         else back(b);
@@ -330,12 +436,15 @@ static void button(game *g, int id)
 void yesno_scroll(yesno_bench *b, int rows)
 {
     b->redraw = true;
-    if (b->page == BENCH_PROVIDERS || b->page == BENCH_MODELS) {
+    if (b->archive) b = b->archive;
+    if (b->page == BENCH_PROVIDERS || b->page == BENCH_MODELS ||
+        b->page == BENCH_RANKS || b->page == BENCH_RUNS) {
         int n = yesno_options(b);
+        if (!n) return;
         b->cursor += rows;
         if (b->cursor < 0) b->cursor = 0;
         if (b->cursor >= n) b->cursor = n - 1;
-    } else if (b->page == BENCH_WATCH) {
+    } else if (b->page == BENCH_WATCH || b->page == BENCH_REPORT) {
         int step = rows < 0 ? -1 : 1;
         for (int i = b->selected + step; rows && i >= 0 && i < b->count; i += step) {
             if (matches(b, i)) { b->selected = i; b->follow = false; rows -= step; }
@@ -380,14 +489,19 @@ void yesno_key(game *g, const key_event *ev)
     case KEY_DOWN: yesno_scroll(b, 1); return;
     case KEY_PAGE_UP: yesno_scroll(b, -10); return;
     case KEY_PAGE_DOWN: yesno_scroll(b, 10); return;
-    case KEY_HOME: yesno_scroll(b, -yesno_options(b)-b->count); return;
-    case KEY_END: yesno_scroll(b, yesno_options(b)+b->count); return;
+    case KEY_HOME: yesno_scroll(b, -yesno_options(b)-(b->archive ? b->archive : b)->count); return;
+    case KEY_END: yesno_scroll(b, yesno_options(b)+(b->archive ? b->archive : b)->count); return;
     }
     if (ev->action != 1) return;
-    if (b->page != BENCH_WATCH) { if (ev->key == KEY_ENTER) accept(g); return; }
+    if (b->page != BENCH_WATCH && b->page != BENCH_REPORT) {
+        if (ev->key == KEY_ENTER) accept(g);
+        if (b->page == BENCH_RANKS && (ev->key == 'u' || ev->key == 'U')) rankings(g);
+        return;
+    }
     switch (ev->key) {
-    case 'm': case 'M': button(g, BENCH_MODEL); break;
-    case 'r': case 'R': button(g, BENCH_START); break;
+    case 'm': case 'M': if (!b->archive) button(g, BENCH_MODEL); break;
+    case 'r': case 'R': if (!b->archive) button(g, BENCH_START); break;
+    case 'b': case 'B': if (!b->archive) button(g, BENCH_RANKINGS); break;
     case 'f': case 'F': button(g, BENCH_FILTER); break;
     case 'l': case 'L': button(g, BENCH_LATEST); break;
     }
@@ -430,12 +544,15 @@ void yesno_click(game *g, int x, int y)
     b->redraw = true;
     for (int i = 0; i < BENCH_BUTTONS; i++) {
         if (inside(yesno_button_rect(L.w, L.h, i), x, y)) {
-            if (b->page == BENCH_WATCH || i == BENCH_BACK) button(g, i);
-            else if (b->page == BENCH_ENTRY && i == BENCH_START) accept(g);
+            if (b->page == BENCH_WATCH || i == BENCH_BACK ||
+                (b->page == BENCH_REPORT && (i == BENCH_FILTER || i == BENCH_LATEST)) ||
+                (b->page == BENCH_RANKS && i == BENCH_RANKINGS)) button(g, i);
+            else if (i == BENCH_START && b->page != BENCH_REPORT) accept(g);
             return;
         }
     }
-    bool watch = b->page == BENCH_WATCH;
+    bool watch = b->page == BENCH_WATCH || b->page == BENCH_REPORT;
+    if (b->archive) b = b->archive;
     rect area = watch ? yesno_history_rect(L.w, L.h) : yesno_picker_rect(L.w, L.h);
     if (!inside(area, x, y) || b->page == BENCH_ENTRY) return;
     int row = (y - area.y) / BENCH_ROW_H, rows = area.h / BENCH_ROW_H;

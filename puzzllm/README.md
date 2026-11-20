@@ -119,9 +119,11 @@ agent reports token use. The setting is remembered.
 **Yes/No Bench** opens a progress monitor. Press **M** or click **Model** to
 choose an Ollama tag, a llama.cpp GGUF, Codex, Grok, or Claude. For a local
 model, choose from the installed list or enter a tag or file path. Ollama
-pulls a missing tag when you start. For a hosted CLI, use its configured
-default or enter a model ID. The bench has its own selection, independent
-of the coding session and campaign.
+pulls a missing tag when you start. For Codex, Grok or Claude, select a
+named model from the CLI's catalog and local settings, use the configured
+default, or enter a model ID. You can choose the next model while a benchmark
+is running. The bench has its own selection, independent of the coding session
+and campaign.
 
 Press **R** or click **Start** to run the OneBit development questions. Each
 question is a fresh request with the instruction `Respond with only YES or NO.`
@@ -137,6 +139,14 @@ continues even if you close the tab. Reopen **Yes/No Bench**, or launch
 `bin/puzzllm --yesno` in a separate terminal, to watch the same run. Use
 **Stop** to end it. Each run saves its questions, replies, keys, timings,
 and outcomes in `bench/yesno/*.jsonl` under the game state directory.
+
+Press **B** or click **Rankings** to see one row per provider and model.
+**Runs** counts every attempt. **Avg correct** is the mean number of correct
+answers per finished run. **Avg %** is the mean accuracy of those runs and
+determines rank. Tied models share a rank. Select a model to see every run,
+then select a run to inspect its answers. **U** refreshes the rankings.
+Older journals that omitted the default model's ID appear under
+**Unrecorded default** with their original results.
 
 The bench uses the OneBit data from the installed `kilix-bench` package
 or the checkout named by `PUZZLLM_YESNO_BENCH`. Ollama uses `OLLAMA_HOST`.

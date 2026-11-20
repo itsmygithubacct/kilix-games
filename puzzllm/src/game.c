@@ -2734,7 +2734,7 @@ static void arrive_in_room(game *g, room_transition move)
 
 void game_update(game *g, double dt)
 {
-    yesno_poll(&g->bench);
+    yesno_poll(g);
     if (g->bench.standalone) return;
     poll_prompt_count(&g->menu);
     poll_models(&g->menu);

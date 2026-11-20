@@ -1570,6 +1570,15 @@ static void test_menu(void)
     game_shutdown(&G);
 }
 
+static void drain_bench_stream(bench_stream *stream)
+{
+    const struct timespec nap = {0, 5000000};
+    for (int i = 0; i < 400 && stream->process.pid; i++) {
+        yesno_poll(&G);
+        nanosleep(&nap, NULL);
+    }
+}
+
 static void test_bench_menu(void)
 {
     char err[256], state[2300];
@@ -1599,6 +1608,30 @@ static void test_bench_menu(void)
               !G.use_codex && !G.use_grok && !G.use_claude, "bench model choice is independent of the room");
         menu_press('m');
     }
+    for (int i = 2; i < 5; i++) {
+        menu_press(KEY_HOME);
+        for (int j = 0; j < i; j++) menu_press(KEY_DOWN);
+        menu_press(KEY_ENTER);
+        char *models[] = {"printf", "%s\n", "{\"event\":\"model\",\"model\":\"first-id\"}",
+                              "{\"event\":\"model\",\"model\":\"second-id\"}", NULL};
+        CHECK(pty_spawn(&G.bench.catalog.process, models, NULL, 80, 24), "load two named model choices");
+        drain_bench_stream(&G.bench.catalog);
+        CHECK(yesno_options(&G.bench) == 4 && !strcmp(yesno_option(&G.bench, 3), "second-id"),
+              "both named choices appear alongside default and custom ID for provider %d", i);
+        menu_press(KEY_END);
+        menu_press(KEY_ENTER);
+        CHECK(G.bench.provider == i && !strcmp(G.bench.model, "second-id"),
+              "provider %d selects the highlighted model", i);
+        menu_press('m');
+    }
+    menu_press(KEY_ENTER);
+    menu_press(KEY_DOWN);
+    menu_press(KEY_ENTER);
+    game_paste(&G, (const unsigned char *)"custom-version", 14, true);
+    menu_press(KEY_ENTER);
+    CHECK(G.bench.page == BENCH_WATCH && !strcmp(G.bench.model, "custom-version"),
+          "a hosted model ID can also be entered directly");
+    menu_press('m');
     menu_press(KEY_ESCAPE);
     sr_canvas canvas;
     CHECK(sr_canvas_init(&canvas, L.w, L.h), "allocate bench canvas");
@@ -1618,6 +1651,10 @@ static void test_bench_menu(void)
     write_file(journal, events, strlen(events));
     char *args[] = {"cat", journal, NULL};
     CHECK(pty_spawn(&G.bench.worker.process, args, NULL, 80, 24), "run benchmark event source");
+    menu_press('m');
+    CHECK(G.bench.page == BENCH_PROVIDERS && G.bench.worker.process.pid,
+          "the model picker stays accessible while the current run has a monitor");
+    menu_press(KEY_ESCAPE);
     menu_press(KEY_ESCAPE);
     const struct timespec nap = {0, 5000000};
     for (int i = 0; i < 200 && G.bench.worker.process.pid; i++) {
@@ -1641,6 +1678,40 @@ static void test_bench_menu(void)
     game_pointer(&G, history.x+8, history.y+2, POINTER_DOWN);
     CHECK(G.bench.selected == 0 && !strcmp(G.bench.answers[0].question, "Is two even?"),
           "clicking a result inspects that question");
+    char folder[2400], saved[2500];
+    snprintf(folder, sizeof folder, "%s/bench", state);
+    mkdir(folder, 0700);
+    snprintf(folder, sizeof folder, "%s/bench/yesno", state);
+    mkdir(folder, 0700);
+    snprintf(saved, sizeof saved, "%s/run.jsonl", folder);
+    write_file(saved, events, strlen(events));
+    G.spawn = true;
+    rect rankings = yesno_button_rect(L.w, L.h, BENCH_RANKINGS);
+    game_pointer(&G, rankings.x+3, rankings.y+3, POINTER_DOWN);
+    drain_bench_stream(&G.bench.catalog);
+    CHECK(G.bench.page == BENCH_RANKS && G.bench.standing_count == 1 && G.bench.run_count == 1 &&
+          G.bench.standings[0].rank == 1 && G.bench.standings[0].avg_correct == 1.0,
+          "rankings load saved results from disk");
+    menu_press('u');
+    drain_bench_stream(&G.bench.catalog);
+    menu_press(KEY_ENTER);
+    CHECK(G.bench.page == BENCH_RUNS && G.bench.run_count == 1 && yesno_options(&G.bench) == 1,
+          "refresh keeps one slot and a model opens its saved runs");
+    rect list = yesno_picker_rect(L.w, L.h);
+    game_pointer(&G, list.x+10, list.y+3, POINTER_DOWN);
+    if (G.bench.archive) drain_bench_stream(&G.bench.archive->worker);
+    CHECK(G.bench.page == BENCH_REPORT && G.bench.archive && G.bench.archive->count == 3 &&
+          G.bench.archive->status == BENCH_COMPLETE, "a saved run opens its original answers");
+    menu_press('f');
+    menu_press('r');
+    CHECK(G.bench.archive && G.bench.archive->misses && !G.bench.misses && !G.bench.worker.process.pid,
+          "browsing past results leaves the live controls and filters independent");
+    menu_press(KEY_ESCAPE);
+    menu_press(KEY_ESCAPE);
+    menu_press(KEY_ESCAPE);
+    G.spawn = false;
+    CHECK(!G.bench.archive && G.bench.page == BENCH_WATCH && G.bench.selected == 0 && G.bench.provider == 4,
+          "Back restores the monitor with its previous answer and model choice");
     menu_press(KEY_ESCAPE);
     CHECK(!G.bench.open && G.menu.open && G.menu.selected == MENU_BENCH,
           "leaving the bench returns to its main-menu row");

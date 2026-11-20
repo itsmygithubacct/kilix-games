@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Exercise native provider commands, durable runs and exact reply scoring offline."""
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import fcntl
 import importlib.machinery
 import importlib.util
 import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -14,6 +16,7 @@ import unittest
 from unittest.mock import patch
 
 WORKER = Path(__file__).resolve().parents[1] / "libexec/puzzllm-yesno"
+sys.path.insert(0, str(WORKER.parent))
 loader = importlib.machinery.SourceFileLoader("yesno_worker", str(WORKER))
 worker = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
 loader.exec_module(worker)
@@ -44,6 +47,27 @@ class BenchTest(unittest.TestCase):
 import json, os, pathlib, sys, time
 args = sys.argv[1:]
 provider = pathlib.Path(sys.argv[0]).name
+if args[:1] == ['app-server']:
+    for line in sys.stdin:
+        call = json.loads(line)
+        if call['method'] == 'model/list':
+            print(json.dumps({'id': 3, 'result': {'data': [
+                {'model': 'example-base', 'isDefault': True}, {'model': 'example-pro'},
+                {'model': 'hidden-id', 'hidden': True}]}}), flush=True)
+            print(json.dumps({'id': 2, 'result': {'config': {'model': 'example-pro'}}}), flush=True)
+            break
+    sys.exit()
+if args == ['models']:
+    print('Default model: example-fast')
+    print('* example-fast (default)')
+    print('- example-large')
+    sys.exit()
+if '--input-format' in args:
+    call = json.loads(sys.stdin.readline())
+    assert call['request'] == {'subtype': 'initialize'}
+    print(json.dumps({'type': 'control_response', 'response': {'request_id': call['request_id'],
+          'response': {'models': [{'value': 'default'}, {'value': 'opus'}, {'value': 'sonnet'}]}}}))
+    sys.exit()
 prompt = args[args.index('--single')+1] if provider == 'grok' else sys.stdin.read()
 with open(os.environ['BENCH_CALLS'], 'a') as out:
     print(json.dumps([provider, args, prompt]), file=out)
@@ -56,6 +80,8 @@ reply = os.environ.get('BENCH_REPLY', reply)
 if provider == 'codex':
     pathlib.Path(args[args.index('-o')+1]).write_text(reply)
     print('unrelated progress on stdout')
+elif provider == 'claude' and os.environ.get('BENCH_RESOLVED_MODEL'):
+    print(json.dumps({'result': reply, 'modelUsage': {os.environ['BENCH_RESOLVED_MODEL']: {}}}))
 else:
     print(reply)
 """)
@@ -66,7 +92,10 @@ else:
         (package / "contract.py").write_text("def user_message(item):\n return item.get('context','')+'\\n'+item['prompt']\n")
         (package / "backends/chat.py").write_text("class ChatBackend: pass\n")
         self.env = {**os.environ, "PUZZLLM_YESNO_BENCH": str(self.root/"fixture"),
-                    "BENCH_CALLS": str(self.log), "PYTHONDONTWRITEBYTECODE": "1"}
+                    "BENCH_CALLS": str(self.log), "PYTHONDONTWRITEBYTECODE": "1",
+                    "HOME": str(self.root/"home"), "CODEX_HOME": str(self.root/"home/.codex"),
+                    "GROK_HOME": str(self.root/"home/.grok"), "CLAUDE_CONFIG_DIR": str(self.root/"home/.claude"),
+                    "ANTHROPIC_MODEL": ""}
         for name in ("codex", "grok", "claude"):
             self.env["PUZZLLM_" + name.upper()] = str(self.root/name)
 
@@ -90,6 +119,101 @@ else:
 
     def reports(self):
         return list((self.state/"bench/yesno").glob("*.jsonl"))
+
+    def result(self, *args):
+        result = subprocess.run([WORKER, *args], env=self.env, capture_output=True, text=True,
+                                stdin=subprocess.DEVNULL, timeout=10, check=True)
+        return [json.loads(line) for line in result.stdout.splitlines()]
+
+    def test_hosted_model_catalogs_use_native_ids_and_caches(self):
+        def names(provider):
+            return [r["model"] for r in self.result("models", provider)]
+        self.assertEqual(names("codex"), ["example-pro", "example-base"])
+        self.assertEqual(names("grok"), ["example-fast", "example-large"])
+        settings = Path(self.env["CLAUDE_CONFIG_DIR"])
+        settings.mkdir(parents=True)
+        (settings/"settings.json").write_text(json.dumps({"model": "opus", "modelSettings": {"exact-version": {}}}))
+        (settings/".claude.json").write_text(json.dumps({"additionalModelOptionsCache": [{"value": "long-context"}]}))
+        self.assertEqual(names("claude"), ["opus", "sonnet", "long-context", "exact-version"])
+        for provider, content, expected in (
+                ("codex", [{"slug": "cache-pro", "visibility": "list"}, {"slug": "hidden", "visibility": "hide"}],
+                 ["cache-pro"]),
+                ("grok", {"cache-fast": {"info": {}}, "hidden": {"info": {"hidden": True}}}, ["cache-fast"])):
+            home = Path(self.env[provider.upper()+"_HOME"])
+            home.mkdir(parents=True)
+            (home/"models_cache.json").write_text(json.dumps({"models": content, "unused": "private fixture"}))
+            self.assertEqual(names(provider), expected)
+        self.assertFalse(self.log.exists())
+
+    def test_selected_and_configured_models_share_their_concrete_identity(self):
+        for provider, concrete, alias in (("codex", "example-pro", "example-pro"),
+                                          ("grok", "example-fast", "example-fast"),
+                                          ("claude", "example-concrete", "opus")):
+            self.env["BENCH_RESOLVED_MODEL"] = concrete
+            for choice in ("", alias):
+                self.result("run", self.state, provider, choice)
+            board = self.result("records", self.state)
+            model_rows = [r for r in board if r["event"] == "standing" and r["provider"] == provider]
+            self.assertEqual(len(model_rows), 1)
+            self.assertEqual((model_rows[0]["model"], model_rows[0]["runs"], model_rows[0]["avg_correct"]),
+                             (concrete, 2, 2.0))
+            calls = [args for name, args, _ in rows(self.log) if name == provider]
+            if provider == "claude":
+                self.assertNotIn("--model", calls[0])
+                calls = calls[1:4]
+            self.assertTrue(all(args[args.index("--model")+1] == concrete for args in calls))
+
+    def test_rankings_rebuild_each_model_once_and_retain_every_attempt(self):
+        folder = self.state / "bench/yesno"
+        folder.mkdir(parents=True)
+        def journal(n, provider, model, total, grades, end="end"):
+            path = folder / f"20260101T0000{n:02}.000000Z-00000000.jsonl"
+            events = [dict(event="begin", provider=provider, model=model, file=path.name, total=total)]
+            events += [dict(event="answer", n=i, verdict=v) for i, v in enumerate(grades, 1)]
+            if end:
+                events.append(dict(event=end))
+            path.write_text("".join(json.dumps(e)+"\n" for e in events))
+            return path
+        c, w = "correct", "wrong"
+        first = journal(1, "ollama", "library/small", 4, [c,c,c,w])
+        journal(2, "ollama", "small:latest", 2, [w,w])
+        journal(3, "ollama", "small", 4, [c], "stopped")
+        journal(4, "ollama", "small", 4, [], "error")
+        journal(5, "ollama", "small", 4, [c,c], None)
+        live = journal(6, "ollama", "small", 4, [c], None)
+        journal(7, "codex", "tie", 8, [c,c,c,w,w,w,w,w])
+        journal(8, "codex", "top", 1, [c])
+        journal(9, "codex", "", 1, [c])
+        journal(10, "ollama", "small", 4, [c])  # incomplete terminal record
+        bad = journal(11, "grok", "damaged", 1, [], None)
+        with bad.open("a") as out:
+            out.write("invalid line\n")
+        broken = journal(12, "grok", ["invalid id"], 0, [])
+        self.assertTrue(broken.exists())
+        with live.open("a") as writer:
+            fcntl.flock(writer, fcntl.LOCK_EX)
+            board = self.result("records", self.state)
+            self.assertEqual(board, self.result("records", self.state))
+        ranks = [r for r in board if r["event"] == "standing"]
+        self.assertEqual([(r["rank"], r["model"]) for r in ranks if r["rank"]],
+                         [(1, "top"), (2, "tie"), (2, "small:latest")])
+        small = next(r for r in ranks if r["model"] == "small:latest")
+        self.assertEqual((small["runs"], small["finished"], small["avg_correct"], small["avg_percent"]),
+                         (7, 2, 1.5, 37.5))
+        self.assertEqual(sum(r["runs"] for r in ranks), 12)
+        self.assertEqual({r["status"] for r in board if r["event"] == "saved_run" and r["model"] == small["model"]},
+                         {"Complete", "Failed", "Interrupted", "Running", "Stopped"})
+        self.assertTrue(any(not r["model"] and r["rank"] == 0 and r["provider"] == "codex" for r in ranks))
+        self.assertEqual(self.result("report", self.state, first.name), rows(first))
+        path = self.root/"models"/"one.gguf"
+        path.parent.mkdir()
+        path.touch()
+        link = self.root/"alias.gguf"
+        link.symlink_to(path)
+        for i, name in enumerate((link, path, self.root/"other"/path.name), 13):
+            journal(i, "llama.cpp", str(name), 1, [c])
+        gguf = [r for r in self.result("records", self.state) if r["event"] == "standing" and r["provider"] == "llama.cpp"]
+        self.assertEqual({r["model"]: r["runs"] for r in gguf}, {str(path): 2, str(self.root/"other"/path.name): 1})
 
     def test_all_hosted_adapters_use_one_fresh_prompt_and_strict_grades(self):
         for provider in ("codex", "grok", "claude"):
