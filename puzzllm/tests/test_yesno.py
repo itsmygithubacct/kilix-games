@@ -146,6 +146,17 @@ else:
         self.assertEqual(json.loads(result.splitlines()[-1])["event"], "stopped")
         self.assertEqual(len(rows(self.log)), 1)
 
+    def test_game_launcher_finds_user_installed_clis_without_a_login_shell(self):
+        home = self.root / "home"
+        for provider, location in (("grok", ".grok/bin"), ("claude", ".local/bin")):
+            folder = home / location
+            folder.mkdir(parents=True)
+            (folder/provider).symlink_to(self.root/provider)
+            with patch.dict(os.environ, HOME=str(home), PATH=os.defpath,
+                            BENCH_CALLS=str(self.log), **{"PUZZLLM_"+provider.upper(): ""}):
+                answer = worker.hosted_answer(provider, "", "Is two even?", self.root)
+                self.assertEqual(answer.strip(), "YES")
+
     def test_provider_error_stops_without_scoring_the_item(self):
         self.env["PUZZLLM_CODEX"] = str(self.root / "missing")
         proc = self.process("run", self.state, "codex")

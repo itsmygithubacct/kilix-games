@@ -137,9 +137,14 @@ def llama_server(model, scratch, status):
 
 
 def hosted_answer(provider, model, question, scratch):
-    binary = os.environ.get("PUZZLLM_" + provider.upper()) or provider
-    if not shutil.which(binary):
-        raise RuntimeError(f"{provider} is not installed or is missing from PATH.")
+    home = Path.home()
+    search = os.pathsep.join((os.environ.get("PATH", os.defpath), str(home / ".local/bin"),
+                              str(home / ".grok/bin"), str(home / ".claude/local")))
+    command = os.environ.get("PUZZLLM_" + provider.upper()) or provider
+    binary = shutil.which(os.path.expanduser(command), path=search)
+    if not binary:
+        raise RuntimeError(f"Could not find {command}. Install the CLI or set PUZZLLM_{provider.upper()}.")
+    binary = os.path.abspath(binary)
     model_args = ["--model", model] if model else []
     last = scratch / "last-message"
     prompt = question
