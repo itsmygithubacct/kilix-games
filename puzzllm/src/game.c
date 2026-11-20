@@ -1240,6 +1240,13 @@ static void menu_key(game *g, const key_event *ev)
             else
                 snprintf(menu->notice, sizeof menu->notice, "Could not save the tooltip setting.");
         }
+        if (menu->selected == MENU_ROOM_BUTTONS) {
+            bool enabled = !g->room_buttons;
+            if (g->state_lock >= 0 && save_state_line(g->state, "room-buttons", enabled ? "on" : "off"))
+                g->room_buttons = enabled;
+            else
+                snprintf(menu->notice, sizeof menu->notice, "Could not save the level buttons setting.");
+        }
         if (menu->selected == MENU_NEURONTE && draw_neuronte_available()) {
             bool enabled = !draw_neuronte_enabled();
             if (!draw_set_neuronte(enabled))
@@ -1342,6 +1349,8 @@ bool game_init(game *g, const char *root, const char *state, bool spawn,
     g->use_pi = g->act.pi = load_preference(state, "harness", harness) && strcmp(harness, "pi") == 0;
     char tips[8];
     g->tooltips = load_preference(state, "tooltips", tips) && strcmp(tips, "on") == 0;
+    char buttons[8];
+    g->room_buttons = load_preference(state, "room-buttons", buttons) && strcmp(buttons, "on") == 0;
     scene_init(&g->sc, 0, g->levels.count);
 
     room_transition move;
@@ -1666,7 +1675,7 @@ void game_key(game *g, const key_event *ev)
         if (k == 'h') { next_hint(g); return; }
         if (k == KEY_ENTER || k == ' ' || k == 'e') {
             room_button button = scene_room_button_at(g->sc.x, g->sc.y);
-            if (button != BUTTON_NONE) {
+            if (g->room_buttons && button != BUTTON_NONE) {
                 if (ev->action == 1) press_room_button(g, button);
                 return;
             }
@@ -1687,7 +1696,7 @@ void game_click(game *g, int x, int y)
 {
     if (g->menu.open) return;
     room_button button = scene_room_button_at((float)x, (float)y);
-    if (button != BUTTON_NONE) {
+    if (g->room_buttons && button != BUTTON_NONE) {
         press_room_button(g, button);
         return;
     }
@@ -1950,6 +1959,7 @@ static view game_view(const game *g)
     v.goal_why = g->goal.why;
     v.hints_shown = g->hints_shown;
     v.tooltips = g->tooltips;
+    v.room_buttons = g->room_buttons;
     v.blink = ((long)(g->now * 2.0)) % 2 == 0;
     return v;
 }
@@ -1984,5 +1994,5 @@ void game_render(game *g, sr_canvas *c)
         render_menu(c, g->menu.selected, v.agent_model,
                     g->started, g->sc.level + 1, g->menu.confirm_reset, g->menu.notice,
                     g->thinking_support, g->thinking_enabled, v.hosted_agent, g->use_pi,
-                    g->compute, g->tooltips);
+                    g->compute, g->tooltips, g->room_buttons);
 }

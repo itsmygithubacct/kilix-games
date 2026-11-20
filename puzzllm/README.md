@@ -73,7 +73,9 @@ You can also use your host terminal’s paste shortcut to paste from the system
 clipboard. Highlighting and explicit copy update the host’s primary selection
 and clipboard, respectively, when the host accepts OSC 52.
 
-The buttons below the shell work like the Zell pane-room controls.
+The buttons below the shell are off by default. Enable them under
+**Esc → Level buttons**. The game remembers the setting.
+They work like the Zell pane-room controls.
 Walk onto a button and press Enter, or click it. **Clear model** starts
 a fresh coding session. **Clear shell** clears the shell display.
 **Shell log** puts `~/shell.log` in the agent's prompt. If the agent is

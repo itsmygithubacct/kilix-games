@@ -38,13 +38,13 @@ typedef struct view {
     const char *shell_note;
     const char *goal_why;     /* "hello_world.txt does not exist yet" */
     int hints_shown;          /* 0..nhints */
-    bool tooltips;
+    bool tooltips, room_buttons;
     bool blink;               /* cursor blink phase */
 } view;
 
 typedef enum compute_mode { COMPUTE_AUTO, COMPUTE_CPU, COMPUTE_GPU } compute_mode;
 
-enum { MENU_RESUME, MENU_QUIT, MENU_RESET, MENU_RESET_LEVEL, MENU_THINKING, MENU_COMPUTE, MENU_TOOLTIPS, MENU_MODEL_DETAILS, MENU_LEADERBOARD, MENU_HARNESS, MENU_CODEX, MENU_GROK, MENU_LOCAL, MENU_OLLAMA, MENU_NEURONTE };
+enum { MENU_RESUME, MENU_QUIT, MENU_RESET, MENU_RESET_LEVEL, MENU_THINKING, MENU_COMPUTE, MENU_TOOLTIPS, MENU_ROOM_BUTTONS, MENU_MODEL_DETAILS, MENU_LEADERBOARD, MENU_HARNESS, MENU_CODEX, MENU_GROK, MENU_LOCAL, MENU_OLLAMA, MENU_NEURONTE };
 
 enum { MODEL_SPEC_CAP = 16384 };
 typedef enum model_details_tab { DETAILS_OLLAMA, DETAILS_LLAMA, DETAILS_CODEX, DETAILS_PI, DETAILS_GROK, DETAILS_COUNT } model_details_tab;
@@ -56,7 +56,7 @@ void render_prompt_editor(sr_canvas *c, const char *draft, size_t cursor, const 
 struct model_option;
 void render_menu(sr_canvas *c, int selected, const char *active_model,
                  bool started, int level, bool confirm_reset, const char *notice, int thinking_support, bool thinking_enabled, const char *hosted_agent,
-                 bool pi, compute_mode compute, bool tooltips);
+                 bool pi, compute_mode compute, bool tooltips, bool room_buttons);
 void render_model_menu(sr_canvas *c, bool ollama, const struct model_option *models,
                        int count, int selected, bool loading, bool failed,
                        const char *llama_model);

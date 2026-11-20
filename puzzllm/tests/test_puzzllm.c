@@ -1258,6 +1258,18 @@ static void test_room_buttons(void)
     G.sc.x = button.x + button.w / 2;
     G.sc.y = button.y + button.h / 2;
     menu_press(KEY_ENTER);
+    game_click(&G, button.x + 4, button.y + 4);
+    CHECK(!G.room_buttons && !G.menu.open, "level buttons start off and ignore input");
+    menu_press(KEY_ESCAPE);
+    for (int i = 0; i < MENU_ROOM_BUTTONS; i++) menu_press(KEY_DOWN);
+    menu_press(KEY_ENTER);
+    CHECK(G.room_buttons, "the menu enables level buttons");
+    game_shutdown(&G);
+    CHECK(game_init(&G, ".", state, false, err, sizeof err) && G.room_buttons,
+          "enabled level buttons survive reopening the save");
+    G.sc.x = button.x + button.w / 2;
+    G.sc.y = button.y + button.h / 2;
+    menu_press(KEY_ENTER);
     CHECK(G.menu.confirm_reset && G.menu.selected == MENU_RESET_LEVEL,
           "standing on Reset level opens the reset confirmation");
     menu_press(KEY_ESCAPE);

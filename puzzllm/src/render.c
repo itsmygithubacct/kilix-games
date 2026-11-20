@@ -318,7 +318,7 @@ static void room_background(sr_canvas *c, const room_art *art, const char *style
 
 void render_menu(sr_canvas *c, int selected, const char *active_model,
                  bool started, int level, bool confirm_reset, const char *notice, int support, bool thinking_enabled, const char *hosted_agent,
-                 bool pi, compute_mode compute, bool tooltips)
+                 bool pi, compute_mode compute, bool tooltips, bool room_buttons)
 {
     static const char *const actions[] = {
         [MENU_QUIT] = "Exit game", [MENU_RESET] = "Reset Game",
@@ -379,6 +379,8 @@ void render_menu(sr_canvas *c, int selected, const char *active_model,
             snprintf(label, sizeof label, "Harness: %s", hosted_agent ? hosted_agent : pi ? "Pi (pi.dev)" : "OMP");
         else if (i == MENU_TOOLTIPS)
             snprintf(label, sizeof label, "Tooltips: %s", tooltips ? "On" : "Off");
+        else if (i == MENU_ROOM_BUTTONS)
+            snprintf(label, sizeof label, "Level buttons: %s", room_buttons ? "On" : "Off");
         else if (i == MENU_NEURONTE)
             snprintf(label, sizeof label, "Neuronte v2: %s", draw_neuronte_enabled() ? "On" : "Off");
         else
@@ -691,7 +693,7 @@ void render_frame(sr_canvas *c, const view *v)
     render_resources(c, v);
 
     render_selection(c, v->selection);
-    render_room_buttons(c, s);
+    if (v->room_buttons) render_room_buttons(c, s);
 
     art_kilix(c, s->x, s->y, s->dir, s->step_ticks, s->idle_ticks);
     if (v->tooltips && s->focus == FOCUS_ROOM) {
