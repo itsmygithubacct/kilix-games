@@ -828,9 +828,9 @@ static void test_layout(void)
     char err[256], state[2300];
 
     layout_set(1280, 800);
-    CHECK(OMP_COLS == 70 && OMP_ROWS == 43 && SHELL_COLS == 70 && SHELL_ROWS == 22 &&
+    CHECK(OMP_COLS == 70 && OMP_ROWS == 43 && SHELL_COLS == 70 && SHELL_ROWS == 20 &&
           ACT_ROWS == 7 && GOAL_ROWS == 6, "1280x800 fits four panels");
-    CHECK(START_X == 640 && START_Y == 752 && AISLE_X0 == 620 && AISLE_X1 == 660 &&
+    CHECK(START_X == 640 && START_Y == 746 && AISLE_X0 == 620 && AISLE_X1 == 660 &&
           WALK_Y0 == 680 && WALK_Y1 == 768 && DOOR_X == 600, "1280x800 floor and aisle");
     layout_set(300, 200);
     CHECK(CANVAS_W == LAYOUT_MIN_W && CANVAS_H == LAYOUT_MIN_H, "small panes: the minimum");
@@ -850,7 +850,7 @@ static void test_layout(void)
         aisle = (rect){AISLE_X0, WALL_H, AISLE_X1 - AISLE_X0, FLOOR_Y - WALL_H};
         CHECK(CANVAS_W == w && CANVAS_H == h, "%dx%d is drawn at its own size", w, h);
         CHECK(omp.x >= 0 && act.x + act.w <= w && shell.x + shell.w <= w &&
-              goal.x + goal.w <= w && shell.y + shell.h >= HUD_Y - 44 &&
+              goal.x + goal.w <= w && shell.y + shell.h >= HUD_Y - 68 &&
               shell.y + shell.h < HUD_Y &&
               act.y + act.h <= FLOOR_Y && omp.y < 24 && omp.y + omp.h >= HUD_Y - 44 &&
               omp.y + omp.h < HUD_Y && goal.y == omp.y,
@@ -869,6 +869,12 @@ static void test_layout(void)
               "%dx%d: floor band and door", w, h);
         scene_init(&s, 0, 2);
         CHECK(scene_walkable(&s, START_X, START_Y), "%dx%d: entrance walkable", w, h);
+        for (int b = 0; b < ROOM_BUTTON_COUNT; b++) {
+            rect button = layout_room_button((room_button)b);
+            float x = button.x + button.w / 2.0f, y = button.y + button.h / 2.0f;
+            CHECK(scene_walkable(&s, x, y) && scene_room_button_at(x, y) == (room_button)b &&
+                  !overlaps(button, shell), "%dx%d: button %d is reachable below the shell", w, h, b);
+        }
     }
     layout_set(1908, 972);
     CHECK(OMP_COLS > 100 && OMP_ROWS >= 29, "a big pane gets big terminals (%dx%d)",
@@ -1243,6 +1249,64 @@ static void menu_press(uint32_t key)
     game_key(&G, &ev);
 }
 
+static void test_room_buttons(void)
+{
+    char err[256], state[2300];
+    sub(state, sizeof state, "room-buttons");
+    CHECK(game_init(&G, ".", state, false, err, sizeof err), "room buttons: %s", err);
+    rect button = layout_room_button(BUTTON_RESET_LEVEL);
+    G.sc.x = button.x + button.w / 2;
+    G.sc.y = button.y + button.h / 2;
+    menu_press(KEY_ENTER);
+    CHECK(G.menu.confirm_reset && G.menu.selected == MENU_RESET_LEVEL,
+          "standing on Reset level opens the reset confirmation");
+    menu_press(KEY_ESCAPE);
+    menu_press(KEY_ESCAPE);
+    button = layout_room_button(BUTTON_METRICS);
+    game_click(&G, button.x + 4, button.y + 4);
+    CHECK(G.menu.leaderboard_open && G.menu.score_level == 1,
+          "clicking Metrics opens the current room leaderboard");
+    menu_press(KEY_ESCAPE);
+    menu_press(KEY_ESCAPE);
+    button = layout_room_button(BUTTON_CLEAR_MODEL);
+    feed(&G.omp_vt, "old coding session");
+    game_click(&G, button.x + 4, button.y + 4);
+    CHECK(strcmp(row(&G.omp_vt, 0), "") == 0, "clear model empties the coding pane");
+
+    button = layout_room_button(BUTTON_MODEL);
+    game_click(&G, button.x + 4, button.y + 4);
+    CHECK(G.menu.open && G.menu.selected == MENU_LOCAL, "Model opens the backend selector");
+    menu_press(KEY_ESCAPE);
+    button = layout_room_button(BUTTON_HARNESS);
+    game_click(&G, button.x + 4, button.y + 4);
+    CHECK(G.menu.open && G.menu.selected == MENU_HARNESS, "Harness opens its setting");
+    menu_press(KEY_ESCAPE);
+    button = layout_room_button(BUTTON_RESET_GAME);
+    game_click(&G, button.x + 4, button.y + 4);
+    CHECK(G.menu.confirm_reset && G.menu.selected == MENU_RESET, "Reset game asks for confirmation");
+    menu_press(KEY_ESCAPE);
+    menu_press(KEY_ESCAPE);
+
+    char *idle[] = {"/bin/cat", NULL};
+    int transfer[2];
+    if (pty_spawn(&G.omp, idle, NULL, OMP_COLS, OMP_ROWS) && pipe(transfer) == 0) {
+        int master = G.omp.fd;
+        G.omp.fd = transfer[1];
+        fcntl(transfer[0], F_SETFL, O_NONBLOCK);
+        button = layout_room_button(BUTTON_SHELL_LOG);
+        game_click(&G, button.x + 4, button.y + 4);
+        char input[128];
+        const char expected[] = "The player shell transcript is at ~/shell.log.";
+        ssize_t n = read(transfer[0], input, sizeof input);
+        CHECK(G.sc.focus == FOCUS_OMP && n == (ssize_t)(sizeof expected - 1) &&
+              memcmp(input, expected, sizeof expected - 1) == 0,
+              "Shell log puts the sandbox path in the active agent's draft");
+        close(transfer[0]);
+        close(transfer[1]);
+        G.omp.fd = master;
+    } else CHECK(false, "shell log button test stream initialized");
+    game_shutdown(&G);
+}
 static void test_leaderboard(void)
 {
     char err[256], state[2300];
@@ -1897,6 +1961,7 @@ int main(void)
     test_thinking_menu();
     test_codex_menu();
     test_leaderboard();
+    test_room_buttons();
     test_room_art();
     test_pane_sprite_layer();
     test_compute_menu();

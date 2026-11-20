@@ -53,7 +53,7 @@ int layout_set(int w, int h)
     n.resource_y = n.act_y + SCREEN_H(n.act_rows) + status_gap;
     n.shell_y = n.resource_y + RESOURCE_H + status_gap;
     n.shell_cols = n.goal_cols;
-    n.shell_rows = (terminal_bottom - n.shell_y - SCREEN_H(0)) / CELL_H;
+    n.shell_rows = (n.hud_y - 52 - n.shell_y - SCREEN_H(0)) / CELL_H;
 
     int omp_bottom = n.omp_y + SCREEN_H(n.omp_rows);
     int shell_bottom = n.shell_y + SCREEN_H(n.shell_rows);
@@ -106,6 +106,16 @@ rect layout_text_bounds(screen_id id)
 rect layout_resources(void)
 {
     return (rect){L.goal_x, L.resource_y, SCREEN_W(GOAL_COLS), RESOURCE_H};
+}
+
+rect layout_room_button(room_button button)
+{
+    int gap = 4;
+    int width = (CANVAS_W - L.shell_x - 24 - 3 * gap) / 4;
+    if (width > 116) width = 116;
+    int x = CANVAS_W - 24 - 4 * width - 3 * gap;
+    return (rect){x + (button % 4) * (width + gap),
+                  HUD_Y - 48 + (button / 4) * 24, width, 20};
 }
 
 void layout_room_panes(rect panes[ROOM_PANE_COUNT])

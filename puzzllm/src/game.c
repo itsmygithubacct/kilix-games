@@ -575,13 +575,13 @@ static void poll_ranked_attempt(game *g)
     }
 }
 
-static void spawn_agent(game *g)
+static void spawn_agent_prompt(game *g, const char *prompt)
 {
     poll_ranked_attempt(g);
     activity_begin_session(&g->act, g->state);
     begin_ranked_agent(g);
     char sandbox[4096], st_env[2100], model_env[OLLAMA_NAME_CAP + 32];
-    char *argv[] = {sandbox, g->use_codex ? "codex" : "agent", NULL};
+    char *argv[] = {sandbox, g->use_codex ? "codex" : "agent", (char *)prompt, NULL};
     char *think_env = g->thinking_enabled ? "PUZZLLM_THINK=1" : "PUZZLLM_THINK=0";
     char compute_env[32];
     snprintf(compute_env, sizeof compute_env, "PUZZLLM_COMPUTE=%s", compute_name[g->compute]);
@@ -602,6 +602,11 @@ static void spawn_agent(game *g)
         start_metrics(g);
         activity_add(&g->act, ACT_INFO, "agent sandbox started");
     }
+}
+
+static void spawn_agent(game *g)
+{
+    spawn_agent_prompt(g, NULL);
 }
 
 static void stop_room_agent(game *g)
@@ -1092,6 +1097,19 @@ static void rank_menu_refresh(game_menu *menu)
     menu->score_scroll = 0;
 }
 
+static void open_leaderboard(game *g)
+{
+    game_menu *menu = &g->menu;
+    free(menu->scores);
+    if (!leaderboard_load(g->state, &menu->scores, &menu->score_count))
+        snprintf(menu->notice, sizeof menu->notice, "Could not load the local leaderboard.");
+    menu->leaderboard_open = true;
+    menu->model_scores = true;
+    menu->score_level = cur_level(g)->number;
+    menu->score_metric = SCORE_TOKENS;
+    rank_menu_refresh(menu);
+}
+
 static void rank_menu_key(game *g, const key_event *ev)
 {
     game_menu *menu = &g->menu;
@@ -1124,7 +1142,7 @@ static void rank_menu_key(game *g, const key_event *ev)
     case KEY_PAGE_DOWN: step = 12; break;
     default: return;
     }
-    int limit = render_leaderboard(NULL, menu->scores, menu->score_count, 0, 0, 0, false, "");
+    int limit = render_leaderboard(NULL, menu->scores, menu->score_count, 0, 0, 0, false, "", NULL);
     int next = menu->score_scroll + step;
     menu->score_scroll = next < 0 ? 0 : next > limit ? limit : next;
 }
@@ -1214,16 +1232,7 @@ static void menu_key(game *g, const key_event *ev)
                                 g->ollama_model[0] ? DETAILS_OLLAMA : DETAILS_LLAMA;
             refresh_model_details(g);
         }
-        if (menu->selected == MENU_LEADERBOARD) {
-            free(menu->scores);
-            if (!leaderboard_load(g->state, &menu->scores, &menu->score_count))
-                snprintf(menu->notice, sizeof menu->notice, "Could not load the local leaderboard.");
-            menu->leaderboard_open = true;
-            menu->model_scores = true;
-            menu->score_level = cur_level(g)->number;
-            menu->score_metric = SCORE_TOKENS;
-            rank_menu_refresh(menu);
-        }
+        if (menu->selected == MENU_LEADERBOARD) open_leaderboard(g);
         if (menu->selected == MENU_CODEX) select_model(g, true, NULL);
         if (menu->selected == MENU_LOCAL || menu->selected == MENU_OLLAMA) {
             menu->model_submenu = menu->selected;
@@ -1452,6 +1461,57 @@ static int dir_index(uint32_t key)
     }
 }
 
+static void press_room_button(game *g, room_button button)
+{
+    if (g->transition_pending) {
+        activity_add(&g->act, ACT_INFO, "Wait for the room change to finish.");
+        return;
+    }
+    focus_screen(g, FOCUS_ROOM);
+    switch (button) {
+    case BUTTON_CLEAR_MODEL:
+        stop_room_agent(g);
+        if (g->spawn) spawn_agent(g);
+        activity_add(&g->act, ACT_INFO, "Started a fresh coding session.");
+        break;
+    case BUTTON_CLEAR_SHELL:
+        history_clear(&g->shell_history);
+        if (g->shell.pid > 0 && !pty_poll_exit(&g->shell))
+            pty_write(&g->shell, "\014", 1);
+        else if (g->spawn) spawn_shell(g);
+        activity_add(&g->act, ACT_INFO, "Cleared shell display.");
+        break;
+    case BUTTON_SHELL_LOG: {
+        const char text[] = "The player shell transcript is at ~/shell.log.";
+        bool ready = g->omp.pid > 0 && !pty_poll_exit(&g->omp);
+        if (!ready && g->spawn) spawn_agent_prompt(g, text);
+        focus_screen(g, FOCUS_OMP);
+        if (ready) paste_into_terminal(g, text, sizeof text - 1);
+        break;
+    }
+    case BUTTON_HARNESS:
+    case BUTTON_MODEL:
+    case BUTTON_RESET_LEVEL:
+    case BUTTON_RESET_GAME:
+    case BUTTON_METRICS:
+        open_menu(g);
+        g->menu.notice[0] = 0;
+        if (button == BUTTON_HARNESS) g->menu.selected = MENU_HARNESS;
+        if (button == BUTTON_MODEL)
+            g->menu.selected = g->use_codex ? MENU_CODEX : g->ollama_model[0] ? MENU_OLLAMA : MENU_LOCAL;
+        if (button == BUTTON_RESET_LEVEL || button == BUTTON_RESET_GAME) {
+            g->menu.selected = button == BUTTON_RESET_LEVEL ? MENU_RESET_LEVEL : MENU_RESET;
+            g->menu.confirm_reset = true;
+        }
+        if (button == BUTTON_METRICS) {
+            g->menu.selected = MENU_LEADERBOARD;
+            open_leaderboard(g);
+        }
+        break;
+    default: break;
+    }
+}
+
 void game_key(game *g, const key_event *ev)
 {
     bool press = ev->action != 3;
@@ -1577,6 +1637,11 @@ void game_key(game *g, const key_event *ev)
         if (ev->mods & ~MOD_SHIFT) return;
         if (k == 'h') { next_hint(g); return; }
         if (k == KEY_ENTER || k == ' ' || k == 'e') {
+            room_button button = scene_room_button_at(g->sc.x, g->sc.y);
+            if (button != BUTTON_NONE) {
+                if (ev->action == 1) press_room_button(g, button);
+                return;
+            }
             screen_id near = scene_near_screen(&g->sc);
             if (near == SCREEN_OMP) focus_screen(g, FOCUS_OMP);
             else if (near == SCREEN_SHELL) focus_screen(g, FOCUS_SHELL);
@@ -1593,6 +1658,11 @@ static bool inside(rect r, int x, int y)
 void game_click(game *g, int x, int y)
 {
     if (g->menu.open) return;
+    room_button button = scene_room_button_at((float)x, (float)y);
+    if (button != BUTTON_NONE) {
+        press_room_button(g, button);
+        return;
+    }
     if (inside(layout_screen(SCREEN_OMP), x, y)) focus_screen(g, FOCUS_OMP);
     else if (inside(layout_screen(SCREEN_SHELL), x, y)) focus_screen(g, FOCUS_SHELL);
     else if (inside(layout_screen(SCREEN_GOAL), x, y)) next_hint(g);
@@ -1877,7 +1947,7 @@ void game_render(game *g, sr_canvas *c)
     else if (g->menu.leaderboard_open)
         render_leaderboard(c, g->menu.scores, g->menu.score_count, g->menu.score_scroll,
                            g->menu.score_level, g->menu.score_metric, g->menu.model_scores,
-                           g->menu.notice);
+                           g->menu.notice, &g->ranked_attempt);
     else if (g->menu.model_submenu)
         render_model_menu(c, g->menu.model_submenu == MENU_OLLAMA, g->menu.models,
                           g->menu.count, g->menu.model_selected,

@@ -62,7 +62,8 @@ void render_model_menu(sr_canvas *c, bool ollama, const struct model_option *mod
                        const char *llama_model);
 struct score_entry;
 int render_leaderboard(sr_canvas *c, const struct score_entry *scores, int count,
-                       int scroll, int level, int metric, bool models, const char *notice);
+                       int scroll, int level, int metric, bool models, const char *notice,
+                       const struct score_entry *attempt);
 size_t render_copy_selection(const view *v, char *out, size_t cap);
 int render_scroll_limit(const view *v, screen_id id);
 void render_frame(sr_canvas *c, const view *v);

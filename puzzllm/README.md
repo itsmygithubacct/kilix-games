@@ -73,6 +73,15 @@ You can also use your host terminal’s paste shortcut to paste from the system
 clipboard. Highlighting and explicit copy update the host’s primary selection
 and clipboard, respectively, when the host accepts OSC 52.
 
+The buttons below the shell work like the Zell pane-room controls.
+Walk onto a button and press Enter, or click it. **Clear model** starts
+a fresh coding session. **Clear shell** clears the shell display.
+**Shell log** puts `~/shell.log` in the agent's prompt. If the agent is
+already running, review the draft and press Enter to send it. **Harness**
+and **Model** open their settings, both reset buttons ask for confirmation,
+and **Metrics** opens the leaderboard with the current run's tokens and
+time.
+
 Hints come one at a time, every 45 seconds or on H. Progress is kept in
 `~/.local/share/puzzllm/progress`, so the game resumes in the room you
 reached. If an agent or shell session ends, press Enter on its screen to

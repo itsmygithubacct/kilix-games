@@ -433,7 +433,8 @@ static void score_value(char out[32], long long value, int metric)
 }
 
 int render_leaderboard(sr_canvas *c, const score_entry *scores, int count,
-                       int scroll, int level, int metric, bool models, const char *notice)
+                       int scroll, int level, int metric, bool models, const char *notice,
+                       const score_entry *attempt)
 {
     int width = CANVAS_W < 1000 ? CANVAS_W - 76 : 900;
     int height = CANVAS_H - 100, x = (CANVAS_W - width) / 2, y = 50;
@@ -450,7 +451,11 @@ int render_leaderboard(sr_canvas *c, const score_entry *scores, int count,
     draw_stroke(c, x, y, width, height, 2, 0x826b47, 1);
     draw_text(c, x + 20, y + 13, models ? "Model leaderboard" : "Player leaderboard", 0xffde8c, 1);
     int measure = models ? metric : SCORE_TOKENS;
-    snprintf(text, sizeof text, "Room %d   %s", level, leaderboard_metric[measure]);
+    if (attempt && attempt->id && attempt->level == level)
+        snprintf(text, sizeof text, "Room %d   %s   |   Current run  %lld tokens  %.2fs",
+                 level, leaderboard_metric[measure], attempt->measure[SCORE_TOKENS],
+                 (double)attempt->measure[SCORE_TIME] / 1000.0);
+    else snprintf(text, sizeof text, "Room %d   %s", level, leaderboard_metric[measure]);
     text_line(c, x + 20, y + 38, text, 0xbccadb, cols);
     if (*notice || !visible) {
         text_line(c, x + 20, y + 70, *notice ? notice : "No completed runs with this measurement.",
@@ -625,6 +630,24 @@ static void render_resources(sr_canvas *c, const view *v)
               0xbdc8d7, cols);
 }
 
+static void render_room_buttons(sr_canvas *c, const scene *s)
+{
+    static const char *const labels[ROOM_BUTTON_COUNT] = {
+        "Clear model", "Clear shell", "Harness", "Model",
+        "Shell log", "Reset level", "Reset game", "Metrics",
+    };
+    room_button aimed = s->focus == FOCUS_ROOM ? scene_room_button_at(s->x, s->y) : BUTTON_NONE;
+    for (int i = 0; i < ROOM_BUTTON_COUNT; i++) {
+        rect r = layout_room_button((room_button)i);
+        bool active = (int)aimed == i;
+        draw_fill(c, r.x + 2, r.y + 2, r.w, r.h, 0x10131e, 0.8f);
+        draw_fill(c, r.x, r.y, r.w, r.h, active ? 0x5a4a24 : 0x2a2f45, 1);
+        draw_stroke(c, r.x, r.y, r.w, r.h, 1, active ? 0xd9ba79 : 0x8f8fd0, 1);
+        int width = (int)strlen(labels[i]) * CELL_W;
+        draw_text(c, r.x + (r.w - width) / 2, r.y + 2, labels[i], 0xffffff, 1);
+    }
+}
+
 void render_frame(sr_canvas *c, const view *v)
 {
     const scene *s = v->sc;
@@ -661,6 +684,7 @@ void render_frame(sr_canvas *c, const view *v)
     render_resources(c, v);
 
     render_selection(c, v->selection);
+    render_room_buttons(c, s);
 
     art_kilix(c, s->x, s->y, s->dir, s->step_ticks, s->idle_ticks);
     if (v->tooltips && s->focus == FOCUS_ROOM) {
@@ -673,7 +697,7 @@ void render_frame(sr_canvas *c, const view *v)
 
     if (s->focus == FOCUS_ROOM)
         snprintf(hud, sizeof hud,
-                 "Arrows/WASD walk   Alt+Left agent   Alt+Right shell   H hint   Esc menu");
+                 "Arrows/WASD walk   Enter use   Alt+Left agent   Alt+Right shell   H hint   Esc menu");
     else
         snprintf(hud, sizeof hud,
                  "%s focused   Ctrl+Shift: F1 agent / F2 shell / F10 room / F12 menu",

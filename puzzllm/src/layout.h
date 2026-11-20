@@ -109,6 +109,12 @@ enum { ROOM_PANE_COUNT = SCREEN_COUNT + 1 };
 void layout_room_panes(rect panes[ROOM_PANE_COUNT]);
 /* Top-left pixel of the text area of a screen. */
 rect layout_resources(void);
+typedef enum room_button {
+    BUTTON_CLEAR_MODEL, BUTTON_CLEAR_SHELL, BUTTON_HARNESS, BUTTON_MODEL,
+    BUTTON_SHELL_LOG, BUTTON_RESET_LEVEL, BUTTON_RESET_GAME, BUTTON_METRICS,
+    ROOM_BUTTON_COUNT, BUTTON_NONE = -1
+} room_button;
+rect layout_room_button(room_button button);
 rect layout_text_bounds(screen_id id);
 void layout_text_origin(screen_id id, int *x, int *y);
 

@@ -50,6 +50,7 @@ void scene_relayout(scene *s, const layout *old);
 bool scene_walkable(const scene *s, float x, float y);
 /* The screen Kilix is next to and facing, or SCREEN_NONE. */
 screen_id scene_near_screen(const scene *s);
+room_button scene_room_button_at(float x, float y);
 /* True once the door is open enough to walk through. */
 bool scene_door_passable(const scene *s);
 

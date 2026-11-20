@@ -121,6 +121,16 @@ static float rect_distance(rect r, float x, float y)
     return sqrtf((cx - x) * (cx - x) + (cy - y) * (cy - y));
 }
 
+room_button scene_room_button_at(float x, float y)
+{
+    for (int i = 0; i < ROOM_BUTTON_COUNT; i++) {
+        rect r = layout_room_button((room_button)i);
+        if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h)
+            return (room_button)i;
+    }
+    return BUTTON_NONE;
+}
+
 screen_id scene_near_screen(const scene *s)
 {
     screen_id best = SCREEN_NONE;
