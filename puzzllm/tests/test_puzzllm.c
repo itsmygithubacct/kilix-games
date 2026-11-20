@@ -1537,6 +1537,9 @@ static void test_menu(void)
     CHECK(G.menu.selected == MENU_MODEL, "Model follows Harness");
     menu_press(KEY_DOWN);
     CHECK(G.menu.selected == MENU_RESUME, "Start game follows Model");
+    menu_press(KEY_DOWN);
+    CHECK(G.menu.page == MENU_PAGE_MAIN && G.menu.selected == MENU_CAMPAIGN,
+          "Campaign is on the main menu");
     menu_to(MENU_OLLAMA);
     menu_press(KEY_ENTER);
     CHECK(G.menu.open && G.menu.model_submenu == MENU_OLLAMA,
@@ -1578,6 +1581,153 @@ static void test_bench_menu(void)
     menu_press(KEY_ESCAPE);
     CHECK(G.menu.page == MENU_PAGE_MAIN && G.menu.selected == MENU_BENCH,
           "Escape returns from Bench to its main-menu row");
+    game_shutdown(&G);
+}
+
+static bool pty_has(pty_proc *p, const char *needle)
+{
+    char buf[512];
+    size_t got = 0;
+    struct timespec pause = {0, 2000000};
+    buf[0] = 0;
+    for (int i = 0; i < 25 && got + 1 < sizeof buf; i++) {
+        long n = pty_read(p, buf + got, sizeof buf - 1 - got);
+        if (n > 0) {
+            got += (size_t)n;
+            buf[got] = 0;
+            if (strstr(buf, needle)) return true;
+        } else if (strstr(buf, needle) || n < 0) {
+            break;
+        }
+        nanosleep(&pause, NULL);
+    }
+    return strstr(buf, needle) != NULL;
+}
+
+static void test_agent_frames(void)
+{
+    char path[2300];
+    unsigned char eight[32], wide[32];
+    uint32_t *px = NULL;
+    int w = 0, h = 0, n;
+
+    n = snprintf((char *)eight, sizeof eight, "P6\n1 1\n255\n");
+    CHECK(n > 0 && n + 3 < (int)sizeof eight, "8-bit frame header fits");
+    eight[n++] = 0x10;
+    eight[n++] = 0x20;
+    eight[n++] = 0x30;
+    snprintf(path, sizeof path, "%s/frame8.ppm", scratch);
+    write_file(path, (char *)eight, (size_t)n);
+    CHECK(kilix_embed_load_ppm(path, &px, &w, &h) && w == 1 && h == 1 &&
+          px && (px[0] & 0x00ffffffu) == 0x102030u,
+          "an 8-bit pane picture loads");
+
+    n = snprintf((char *)wide, sizeof wide, "P6\n1 1\n65535\n");
+    CHECK(n > 0 && n + 6 < (int)sizeof wide, "16-bit frame header fits");
+    wide[n++] = 0x10; wide[n++] = 0xab;
+    wide[n++] = 0x20; wide[n++] = 0xab;
+    wide[n++] = 0x30; wide[n++] = 0xab;
+    snprintf(path, sizeof path, "%s/frame16.ppm", scratch);
+    write_file(path, (char *)wide, (size_t)n);
+    CHECK(kilix_embed_load_ppm(path, &px, &w, &h) && w == 1 && h == 1 &&
+          px && (px[0] & 0x00ffffffu) == 0x102030u,
+          "a 16-bit pane picture keeps the high byte");
+    free(px);
+    px = NULL;
+
+    n = snprintf((char *)wide, sizeof wide, "P6\n1 1\n256\n");
+    wide[n++] = 1; wide[n++] = 2; wide[n++] = 3;
+    write_file(path, (char *)wide, (size_t)n);
+    CHECK(!kilix_embed_load_ppm(path, &px, &w, &h) && px == NULL,
+          "other sample depths are refused");
+}
+
+static void test_auto_play(void)
+{
+    char err[256], state[2300], hello[2500];
+    char *argv[] = {"cat", NULL};
+    rect button;
+    sub(state, sizeof state, "auto-play");
+    CHECK(game_init(&G, ".", state, false, err, sizeof err), "auto game: %s", err);
+    CHECK(!G.auto_play, "auto starts off");
+    menu_to(MENU_AUTO);
+    CHECK(G.menu.page == MENU_PAGE_MAIN && G.menu.selected == MENU_AUTO,
+          "Auto is a main-menu row after Bench");
+    menu_press(KEY_ENTER);
+    {
+        char pref[2400];
+        snprintf(pref, sizeof pref, "%s/auto", state);
+        CHECK(G.auto_play && file_contains(pref, "on"), "the menu turns auto on and saves it");
+    }
+    game_shutdown(&G);
+    CHECK(game_init(&G, ".", state, false, err, sizeof err) && G.auto_play,
+          "auto survives reopening the save");
+    menu_to(MENU_AUTO);
+    menu_press(KEY_ENTER);
+    CHECK(!G.auto_play, "the menu turns auto off");
+    menu_to(MENU_ROOM_BUTTONS);
+    menu_press(KEY_ENTER);
+    CHECK(G.room_buttons, "level buttons are on for the Auto button");
+    menu_close();
+    button = layout_room_button(BUTTON_AUTO);
+    game_click(&G, button.x + 4, button.y + 4);
+    CHECK(G.auto_play && !G.menu.open, "the Auto button turns auto on");
+
+    CHECK(pty_spawn(&G.omp, argv, NULL, 40, 10), "a stand-in agent accepts the goal sentence");
+    feed(&G.omp_vt, "still working on it");
+    game_update(&G, 2.0);
+    CHECK(!pty_has(&G.omp, "Complete the goal"), "auto waits until the agent is at a prompt");
+    feed(&G.omp_vt, "\033[H> ");
+    game_update(&G, 2.0);
+    CHECK(pty_has(&G.omp, "Complete the goal in GOAL.md."),
+          "an idle prompt is told to finish GOAL.md");
+    CHECK(has_line(&G.act, "Auto asked the model to finish GOAL.md."), "the action pane records the ask");
+    for (int i = 0; i < 10; i++) {
+        char extra[256];
+        struct timespec pause = {0, 2000000};
+        if (pty_read(&G.omp, extra, sizeof extra) <= 0) nanosleep(&pause, NULL);
+    }
+    game_update(&G, 2.0);
+    {
+        char extra[256];
+        long n = pty_read(&G.omp, extra, sizeof extra - 1);
+        if (n < 0) n = 0;
+        extra[n] = 0;
+        CHECK(strstr(extra, "Complete the goal") == NULL,
+              "auto does not ask again until the agent answers");
+    }
+
+    snprintf(hello, sizeof hello, "%s/workspace/hello_world.txt", state);
+    write_file(hello, "Hello, World!\n", 14);
+    G.sc.focus = FOCUS_SHELL;
+    G.held_until[3] = 1e9;
+    for (int i = 0; i < 40 && G.sc.level == 0 && !G.quit; i++) game_update(&G, 0.25);
+    CHECK(G.sc.level == 1 && !G.quit && G.sc.focus == FOCUS_ROOM,
+          "auto walks through the open door into the next room");
+    {
+        int last = -1;
+        char done[2500];
+        level *lv;
+        for (int i = 0; i < G.levels.count; i++)
+            if (G.levels.items[i].check != CHECK_NONE) last = i;
+        CHECK(last > 1 && last + 1 < G.levels.count &&
+              G.levels.items[last + 1].check == CHECK_NONE,
+              "an unfinished room follows the last playable one");
+        lv = &G.levels.items[last];
+        lv->check = CHECK_FILE;
+        snprintf(lv->file, sizeof lv->file, "auto_done.txt");
+        lv->nreqs = 1;
+        lv->reqs[0].kind = REQ_NONEMPTY;
+        snprintf(done, sizeof done, "%s/workspace/auto_done.txt", state);
+        write_file(done, "done\n", 5);
+        memset(G.held_until, 0, sizeof G.held_until);
+        game_enter_level(&G, last);
+        G.auto_play = true;
+        for (int i = 0; i < 40 && G.sc.level == last && !G.quit; i++)
+            game_update(&G, 0.25);
+        CHECK(G.sc.level == last && !G.quit && G.sc.goal_met,
+              "auto does not walk into an unfinished room");
+    }
     game_shutdown(&G);
 }
 
@@ -2596,6 +2746,8 @@ int main(void)
     snprintf(scratch, sizeof scratch, "%s", dir);
     test_menu();
     test_bench_menu();
+    test_agent_frames();
+    test_auto_play();
     test_pane_focus();
     test_goal_and_action_panes();
     test_pane_scroll();

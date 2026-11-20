@@ -144,10 +144,15 @@ typedef struct game {
     thinking_support thinking_support;
     bool thinking_enabled;
     compute_mode compute;
-    bool tooltips, room_buttons, hints_file, campaign;
+    bool tooltips, room_buttons, hints_file, campaign, auto_play;
     char campaign_model[SCORE_MODEL_CAP];
     bool transition_pending;
     char omp_note[96], shell_note[96];
+    double auto_quiet;          /* seconds the agent has looked idle */
+    bool auto_sent, auto_heard; /* goal sentence in flight, then the agent answered */
+    bool auto_agent_closed;     /* room change closed the agent; Auto must open the next one */
+    bool auto_samples_valid;
+    uint32_t auto_samples[64];  /* coarse agent-frame samples; a blink changes one */
     kilix_embed embed;
 } game;
 

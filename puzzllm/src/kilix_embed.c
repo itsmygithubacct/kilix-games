@@ -342,53 +342,85 @@ static int ppm_token(FILE *f, char *tok, size_t cap)
     return n > 0;
 }
 
+static bool decode_ppm(FILE *f, uint32_t **px, int *w, int *h)
+{
+    char tok[64];
+    int width, height, maxval, count, i, depth;
+    unsigned char *raw;
+    uint32_t *next;
+    size_t bytes, got;
+    if (!ppm_token(f, tok, sizeof tok) || strcmp(tok, "P6") != 0 ||
+        !ppm_token(f, tok, sizeof tok))
+        return false;
+    width = atoi(tok);
+    if (!ppm_token(f, tok, sizeof tok)) return false;
+    height = atoi(tok);
+    if (!ppm_token(f, tok, sizeof tok)) return false;
+    maxval = atoi(tok);
+    /* ImageMagick's import writes 16-bit samples (maxval 65535) from this
+     * display. The high byte is the 8-bit channel. */
+    if (maxval == 255) depth = 1;
+    else if (maxval == 65535) depth = 2;
+    else return false;
+    if (width < 1 || height < 1 || width > 2048 || height > 1280) return false;
+    count = width * height;
+    bytes = (size_t)count * 3u * (size_t)depth;
+    raw = malloc(bytes);
+    next = malloc((size_t)count * sizeof *next);
+    if (!raw || !next) {
+        free(raw);
+        free(next);
+        return false;
+    }
+    got = fread(raw, 1, bytes, f);
+    if (got != bytes) {
+        free(raw);
+        free(next);
+        return false;
+    }
+    for (i = 0; i < count; i++) {
+        size_t o = (size_t)i * 3u * (size_t)depth;
+        unsigned r = raw[o];
+        unsigned g = raw[o + (size_t)depth];
+        unsigned b = raw[o + 2u * (size_t)depth];
+        next[i] = 0xff000000u | (r << 16) | (g << 8) | b;
+    }
+    free(raw);
+    free(*px);
+    *px = next;
+    *w = width;
+    *h = height;
+    return true;
+}
+
+bool kilix_embed_load_ppm(const char *path, uint32_t **px, int *w, int *h)
+{
+    FILE *f;
+    bool ok;
+    if (!path || !px || !w || !h) return false;
+    f = fopen(path, "rb");
+    if (!f) return false;
+    ok = decode_ppm(f, px, w, h);
+    fclose(f);
+    return ok;
+}
+
 static bool load_ppm(const char *path, uint32_t **px, int *w, int *h,
                      struct timespec *stamp, off_t *bytes)
 {
     struct stat st;
     FILE *f;
-    char tok[64];
-    int width, height, maxval, count, i;
-    uint32_t *next;
-    unsigned char *rgb;
     if (stat(path, &st) != 0 || st.st_size < 16) return false;
     if (*px && stamp->tv_sec == st.st_mtim.tv_sec && stamp->tv_nsec == st.st_mtim.tv_nsec &&
         *bytes == st.st_size)
         return true;
     f = fopen(path, "rb");
     if (!f) return false;
-    if (!ppm_token(f, tok, sizeof tok) || strcmp(tok, "P6") != 0 ||
-        !ppm_token(f, tok, sizeof tok)) {
-        fclose(f);
-        return false;
-    }
-    width = atoi(tok);
-    if (!ppm_token(f, tok, sizeof tok)) { fclose(f); return false; }
-    height = atoi(tok);
-    if (!ppm_token(f, tok, sizeof tok)) { fclose(f); return false; }
-    maxval = atoi(tok);
-    if (width < 1 || height < 1 || width > 2048 || height > 1280 || maxval != 255) {
-        fclose(f);
-        return false;
-    }
-    count = width * height;
-    rgb = malloc((size_t)count * 3);
-    next = malloc((size_t)count * sizeof *next);
-    if (!rgb || !next || fread(rgb, 3, (size_t)count, f) != (size_t)count) {
-        free(rgb);
-        free(next);
+    if (!decode_ppm(f, px, w, h)) {
         fclose(f);
         return false;
     }
     fclose(f);
-    for (i = 0; i < count; i++)
-        next[i] = 0xff000000u | ((uint32_t)rgb[i * 3] << 16) |
-                  ((uint32_t)rgb[i * 3 + 1] << 8) | rgb[i * 3 + 2];
-    free(rgb);
-    free(*px);
-    *px = next;
-    *w = width;
-    *h = height;
     *stamp = st.st_mtim;
     *bytes = st.st_size;
     return true;

@@ -110,12 +110,15 @@ rect layout_resources(void)
 
 rect layout_room_button(room_button button)
 {
+    /* Two rows on the floor. A third row would sit on the HUD and fail the walk test. */
+    int cols = (ROOM_BUTTON_COUNT + 1) / 2;
     int gap = 4;
-    int width = (CANVAS_W - L.shell_x - 24 - 3 * gap) / 4;
+    int width = (CANVAS_W - L.shell_x - 24 - (cols - 1) * gap) / cols;
     if (width > 116) width = 116;
-    int x = CANVAS_W - 24 - 4 * width - 3 * gap;
-    return (rect){x + (button % 4) * (width + gap),
-                  HUD_Y - 48 + (button / 4) * 24, width, 20};
+    if (width < 8) width = 8;
+    int x = CANVAS_W - 24 - cols * width - (cols - 1) * gap;
+    return (rect){x + (button % cols) * (width + gap),
+                  HUD_Y - 48 + (button / cols) * 24, width, 20};
 }
 
 void layout_room_panes(rect panes[ROOM_PANE_COUNT])

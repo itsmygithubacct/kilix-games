@@ -91,7 +91,8 @@ a fresh coding session. **Clear shell** clears the shell display.
 already running, review the draft and press Enter to send it. **Harness**
 and **Model** open their settings, both reset buttons ask for confirmation,
 and **Metrics** opens the leaderboard with the current run's tokens and
-time.
+time. **Auto** turns automatic play on or off, the same switch as the
+menu row.
 
 Hints come one at a time, every 45 seconds or on H. Progress is kept in
 `~/.local/share/puzzllm/progress`, so the game resumes in the room you
@@ -100,8 +101,16 @@ start a new one.
 
 The game opens on its menu in this order: **Harness**, **Model**, then
 **Start game** (or resume, or continue a saved level). Below those are
-**Scores**, **Display**, **Bench**, **Reset**, and **Exit game**. Enter opens a group.
-Escape steps back one page, and closes the menu once play has started.
+**Campaign**, **Scores**, **Display**, **Bench**, **Auto**, **Reset**, and **Exit game**.
+Enter opens a group. Escape steps back one page, and closes the menu once
+play has started.
+
+**Auto** is off until you turn it on. While it is on, each playable room
+starts an agent session and tells it to complete the goal in `GOAL.md`.
+A session that is already open and quiet for a couple of seconds gets the
+same sentence. When the door opens, Kilix walks into the next playable
+room and that room starts again. The unfinished room at the end is left
+alone. The setting is remembered.
 
 **Bench** holds **Kilix yes/no bench**. That row runs the OneBit yes/no
 suite with **autotrust-jev**. The model row offers the same Ollama model
@@ -136,8 +145,8 @@ CPU, RAM, GPU, VRAM, or disk throughput. Unavailable resource samples
 are omitted for that metric. Tab switches to player runs ranked by tokens
 within each model.
 
-**Campaign** locks the current model for every playable room. Turn it on
-from the game menu. The choice is saved, and the game reopens on that
+**Campaign** is on the main menu. It locks the current model for every
+playable room. Turn it on there. The choice is saved, and the game reopens on that
 model. While it is on, Codex, Grok, Claude, llama.cpp, and Ollama stay on the
 locked model. Finish every playable room with reported token use from
 that model and the campaign is ranked. The unfinished stub room is not

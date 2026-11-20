@@ -21,6 +21,10 @@
 static bool save_hints_file(const game *g);
 static bool remove_workspace_file(const game *g, const char *name);
 
+static const char AUTO_ASK[] = "Complete the goal in GOAL.md.";
+enum { AUTO_SAMPLES = 64, AUTO_IDLE_MS = 2000 };
+static void auto_mark_sent(game *g);
+
 static int load_level(const char *state, const char *name, int level_count)
 {
     char path[4096];
@@ -687,6 +691,37 @@ static void note_embed_sizes(game *g)
     kilix_embed_set_sizes(&g->embed, agent.w, agent.h, shell.w, shell.h);
 }
 
+/* The restarted pane reads $PUZZLLM_STATE/kx/agent-prompt, which the sandbox
+ * sees at /opt/puzzllm/kx/agent-prompt. */
+static bool write_agent_prompt(const game *g, const char *prompt)
+{
+    char path[4096], tmp[4096];
+    int fd;
+    size_t n;
+    if (!prompt || !prompt[0]) return false;
+    if (snprintf(path, sizeof path, "%s/kx/agent-prompt", g->state) >= (int)sizeof path)
+        return false;
+    if (snprintf(tmp, sizeof tmp, "%s/kx/.agent-prompt", g->state) >= (int)sizeof tmp)
+        return false;
+    fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+    if (fd < 0) return false;
+    n = strlen(prompt);
+    if (write(fd, prompt, n) != (ssize_t)n) {
+        close(fd);
+        unlink(tmp);
+        return false;
+    }
+    if (close(fd) != 0) {
+        unlink(tmp);
+        return false;
+    }
+    if (rename(tmp, path) != 0) {
+        unlink(tmp);
+        return false;
+    }
+    return true;
+}
+
 static void spawn_agent_prompt(game *g, const char *prompt)
 {
     poll_ranked_attempt(g);
@@ -720,7 +755,10 @@ static void spawn_agent_prompt(game *g, const char *prompt)
     snprintf(model_env, sizeof model_env, "PUZZLLM_OLLAMA_MODEL=%s", g->ollama_model);
     snprintf(agent_env, sizeof agent_env, "PUZZLLM_AGENT=%s", mode);
     if (kilix_embed_running(&g->embed)) {
+        /* The new pane reads this file as its opening prompt. */
+        if (prompt && prompt[0]) write_agent_prompt(g, prompt);
         kilix_embed_command(&g->embed, "restart-agent");
+        g->auto_agent_closed = false;
         g->omp_note[0] = 0;
         activity_add(&g->act, ACT_INFO, "agent pane restarted");
         return;
@@ -747,6 +785,7 @@ static void spawn_agent(game *g)
 
 static void stop_room_agent(game *g)
 {
+    g->auto_agent_closed = true;
     if (kilix_embed_running(&g->embed)) {
         kilix_embed_close_agent(&g->embed);
         poll_ranked_attempt(g);
@@ -847,7 +886,12 @@ static void start_play(game *g)
     if (!g->started) {
         g->started = true;
         if (g->spawn) {
-            spawn_agent(g);
+            if (g->auto_play) {
+                spawn_agent_prompt(g, AUTO_ASK);
+                auto_mark_sent(g);
+            } else {
+                spawn_agent(g);
+            }
             spawn_shell(g);
         }
     }
@@ -1669,6 +1713,21 @@ static void menu_move(game *g, int index)
     g->menu.selected = rows[index];
 }
 
+static void set_auto_play(game *g, bool enabled)
+{
+    if (g->state_lock < 0 || !save_state_line(g->state, "auto", enabled ? "on" : "off")) {
+        snprintf(g->menu.notice, sizeof g->menu.notice, "Could not save the auto setting.");
+        return;
+    }
+    g->auto_play = enabled;
+    g->auto_quiet = 0;
+    g->auto_sent = false;
+    g->auto_heard = false;
+    g->auto_samples_valid = false;
+    snprintf(g->menu.notice, sizeof g->menu.notice, "Auto is %s.", enabled ? "on" : "off");
+    activity_add(&g->act, ACT_INFO, "Auto is %s.", enabled ? "on" : "off");
+}
+
 static void menu_key(game *g, const key_event *ev)
 {
     game_menu *menu = &g->menu;
@@ -1823,6 +1882,7 @@ static void menu_key(game *g, const key_event *ev)
                 restart_agent(g);
             }
         }
+        if (menu->selected == MENU_AUTO) set_auto_play(g, !g->auto_play);
         if (menu->selected == MENU_MODEL_DETAILS) {
             menu->details_open = true;
             menu->details_scroll = 0;
@@ -1939,6 +1999,10 @@ void game_enter_level(game *g, int level)
     g->selection = (pane_selection){0};
     g->level_time = 0;
     g->was_met = false;
+    g->auto_quiet = 0;
+    g->auto_sent = false;
+    g->auto_heard = false;
+    g->auto_samples_valid = false;
     activity_begin_room(&g->act, g->state, g->workspace);
     if (cur_level(g)->check == CHECK_CHEST && g->state_lock >= 0 && !prepare_chest(g))
         activity_add(&g->act, ACT_ERROR, "Could not prepare chest.zip (requires zip).");
@@ -2019,6 +2083,8 @@ bool game_init(game *g, const char *root, const char *state, bool spawn,
     g->hints_file = !(load_preference(state, "hints-file", hints_file) && strcmp(hints_file, "off") == 0);
     char yolo[8];
     g->yolo = load_preference(state, "yolo", yolo) && strcmp(yolo, "on") == 0;
+    char automatic[8];
+    g->auto_play = load_preference(state, "auto", automatic) && strcmp(automatic, "on") == 0;
     char campaign[8];
     if (!campaign_active_model(state, g->campaign_model)) g->campaign_model[0] = 0;
     g->campaign = load_preference(state, "campaign", campaign) && strcmp(campaign, "on") == 0 &&
@@ -2239,6 +2305,9 @@ static void press_room_button(game *g, room_button button)
             g->menu.selected = MENU_LEADERBOARD;
             open_leaderboard(g);
         }
+        break;
+    case BUTTON_AUTO:
+        set_auto_play(g, !g->auto_play);
         break;
     default: break;
     }
@@ -2580,6 +2649,135 @@ static bool pump(pty_proc *p, neuroterm *t, char *note, size_t notecap, const ch
     return got;
 }
 
+static bool agent_alive(game *g)
+{
+    if (kilix_embed_running(&g->embed)) return true;
+    return g->omp.pid > 0 && !pty_poll_exit(&g->omp);
+}
+
+static bool auto_row_is_prompt(const char *text)
+{
+    const unsigned char *s = (const unsigned char *)text;
+    size_t n;
+    while (*s == ' ' || *s == '\t') s++;
+    if (*s == 0) return false;
+    if (*s == '>' || *s == '$' || *s == '#' || *s == '%') return true;
+    if (*s == 0xe2) return true; /* ❯, ›, and the other prompt arrows */
+    n = strlen((const char *)s);
+    while (n > 0 && (s[n - 1] == ' ' || s[n - 1] == '\t')) n--;
+    return n > 0 && n <= 96 && (s[n - 1] == '>' || s[n - 1] == '$' || s[n - 1] == '#');
+}
+
+static bool auto_at_prompt(game *g)
+{
+    char row[512];
+    VTermPos cursor = neuroterm_cursor(&g->omp_vt);
+    row[0] = 0;
+    if (cursor.row >= 0)
+        neuroterm_row_text(&g->omp_vt, cursor.row, row, sizeof row);
+    if (!auto_row_is_prompt(row) && cursor.row > 0)
+        neuroterm_row_text(&g->omp_vt, cursor.row - 1, row, sizeof row);
+    return auto_row_is_prompt(row);
+}
+
+/* How many coarse samples of the embedded agent picture changed.
+ * -1 means there is no frame yet. A cursor blink moves one sample.
+ * The title bar is skipped: its spinner would otherwise look like work. */
+static int embed_motion(game *g)
+{
+    const uint32_t *px = g->embed.agent_px;
+    int w = g->embed.agent_w, h = g->embed.agent_h;
+    int n, top, origin, usable, stride, differ = 0;
+    if (!px || w < 1 || h < 1) return -1;
+    n = w * h;
+    top = h > 80 ? 48 : 0;
+    origin = top * w;
+    usable = n - origin;
+    if (usable < 1) {
+        origin = 0;
+        usable = n;
+    }
+    stride = usable / AUTO_SAMPLES;
+    if (stride < 1) stride = 1;
+    for (int i = 0; i < AUTO_SAMPLES; i++) {
+        int idx = origin + i * stride;
+        uint32_t sample;
+        if (idx >= n) idx = n - 1;
+        sample = px[idx] & 0x00ffffffu;
+        if (g->auto_samples_valid && g->auto_samples[i] != sample) differ++;
+        g->auto_samples[i] = sample;
+    }
+    if (!g->auto_samples_valid) {
+        g->auto_samples_valid = true;
+        g->auto_quiet = 0; /* the first picture starts the idle clock */
+        return 0;
+    }
+    return differ;
+}
+
+static void auto_mark_sent(game *g)
+{
+    g->auto_sent = true;
+    g->auto_heard = false;
+    g->auto_quiet = 0;
+    activity_add(&g->act, ACT_INFO, "Auto asked the model to finish GOAL.md.");
+}
+
+static void auto_send_goal(game *g)
+{
+    char line[80];
+    int n;
+    if (kilix_embed_running(&g->embed)) {
+        n = snprintf(line, sizeof line, "%s\n", AUTO_ASK);
+        if (n <= 0) return;
+        kilix_embed_type(&g->embed, 0, line, (size_t)n);
+        auto_mark_sent(g);
+        return;
+    }
+    if (g->omp.pid <= 0 || pty_poll_exit(&g->omp)) return;
+    n = snprintf(line, sizeof line, "%s\r", AUTO_ASK);
+    if (n <= 0 || !pty_write(&g->omp, line, (size_t)n)) return;
+    auto_mark_sent(g);
+}
+
+static bool auto_room_open(const game *g)
+{
+    return cur_level(g)->check != CHECK_NONE;
+}
+
+static bool auto_can_advance(const game *g)
+{
+    int next = g->sc.level + 1;
+    return next < g->sc.level_count && g->levels.items[next].check != CHECK_NONE;
+}
+
+static void auto_prompt_if_idle(game *g, double dt, bool busy)
+{
+    bool due;
+    bool pane_down;
+    /* A picture that never decodes must not stall the room forever. */
+    double need = (kilix_embed_running(&g->embed) && !g->auto_samples_valid) ? 8.0
+                  : AUTO_IDLE_MS / 1000.0;
+    if (!g->auto_play || busy || g->sc.goal_met || !auto_room_open(g)) return;
+    if (g->auto_quiet < need) g->auto_quiet += dt;
+    if (g->auto_quiet < need) return;
+    due = !g->auto_sent || g->auto_heard;
+    /* Leaving a room closes the agent pane. Kilix itself stays up, so the
+     * next room has to open a new session instead of typing at a dead pane. */
+    pane_down = g->auto_agent_closed || !agent_alive(g);
+    if (pane_down && (g->auto_agent_closed || due)) {
+        if (!g->spawn) return;
+        spawn_agent_prompt(g, AUTO_ASK);
+        g->auto_agent_closed = false;
+        g->auto_samples_valid = false;
+        auto_mark_sent(g);
+        return;
+    }
+    if (!due) return;
+    if (!kilix_embed_running(&g->embed) && !auto_at_prompt(g)) return;
+    auto_send_goal(g);
+}
+
 static void arrive_in_room(game *g, room_transition move)
 {
     game_enter_level(g, move.from + move.direction);
@@ -2597,9 +2795,11 @@ void game_update(game *g, double dt)
     poll_models(&g->menu);
     poll_fetch(&g->menu);
     poll_yesno(&g->menu);
+    bool agent_busy = false;
     if (g->spawn) {
         if (g->embed.proc.pid > 0) {
             bool before = g->embed.saw_frame;
+            int motion;
             kilix_embed_poll(&g->embed);
             if (!before && g->embed.saw_frame) g->omp_note[0] = g->shell_note[0] = 0;
             if (g->embed.proc.exited &&
@@ -2609,11 +2809,17 @@ void game_update(game *g, double dt)
                 snprintf(g->omp_note, sizeof g->omp_note, "%.95s", why);
                 snprintf(g->shell_note, sizeof g->shell_note, "%.95s", why);
             }
+            motion = embed_motion(g);
+            if (motion >= 2) agent_busy = true;
         } else {
-            pump(&g->omp, &g->omp_vt, g->omp_note, sizeof g->omp_note, "the agent");
+            agent_busy = pump(&g->omp, &g->omp_vt, g->omp_note, sizeof g->omp_note, "the agent");
             pump(&g->shell, &g->shell_vt, g->shell_note, sizeof g->shell_note, "the shell");
         }
         pump_metrics(g);
+    }
+    if (agent_busy) {
+        g->auto_quiet = 0;
+        if (g->auto_sent) g->auto_heard = true;
     }
     if (g->started && g->ranked_attempt.id && g->ranked_session_model[0] && !g->transition_pending) {
         g->ranked_fraction_ms += dt * 1000.0;
@@ -2645,6 +2851,8 @@ void game_update(game *g, double dt)
         g->level_time > (g->hints_shown + 1) * (double)HINT_SECONDS)
         g->hints_shown++;
 
+    auto_prompt_if_idle(g, dt, agent_busy);
+
     /* fixed ticks; a stall runs at most a quarter second of them, so
      * Kilix never jumps */
     g->tick_debt += dt;
@@ -2653,11 +2861,18 @@ void game_update(game *g, double dt)
         double t = g->now - g->tick_debt;
         int dx = 0, dy = 0;
         scene_event ev;
+        bool steer = g->auto_play && scene_door_passable(&g->sc) && auto_can_advance(g);
         g->tick_debt -= 1.0 / SCENE_TICK_HZ;
-        if (g->held_until[0] > t) dx -= 1;
-        if (g->held_until[1] > t) dx += 1;
-        if (g->held_until[2] > t) dy -= 1;
-        if (g->held_until[3] > t) dy += 1;
+        if (steer) {
+            g->sc.focus = FOCUS_ROOM;
+            dx = g->sc.x < AISLE_X0 ? 1 : g->sc.x > AISLE_X1 ? -1 : 0;
+            dy = -1;
+        } else {
+            if (g->held_until[0] > t) dx -= 1;
+            if (g->held_until[1] > t) dx += 1;
+            if (g->held_until[2] > t) dy -= 1;
+            if (g->held_until[3] > t) dy += 1;
+        }
         ev = scene_tick(&g->sc, dx, dy);
         if (ev == SCENE_BOTTOM_EXIT && g->sc.level == 0) {
             g->quit = true;
@@ -2750,6 +2965,7 @@ static view game_view(const game *g)
     v.hints_shown = g->hints_shown;
     v.tooltips = g->tooltips;
     v.room_buttons = g->room_buttons;
+    v.auto_play = g->auto_play;
     v.blink = ((long)(g->now * 2.0)) % 2 == 0;
     return v;
 }
@@ -2787,5 +3003,5 @@ void game_render(game *g, sr_canvas *c)
                     g->started, g->sc.level + 1, g->menu.confirm_reset, g->menu.notice,
                     g->thinking_support, g->thinking_enabled, v.hosted_agent, g->use_pi,
                     g->compute, g->tooltips, g->room_buttons, g->campaign, g->campaign_model,
-                    g->hints_file, g->yolo, g->menu.page, g->menu.name_edit);
+                    g->hints_file, g->yolo, g->menu.page, g->menu.name_edit, g->auto_play);
 }

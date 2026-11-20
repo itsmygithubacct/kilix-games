@@ -319,14 +319,14 @@ static void room_background(sr_canvas *c, const room_art *art, const char *style
 int menu_page_rows(int page, bool neuronte, int *out, int cap)
 {
     static const int main_rows[] = {
-        MENU_HARNESS, MENU_MODEL, MENU_RESUME, MENU_SCORES, MENU_DISPLAY, MENU_BENCH, MENU_RESETS, MENU_QUIT
+        MENU_HARNESS, MENU_MODEL, MENU_RESUME, MENU_CAMPAIGN, MENU_SCORES, MENU_DISPLAY, MENU_BENCH, MENU_AUTO, MENU_RESETS, MENU_QUIT
     };
     static const int model_rows[] = {
         MENU_CODEX, MENU_GROK, MENU_CLAUDE, MENU_LOCAL, MENU_OLLAMA,
         MENU_MODEL_DETAILS, MENU_THINKING, MENU_COMPUTE, MENU_YOLO, MENU_DOWNLOADS
     };
     static const int score_rows[] = {
-        MENU_LEADERBOARD, MENU_CAMPAIGN, MENU_CAMPAIGN_BOARD, MENU_CLEAR_CAMPAIGN
+        MENU_LEADERBOARD, MENU_CAMPAIGN_BOARD, MENU_CLEAR_CAMPAIGN
     };
     static const int display_rows[] = {
         MENU_TOOLTIPS, MENU_ROOM_BUTTONS, MENU_HINTS_FILE, MENU_NEURONTE
@@ -367,7 +367,7 @@ void render_menu(sr_canvas *c, int selected, const char *active_model,
                  bool started, int level, bool confirm_reset, const char *notice, int support, bool thinking_enabled, const char *hosted_agent,
                  bool pi, compute_mode compute, bool tooltips, bool room_buttons,
                  bool campaign, const char *campaign_model, bool hints_file, bool yolo, int page,
-                 bool naming)
+                 bool naming, bool auto_play)
 {
     static const char *const actions[] = {
         [MENU_QUIT] = "Exit game", [MENU_RESET] = "Reset Game",
@@ -469,6 +469,8 @@ void render_menu(sr_canvas *c, int selected, const char *active_model,
             snprintf(label, sizeof label, "Hint file: %s", hints_file ? "On" : "Off");
         else if (i == MENU_YOLO)
             snprintf(label, sizeof label, "Yolo: %s", yolo ? "On" : "Off");
+        else if (i == MENU_AUTO)
+            snprintf(label, sizeof label, "Auto: %s", auto_play ? "On" : "Off");
         else if (i == MENU_CAMPAIGN)
             snprintf(label, sizeof label, "Campaign: %s",
                      campaign && campaign_model && *campaign_model ? campaign_model : "Off");
@@ -741,21 +743,23 @@ static void render_resources(sr_canvas *c, const view *v)
               0xbdc8d7, cols);
 }
 
-static void render_room_buttons(sr_canvas *c, const scene *s)
+static void render_room_buttons(sr_canvas *c, const scene *s, bool auto_on)
 {
     static const char *const labels[ROOM_BUTTON_COUNT] = {
         "Clear model", "Clear shell", "Harness", "Model",
-        "Shell log", "Reset level", "Reset game", "Metrics",
+        "Shell log", "Reset level", "Reset game", "Metrics", "Auto",
     };
     room_button aimed = s->focus == FOCUS_ROOM ? scene_room_button_at(s->x, s->y) : BUTTON_NONE;
     for (int i = 0; i < ROOM_BUTTON_COUNT; i++) {
         rect r = layout_room_button((room_button)i);
         bool active = (int)aimed == i;
+        bool on = auto_on && i == BUTTON_AUTO;
+        const char *label = on ? "Auto on" : labels[i];
         draw_fill(c, r.x + 2, r.y + 2, r.w, r.h, 0x10131e, 0.8f);
-        draw_fill(c, r.x, r.y, r.w, r.h, active ? 0x5a4a24 : 0x2a2f45, 1);
-        draw_stroke(c, r.x, r.y, r.w, r.h, 1, active ? 0xd9ba79 : 0x8f8fd0, 1);
-        int width = (int)strlen(labels[i]) * CELL_W;
-        draw_text(c, r.x + (r.w - width) / 2, r.y + 2, labels[i], 0xffffff, 1);
+        draw_fill(c, r.x, r.y, r.w, r.h, active ? 0x5a4a24 : on ? 0x1d4a32 : 0x2a2f45, 1);
+        draw_stroke(c, r.x, r.y, r.w, r.h, 1, active ? 0xd9ba79 : on ? 0x8fd0a8 : 0x8f8fd0, 1);
+        int width = (int)strlen(label) * CELL_W;
+        draw_text(c, r.x + (r.w - width) / 2, r.y + 2, label, 0xffffff, 1);
     }
 }
 
@@ -805,7 +809,7 @@ void render_frame(sr_canvas *c, const view *v)
     render_resources(c, v);
 
     render_selection(c, v->selection);
-    if (v->room_buttons) render_room_buttons(c, s);
+    if (v->room_buttons) render_room_buttons(c, s, v->auto_play);
 
     art_kilix(c, s->x, s->y, s->dir, s->step_ticks, s->idle_ticks);
     if (v->tooltips && s->focus == FOCUS_ROOM) {

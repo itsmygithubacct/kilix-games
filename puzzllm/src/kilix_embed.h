@@ -46,5 +46,7 @@ void kilix_embed_scroll(kilix_embed *k, int pane, int rows, int lx, int ly,
 void kilix_embed_type(kilix_embed *k, int pane, const char *text, size_t len);
 void kilix_embed_key(kilix_embed *k, int pane, const key_event *ev);
 void kilix_embed_set_sizes(kilix_embed *k, int aw, int ah, int sw, int sh);
+/* Replace *px with one P6 frame. 8-bit and 16-bit samples both load. */
+bool kilix_embed_load_ppm(const char *path, uint32_t **px, int *w, int *h);
 
 #endif
