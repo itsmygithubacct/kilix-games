@@ -75,12 +75,13 @@ static void default_paths(char *root, size_t rcap, char *state, size_t scap)
 
 enum { FRAME_HZ = 60 };
 
-/* Neuronte unless PUZZLLM_RENDER=raster or its weights do not open. */
-static void start_renderer(void)
+static void start_renderer(const char *state)
 {
     const char *r = getenv("PUZZLLM_RENDER");
-    if (r != NULL && strcmp(r, "raster") == 0) draw_force_raster(true);
-    else draw_init();
+    bool enabled = game_neuronte_preference(state);
+    if (r && strcmp(r, "raster") == 0) enabled = false;
+    if (r && strcmp(r, "neuronte") == 0) enabled = true;
+    draw_set_neuronte(enabled);
 }
 
 static void on_key(void *ctx, const key_event *ev)
@@ -125,7 +126,7 @@ static int play(const char *root, const char *state)
         fprintf(stderr, "puzzllm: %s\n", err);
         return 1;
     }
-    start_renderer();
+    start_renderer(state);
     if (!sr_canvas_init(&canvas, CANVAS_W, CANVAS_H)) {
         game_shutdown(&the_game);
         return 1;
@@ -237,7 +238,7 @@ static int render_to(const char *root, const char *state, const char *dir)
         fprintf(stderr, "puzzllm: %s\n", err);
         return 1;
     }
-    start_renderer();
+    start_renderer(state);
     if (!sr_canvas_init(&canvas, CANVAS_W, CANVAS_H)) return 1;
     feed(&the_game.omp_vt, "\033[1;36momp\033[0m  Qwen 3.5 (local)\r\n"
          "\xe2\x95\xad\xe2\x94\x80 you \xe2\x94\x80\xe2\x95\xae\r\n"
@@ -285,7 +286,7 @@ static int bench(const char *root, const char *state, const char *size)
         fprintf(stderr, "puzzllm: %s\n", err);
         return 1;
     }
-    start_renderer();
+    start_renderer(state);
     game_resize(&the_game, w, h);
     if (!sr_canvas_init(&canvas, CANVAS_W, CANVAS_H)) return 1;
     for (int row = 0; row < 80; row++) {
@@ -356,7 +357,7 @@ int main(int argc, char **argv)
     if ((argc == 2 || argc == 3) && strcmp(argv[1], "--bench") == 0)
         return bench(root, state, argc == 3 ? argv[2] : NULL);
     if (argc == 2 && strcmp(argv[1], "--renderer") == 0) {
-        start_renderer();
+        start_renderer(state);
         printf("%s\n", draw_renderer());
         return 0;
     }

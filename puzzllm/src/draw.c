@@ -8,9 +8,15 @@
 #include "draw.h"
 
 #include <math.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <fontconfig/fontconfig.h>
+#include <ft2build.h>
+#include FT_FREETYPE_H
+#include FT_SYNTHESIS_H
 
 #ifdef PUZZLLM_NEURONTE
 #include "neuronte.h"
@@ -22,6 +28,7 @@
 enum { CW = DRAW_CELL_W, CH = DRAW_CELL_H };
 
 static bool force_raster;
+static bool neuronte_enabled;
 
 /* ---- plain code: fills and compositing, shared by both renderers ---- */
 
@@ -277,7 +284,7 @@ static const char *weights_path(void)
 
 static bool nn(void)
 {
-    return font_state > 0 && !force_raster;
+    return font_state > 0 && neuronte_enabled && !force_raster;
 }
 
 static uint32_t nn_color(uint32_t rgb, float alpha)
@@ -417,8 +424,24 @@ static void warm_cache(void)
 
 /* ---- the calls ---- */
 
-bool draw_init(void)
+bool draw_neuronte_available(void)
 {
+#ifdef PUZZLLM_NEURONTE
+    return font_state > 0 || (font_state == 0 && access(weights_path(), R_OK) == 0);
+#else
+    return false;
+#endif
+}
+
+bool draw_neuronte_enabled(void)
+{
+    return neuronte_enabled;
+}
+
+bool draw_set_neuronte(bool enabled)
+{
+    neuronte_enabled = false;
+    if (!enabled) return true;
 #ifdef PUZZLLM_NEURONTE
     if (font_state == 0) {
         snprintf(font_path, sizeof font_path, "%s", weights_path());
@@ -426,10 +449,98 @@ bool draw_init(void)
         if (font_state < 0) font = NULL;
         else warm_cache();
     }
-    return font_state > 0;
+    neuronte_enabled = font_state > 0;
+    return neuronte_enabled;
 #else
     return false;
 #endif
+}
+
+bool draw_init(void)
+{
+    return draw_set_neuronte(true);
+}
+
+static FT_Face system_face(void)
+{
+    static FT_Library library;
+    static FT_Face face;
+    static bool tried;
+    if (tried) return face;
+    tried = true;
+    FcPattern *match = FcNameParse((const FcChar8 *)"monospace");
+    if (!match) return NULL;
+    FcConfigSubstitute(NULL, match, FcMatchPattern);
+    FcDefaultSubstitute(match);
+    FcResult result;
+    FcPattern *chosen = FcFontMatch(NULL, match, &result);
+    FcPatternDestroy(match);
+    if (chosen) {
+        FcChar8 *path;
+        int index = 0;
+        FcPatternGetInteger(chosen, FC_INDEX, 0, &index);
+        if (FcPatternGetString(chosen, FC_FILE, 0, &path) == FcResultMatch &&
+            FT_Init_FreeType(&library) == 0 &&
+            FT_New_Face(library, (const char *)path, index, &face) == 0 &&
+            FT_Set_Pixel_Sizes(face, 0, CH - 2) != 0) {
+            FT_Done_Face(face);
+            face = NULL;
+        }
+        FcPatternDestroy(chosen);
+    }
+    return face;
+}
+
+static bool system_glyph(sr_canvas *c, int x, int y, int w, uint32_t cp,
+                         uint32_t rgb, int alpha, unsigned style)
+{
+    /* Keep adjoining terminal line and block glyphs aligned to cell edges. */
+    if (force_raster || w <= 0 || w > CW * 2 || (cp >= 0x2500 && cp <= 0x259f))
+        return false;
+    FT_Face face = system_face();
+    if (!face) return false;
+    static struct {
+        uint32_t cp;
+        unsigned style;
+        int width;
+        bool valid;
+        unsigned char ink[CW * 2 * CH];
+    } cache[512];
+    unsigned key = (cp * 17u + style * 131u + (unsigned)w) % 512u;
+    if (!cache[key].valid || cache[key].cp != cp || cache[key].style != style ||
+        cache[key].width != w) {
+        FT_UInt glyph = FT_Get_Char_Index(face, cp);
+        if (!glyph || FT_Load_Glyph(face, glyph, FT_LOAD_DEFAULT)) return false;
+        FT_GlyphSlot slot = face->glyph;
+        if (style & DRAW_GLYPH_BOLD) FT_GlyphSlot_Embolden(slot);
+        if (style & DRAW_GLYPH_ITALIC) FT_GlyphSlot_Oblique(slot);
+        if (FT_Render_Glyph(slot, FT_RENDER_MODE_NORMAL) || slot->bitmap.pixel_mode != FT_PIXEL_MODE_GRAY)
+            return false;
+        memset(cache[key].ink, 0, sizeof cache[key].ink);
+        int left = (w - (int)(slot->advance.x / 64)) / 2 + slot->bitmap_left;
+        int top = CH - 3 - slot->bitmap_top;
+        for (unsigned row = 0; row < slot->bitmap.rows; row++) {
+            int dy = top + (int)row;
+            if (dy < 0 || dy >= CH) continue;
+            const unsigned char *line = slot->bitmap.buffer + (ptrdiff_t)row * slot->bitmap.pitch;
+            for (unsigned col = 0; col < slot->bitmap.width; col++) {
+                int dx = left + (int)col;
+                if (dx >= 0 && dx < w) cache[key].ink[dy * w + dx] = line[col];
+            }
+        }
+        cache[key].cp = cp;
+        cache[key].style = style;
+        cache[key].width = w;
+        cache[key].valid = true;
+    }
+    for (int row = 0; row < CH; row++)
+        for (int col = 0; col < w; col++) {
+            int a = cache[key].ink[row * w + col] * alpha / 255;
+            int dx = x + col, dy = y + row;
+            if (a && dx >= 0 && dx < c->w && dy >= 0 && dy < c->h)
+                blend_px(&c->px[(size_t)dy * (size_t)c->w + (size_t)dx], rgb, a);
+        }
+    return true;
 }
 
 const char *draw_renderer(void)
@@ -440,11 +551,8 @@ const char *draw_renderer(void)
         snprintf(text, sizeof text, "neuronte (%s)", font_path);
         return text;
     }
-    if (font_state < 0) {
-        snprintf(text, sizeof text, "raster (Neuronte weights did not open: %s)", font_path);
-        return text;
-    }
 #endif
+    if (!force_raster && system_face()) return "system font";
     return "raster";
 }
 
@@ -533,7 +641,8 @@ void draw_text(sr_canvas *c, float x, float y, const char *s, uint32_t rgb, floa
         uint32_t cp;
         size_t n = utf8_next(s + at, len - at, &cp);
         if (n == 0) break;
-        raster_glyph(c, px, py, cp, rgb & 0xffffffu, a, false);
+        if (!system_glyph(c, px, py, CW, cp, rgb & 0xffffffu, a, 0))
+            raster_glyph(c, px, py, cp, rgb & 0xffffffu, a, false);
         px += CW;
         at += n;
     }
@@ -565,8 +674,7 @@ void draw_glyph(sr_canvas *c, int x, int y, int w, int h, uint32_t scalar,
         return;
     }
 #endif
-    (void)w;
-    (void)h;
+    if (h == CH && system_glyph(c, x, y, w, scalar, rgb & 0xffffffu, 255, style)) return;
     raster_glyph(c, x, y, scalar, rgb & 0xffffffu, 255, (style & DRAW_GLYPH_BOLD) != 0);
 }
 

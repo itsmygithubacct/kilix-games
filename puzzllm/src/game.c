@@ -1,6 +1,7 @@
 /* game.c - see game.h. */
 #define _GNU_SOURCE
 #include "game.h"
+#include "draw.h"
 #include "render.h"
 
 #include <dirent.h>
@@ -72,6 +73,12 @@ static compute_mode load_compute(const char *state)
     if (read && strcmp(value, compute_name[COMPUTE_CPU]) == 0) return COMPUTE_CPU;
     if (read && strcmp(value, compute_name[COMPUTE_GPU]) == 0) return COMPUTE_GPU;
     return COMPUTE_AUTO;
+}
+
+bool game_neuronte_preference(const char *state)
+{
+    char value[8];
+    return load_preference(state, "neuronte", value) && strcmp(value, "on") == 0;
 }
 
 int game_load_progress(const char *state, int level_count)
@@ -1156,6 +1163,7 @@ static void rank_menu_key(game *g, const key_event *ev)
 static void menu_key(game *g, const key_event *ev)
 {
     game_menu *menu = &g->menu;
+    int last = draw_neuronte_available() ? MENU_NEURONTE : MENU_OLLAMA;
     if (menu->leaderboard_open) {
         rank_menu_key(g, ev);
         return;
@@ -1184,13 +1192,13 @@ static void menu_key(game *g, const key_event *ev)
         if (menu->selected > 0) menu->selected--;
         break;
     case KEY_DOWN:
-        if (menu->selected < MENU_OLLAMA) menu->selected++;
+        if (menu->selected < last) menu->selected++;
         break;
     case KEY_HOME:
         menu->selected = 0;
         break;
     case KEY_END:
-        menu->selected = MENU_OLLAMA;
+        menu->selected = last;
         break;
     case KEY_ENTER:
         if (ev->action == 2) break;
@@ -1231,6 +1239,15 @@ static void menu_key(game *g, const key_event *ev)
                 g->tooltips = enabled;
             else
                 snprintf(menu->notice, sizeof menu->notice, "Could not save the tooltip setting.");
+        }
+        if (menu->selected == MENU_NEURONTE && draw_neuronte_available()) {
+            bool enabled = !draw_neuronte_enabled();
+            if (!draw_set_neuronte(enabled))
+                snprintf(menu->notice, sizeof menu->notice, "Could not open Neuronte v2 weights.");
+            else if (g->state_lock < 0 || !save_state_line(g->state, "neuronte", enabled ? "on" : "off")) {
+                draw_set_neuronte(!enabled);
+                snprintf(menu->notice, sizeof menu->notice, "Could not save the renderer setting.");
+            }
         }
         if (menu->selected == MENU_MODEL_DETAILS) {
             menu->details_open = true;

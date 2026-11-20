@@ -331,7 +331,7 @@ void render_menu(sr_canvas *c, int selected, const char *active_model,
         [MENU_OLLAMA] = "Ollama models >",
     };
     int width = 560, row_h = 27;
-    int rows = MENU_OLLAMA + 1;
+    int rows = (draw_neuronte_available() ? MENU_NEURONTE : MENU_OLLAMA) + 1;
     int height = 125 + rows * row_h;
     int x = (c->w - width) / 2;
     int y = (c->h - height) / 2;
@@ -379,6 +379,8 @@ void render_menu(sr_canvas *c, int selected, const char *active_model,
             snprintf(label, sizeof label, "Harness: %s", hosted_agent ? hosted_agent : pi ? "Pi (pi.dev)" : "OMP");
         else if (i == MENU_TOOLTIPS)
             snprintf(label, sizeof label, "Tooltips: %s", tooltips ? "On" : "Off");
+        else if (i == MENU_NEURONTE)
+            snprintf(label, sizeof label, "Neuronte v2: %s", draw_neuronte_enabled() ? "On" : "Off");
         else
             snprintf(label, sizeof label, "%s", actions[i]);
         bool disabled = (i == MENU_THINKING && support == THINK_UNAVAILABLE) ||

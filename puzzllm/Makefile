@@ -12,8 +12,9 @@ include $(KILIX_GAME_KIT_DIR)/mk/game-kit.mk
 
 CFLAGS  ?= -O2 -g -Wall -Wextra -Wpedantic -std=c11
 LDLIBS  += $(KILIX_GAME_KIT_LDLIBS)
+LDLIBS  += $(shell pkg-config --libs fontconfig freetype2)
 override CPPFLAGS += -Isrc $(KILIX_GAME_KIT_CPPFLAGS) \
-	-DPUZZLLM_VERSION=\"$(VERSION)\"
+	-DPUZZLLM_VERSION=\"$(VERSION)\" $(shell pkg-config --cflags fontconfig freetype2)
 DEPFLAGS := -MMD -MP
 
 B        := build

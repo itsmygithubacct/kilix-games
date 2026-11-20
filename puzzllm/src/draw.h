@@ -6,12 +6,12 @@
  *             the Neuronte nets, thin bars and outlines are block glyphs,
  *             discs are the black circle, and pictures (Kilix) go through
  *             2 x 4 octant cells whose masks come from the pixel net.
- *   raster    soft-raster's 8x16 font, hand-drawn box and block characters,
- *             and plain nearest-neighbour pictures.
+ *   system    Fontconfig's monospace font rendered by FreeType, hand-drawn
+ *             box and block characters, and nearest-neighbour pictures.
  *
  * The Neuronte renderer is built when the Makefile finds a Neuronte
- * checkout. It is used when its weight file opens; otherwise, and always in
- * a build without it, the raster renderer is used. Wide flat fills are
+ * checkout. It is used when enabled and its weight file opens. The system
+ * font is the default, with a built-in bitmap fallback. Wide flat fills are
  * plain code in both, as in Zell.
  *
  * Colours are 0xRRGGBB plus an alpha in 0..1. Text is one 8x16 cell per
@@ -30,7 +30,10 @@ enum { DRAW_CELL_W = 8, DRAW_CELL_H = 16 };
 /* Open the Neuronte weights when built with Neuronte (once; later calls
  * return the same answer). True when the Neuronte renderer is in use. */
 bool draw_init(void);
-/* "neuronte" or "raster", and the weight file when it is Neuronte. */
+bool draw_set_neuronte(bool enabled);
+bool draw_neuronte_available(void);
+bool draw_neuronte_enabled(void);
+/* Renderer name, with the weight path when using Neuronte. */
 const char *draw_renderer(void);
 /* Tests: use the raster renderer even when Neuronte is open. */
 void draw_force_raster(bool on);

@@ -351,9 +351,15 @@ key releases, so he starts on the press and stops on the release.
   cells whose masks come from the pixel net. It is built when the Makefile
   finds a Neuronte checkout at `NEURONTE` (default `~/projects/neuronte`), and
   its weights are `neuronte-split-v4.nrt`, the file zell-neuronte uses.
-- **raster**, soft-raster's 8x16 font with box, block and braille characters
-  drawn by hand. It is used in a build without Neuronte (`RENDER=raster`, or
-  no checkout), when the weights do not open, or with `PUZZLLM_RENDER=raster`.
+- **System font**, the default. Fontconfig selects the system monospace
+  font and FreeType draws it in the game's terminal cells. Building needs
+  the Fontconfig and FreeType development packages, and running needs an
+  installed monospace font. The built-in bitmap handles missing glyphs.
+
+When the build supports Neuronte v2 and its weights are available, the
+game menu offers a **Neuronte v2** toggle. It starts off and saves to
+`~/.local/share/puzzllm/neuronte` or the configured game state directory.
+Missing or unreadable weights leave the system font active.
 
 `build/puzzllm --renderer` prints which one is drawing. The floor, walls and
 screen glass are drawn once and copied each frame. Each frame is compared

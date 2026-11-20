@@ -63,16 +63,20 @@ done
     fail "--bench rc=$rc $(cat "$scratch/bench")"
 "$bin" --bench big 2>/dev/null; rc=$?
 [ $rc -eq 2 ] && pass "--bench with a bad size is an error" || fail "--bench big rc=$rc"
-out=$(PUZZLLM_RENDER=raster "$bin" --renderer) && [ "$out" = raster ] &&
+out=$(PUZZLLM_RENDER=raster "$bin" --renderer) && [ "$out" = "system font" ] &&
     pass "PUZZLLM_RENDER=raster turns Neuronte off" || fail "PUZZLLM_RENDER=raster: $out"
+out=$(PUZZLLM_RENDER= "$bin" --renderer) && [ "$out" = "system font" ] &&
+    pass "the system font is the default" || fail "default renderer: $out"
 if grep -q '^neuronte' "$here/build/render.ident" 2>/dev/null; then
-    out=$("$bin" --renderer)
-    case $out in neuronte*) pass "a Neuronte build draws with Neuronte" ;;
+    printf 'on\n' > "$PUZZLLM_STATE/neuronte"
+    out=$(PUZZLLM_RENDER= "$bin" --renderer)
+    case $out in neuronte*) pass "the saved setting enables Neuronte" ;;
         *) fail "--renderer in a Neuronte build: $out" ;; esac
-    out=$(PUZZLLM_NEURONTE_WEIGHTS="$scratch/none.nrt" "$bin" --renderer)
-    case $out in "raster (Neuronte weights did not open: $scratch/none.nrt)")
-        pass "missing weights fall back to raster, and say so" ;;
+    out=$(PUZZLLM_RENDER= PUZZLLM_NEURONTE_WEIGHTS="$scratch/none.nrt" "$bin" --renderer)
+    case $out in "system font")
+        pass "missing weights fall back to the system font" ;;
         *) fail "missing weights: $out" ;; esac
+    rm "$PUZZLLM_STATE/neuronte"
 fi
 
 # Resume the chest room, then solve it through a real encrypted archive.

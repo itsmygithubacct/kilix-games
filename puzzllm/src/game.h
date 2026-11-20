@@ -150,6 +150,7 @@ bool game_resize(game *g, int w, int h);
 void game_render(game *g, sr_canvas *c);
 /* Progress file: STATE/progress, one line "level N". */
 int game_load_progress(const char *state, int level_count);
+bool game_neuronte_preference(const char *state);
 bool game_reset_progress(const char *state);
 goal_result game_check_level(const game *g, int level);
 bool game_save_progress(const char *state, int level);

@@ -1207,8 +1207,8 @@ static void test_menu(void)
     G.menu.models[0] = (model_option){"first:latest", THINK_SWITCHABLE};
     G.menu.models[1] = (model_option){"last:latest", THINK_UNAVAILABLE};
     G.menu.count = 2;
-    ev.key = KEY_END;
-    game_key(&G, &ev);
+    ev.key = KEY_DOWN;
+    for (int i = 0; i < MENU_OLLAMA; i++) game_key(&G, &ev);
     ev.key = KEY_ENTER;
     game_key(&G, &ev);
     CHECK(G.menu.open && G.menu.model_submenu == MENU_OLLAMA,
@@ -1344,6 +1344,30 @@ static void test_leaderboard(void)
     game_shutdown(&G);
 }
 
+static void test_renderer_menu(void)
+{
+    char err[256], state[2300];
+    sub(state, sizeof state, "renderer-menu");
+    draw_set_neuronte(false);
+    CHECK(game_init(&G, ".", state, false, err, sizeof err), "renderer menu: %s", err);
+    CHECK(!game_neuronte_preference(state) && strcmp(draw_renderer(), "system font") == 0,
+          "a new save defaults to the system font");
+    menu_press(KEY_ESCAPE);
+    menu_press(KEY_END);
+    if (draw_neuronte_available()) {
+        CHECK(G.menu.selected == MENU_NEURONTE, "Neuronte setting is available");
+        menu_press(KEY_ENTER);
+        CHECK(draw_neuronte_enabled() && game_neuronte_preference(state),
+              "enabling switches renderer and saves the setting");
+        menu_press(KEY_ENTER);
+        CHECK(!draw_neuronte_enabled() && !game_neuronte_preference(state),
+              "disabling restores the system font and saves the setting");
+    } else {
+        CHECK(G.menu.selected == MENU_OLLAMA, "Neuronte setting is hidden when unavailable");
+    }
+    game_shutdown(&G);
+}
+
 static void test_codex_menu(void)
 {
     char err[256], state[2300];
@@ -1367,8 +1391,7 @@ static void test_codex_menu(void)
           G.thinking_support == THINK_UNAVAILABLE,
           "Grok is a separate hosted option alongside Codex");
     menu_press(KEY_ESCAPE);
-    menu_press(KEY_END);
-    menu_press(KEY_UP);
+    for (int i = 0; i < MENU_LOCAL; i++) menu_press(KEY_DOWN);
     menu_press(KEY_ENTER);
     menu_press(KEY_ENTER);
     CHECK(!G.use_codex && !G.act.codex && !G.use_grok && !G.act.grok,
@@ -1388,7 +1411,7 @@ static void test_thinking_menu(void)
     G.menu.models[0] = (model_option){"thinking:latest", THINK_SWITCHABLE};
     G.menu.models[1] = (model_option){"plain:latest", THINK_UNAVAILABLE};
     G.menu.count = 2;
-    menu_press(KEY_END);
+    for (int i = 0; i < MENU_OLLAMA; i++) menu_press(KEY_DOWN);
     menu_press(KEY_ENTER);
     menu_press(KEY_ENTER);
     CHECK(G.thinking_support == THINK_SWITCHABLE && !G.thinking_enabled,
@@ -1402,7 +1425,8 @@ static void test_thinking_menu(void)
     CHECK(!G.thinking_enabled, "thinking can be disabled again");
     menu_press(KEY_ENTER);
 
-    menu_press(KEY_END);
+    menu_press(KEY_HOME);
+    for (int i = 0; i < MENU_OLLAMA; i++) menu_press(KEY_DOWN);
     menu_press(KEY_ENTER);
     menu_press(KEY_END);
     menu_press(KEY_ENTER);
@@ -1969,6 +1993,7 @@ int main(void)
     test_codex_menu();
     test_leaderboard();
     test_room_buttons();
+    test_renderer_menu();
     test_room_art();
     test_pane_sprite_layer();
     test_compute_menu();
