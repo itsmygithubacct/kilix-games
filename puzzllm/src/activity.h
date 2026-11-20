@@ -55,7 +55,7 @@ typedef struct activity {
 } activity;
 
 void activity_init(activity *a);
-void activity_begin_room(activity *a, const char *state, const char *workspace);
+void activity_begin_room(activity *a, const char *state, const char *workspace, bool keep_session);
 void activity_begin_session(activity *a, const char *state);
 void activity_add(activity *a, act_kind kind, const char *fmt, ...)
     __attribute__((format(printf, 3, 4)));

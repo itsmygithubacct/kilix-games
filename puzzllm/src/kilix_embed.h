@@ -25,7 +25,6 @@ typedef struct kilix_embed {
     off_t agent_bytes, shell_bytes;
     int resize_w[2], resize_h[2];
     bool resize_sent;
-    bool saw_frame;
     char error[160];
 } kilix_embed;
 

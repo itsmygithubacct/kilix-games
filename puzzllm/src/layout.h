@@ -112,7 +112,7 @@ rect layout_resources(void);
 typedef enum room_button {
     BUTTON_CLEAR_MODEL, BUTTON_CLEAR_SHELL, BUTTON_HARNESS, BUTTON_MODEL,
     BUTTON_SHELL_LOG, BUTTON_RESET_LEVEL, BUTTON_RESET_GAME, BUTTON_METRICS,
-    BUTTON_AUTO,
+    BUTTON_AUTO, BUTTON_CLEAN_DISK,
     ROOM_BUTTON_COUNT, BUTTON_NONE = -1
 } room_button;
 rect layout_room_button(room_button button);

@@ -55,6 +55,11 @@ done
 [ $rc -eq 0 ] && [ $n -eq 3 ] && pass "--render writes three 1280x800 frames" ||
     fail "render rc=$rc frames=$n"
 
+grep -q 'Hello, World' "$PUZZLLM_STATE/workspace/GOAL.md" &&
+    grep -q 'Walk to the agent' "$PUZZLLM_STATE/workspace/HINTS.md" &&
+    [ ! -e "$PUZZLLM_STATE/workspace/prior_levels" ] &&
+    pass "rendering a different room keeps the active guides" || fail "render replaced a guide"
+
 # the frame timer: a busy frame at the size given, and which renderer drew it
 "$bin" --bench 1366x768 > "$scratch/bench"; rc=$?
 [ $rc -eq 0 ] && grep -q '^renderer: ' "$scratch/bench" &&
@@ -116,8 +121,8 @@ printf 'shell transcript\n' > "$workspace/shell.log"
 [ "$rc" -eq 1 ] && grep -q '^level 2$' "$PUZZLLM_STATE/progress" &&
     [ ! -e "$PUZZLLM_STATE/transition" ] &&
     grep -q '^shell transcript$' "$workspace/shell.log" &&
-    grep -q '^old$' "$workspace/level_1/hello_world.txt" &&
-    grep -q '^Hello, World!$' "$workspace/level_1/hello_world.txt.1" &&
+    grep -q '^old$' "$workspace/prior_levels/level_1/hello_world.txt" &&
+    grep -q '^Hello, World!$' "$workspace/prior_levels/level_1/hello_world.txt.1" &&
     pass "interrupted transition resumes without overwriting archived files" ||
     fail "transition recovery rc=$rc"
 
@@ -150,7 +155,7 @@ printf 'Keep this instruction across rooms.\n' > "$workspace/.system/llama-promp
 printf 'level 4\n' > "$PUZZLLM_STATE/transition"
 "$bin" --check-level 5 > "$scratch/out"; rc=$?
 [ "$rc" -eq 1 ] && grep -qx 'level 5' "$PUZZLLM_STATE/progress" &&
-    [ -f "$workspace/level_4/count_files.sh" ] && [ -f "$workspace/chest.zip" ] &&
+    [ -f "$workspace/prior_levels/level_4/count_files.sh" ] && [ -f "$workspace/chest.zip" ] &&
     pass "room 4 leads to the password-protected archive in room 5" ||
     fail "room 4 to room 5 transition rc=$rc"
 grep -qx 'Keep this instruction across rooms.' "$workspace/.system/llama-prompt.txt" &&
@@ -206,7 +211,7 @@ EOF
 printf 'level 9\n' > "$PUZZLLM_STATE/transition"
 "$bin" --check-level 10 > "$scratch/out"; rc=$?
 [ "$rc" -eq 1 ] && grep -qx 'level 10' "$PUZZLLM_STATE/progress" &&
-    [ -f "$workspace/level_9/keep.sh" ] && [ -x "$workspace/run_check.sh" ] &&
+    [ -f "$workspace/prior_levels/level_9/keep.sh" ] && [ -x "$workspace/run_check.sh" ] &&
     pass "room 10 saves the keeper and installs the shell check" || fail "room 10 setup rc=$rc"
 latest=$(run_report)
 filename=${latest#* }
@@ -218,6 +223,27 @@ newest=$(run_report)
 "$bin" --check-level 10 > "$scratch/out"; rc=$?
 [ "$rc" -eq 1 ] && [ "$latest" != "$newest" ] &&
     pass "room 10 closes the door when the report goes stale" || fail "room 10 stale rc=$rc"
+
+# A journal remembers whether the outgoing work was to be kept, even if the preference changes.
+(
+    export PUZZLLM_STATE="$scratch/keep-recovery"
+    "$bin" --check-level 1 > /dev/null
+    ws="$PUZZLLM_STATE/workspace"
+    printf 'keep my notes\n' > "$ws/notes"
+    printf 'keep-next 1\n' > "$PUZZLLM_STATE/transition"
+    printf 'on\n' > "$PUZZLLM_STATE/level-cleanup"
+    printf 'occupied\n' > "$ws/prior_levels"
+    "$bin" --check-level 2 > /dev/null 2>&1
+    [ "$?" -eq 2 ] && [ -f "$PUZZLLM_STATE/transition" ] &&
+        grep -q 'Hello, World' "$ws/GOAL.md" && grep -q 'Walk to the agent' "$ws/HINTS.md" || exit 1
+    mv "$ws/prior_levels" "$ws/occupied"
+    "$bin" --check-level 2 > /dev/null
+    [ "$?" -eq 1 ] && grep -qx 'level 2' "$PUZZLLM_STATE/progress" &&
+        [ ! -e "$PUZZLLM_STATE/transition" ] && grep -qx 'keep my notes' "$ws/notes" &&
+        grep -q 'Hello, World' "$ws/prior_levels/GOAL_level_1.md" &&
+        grep -q 'Walk to the agent' "$ws/prior_levels/HINTS_level_1.md" && grep -q strawberry "$ws/GOAL.md"
+) && pass "blocked guide archiving preserves files and retries the original keep decision" ||
+    fail "keep transition recovery"
 
 # a broken level file is reported with its line
 mkdir -p "$scratch/root/levels"

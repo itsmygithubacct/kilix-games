@@ -163,8 +163,10 @@ Each room writes its goal to `GOAL.md` in the sandbox home, so the agent
 and the shell can read it at `~/GOAL.md`. Entering a room replaces the
 file with that room's goal. The same entry writes every hint for the room
 to `~/HINTS.md`. **Display** → **Hint file** turns that file off. It is on
-by default. Turning it off removes `HINTS.md`, and later rooms do not
-write it again until it is turned back on.
+by default. The game archives departing guides as `~/prior_levels/GOAL_level_1.md`
+and `~/prior_levels/HINTS_level_1.md` for Room 1, and likewise for later rooms.
+Turning hints off archives the current hint file. Replaced versions get a
+numeric suffix when an earlier copy already exists.
 
 **Harness** toggles between OMP and [Pi](https://pi.dev/) for the selected
 Ollama or llama.cpp model. If Pi is missing, the game installs it on first
@@ -248,9 +250,17 @@ the file when it did not, so check with `ls` and `cat` in the shell.
 
 Follow the carpet up through an unlocked door to advance. Walk down off
 the bottom of the carpet to return to the previous room or exit the game
-from Room 1. When you change rooms, the coding agent stops and the game
-saves the departing room's files in `~/level_N/`. Revisiting a room
-restores its files. Focus the coding pane to start a fresh session.
+from Room 1. By default your coding conversation, shell, and workspace carry
+over. In **Between levels**, **Coding session** cycles through **Keep**,
+**/clear** (clear the conversation in the running agent, using `/new` in
+Codex and Pi), and **Restart**
+(start a fresh agent process). **Clean up workspace each level** defaults to
+**Off**. Turn it on to move your files and folders to
+`~/prior_levels/level_N/` when leaving Room N. Revisiting that room
+restores its archived work. **Clean up disk now** performs the same move
+for the current room at any time. It leaves the active guides, shell
+transcript and game settings available. With level buttons enabled, the
+**Clean disk** floor button also performs this action.
 With the game closed, run `bin/puzzllm --reset-progress` to start at level 1.
 The previous workspace is kept under a `reset-*` directory in the game state.
 

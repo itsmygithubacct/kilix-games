@@ -277,11 +277,11 @@ void activity_begin_session(activity *a, const char *state)
         a->session_offset = st.st_size;
 }
 
-void activity_begin_room(activity *a, const char *state, const char *workspace)
+void activity_begin_room(activity *a, const char *state, const char *workspace, bool keep_session)
 {
     a->head = a->count = 0;
     a->generation++;
-    activity_begin_session(a, state);
+    if (!keep_session) activity_begin_session(a, state);
     a->nfiles = 0;
     a->files_primed = false;
     activity_scan_workspace(a, workspace);

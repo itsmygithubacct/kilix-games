@@ -1365,6 +1365,8 @@ static void test_render_and_flow(void)
     pid_t agent_pid = G.omp.pid, shell_pid = G.shell.pid;
     G.ranked_attempt = (score_entry){.level = 1, .id = 110, .measure = {1250, 2300, 75, 10485760, -1, -1, 0},
                                      .model = "Ollama/test", .player = "Player"};
+    G.session_mode = SESSION_RESTART;
+    G.level_cleanup = true;
     /* walk up through the door: room 2, progress saved */
     {
         key_event up;
@@ -1394,7 +1396,7 @@ static void test_render_and_flow(void)
           "the shell survives the room change");
     CHECK(strcmp(row(&G.omp_vt, 0), "") == 0, "the old agent screen is cleared");
     CHECK(!has_line(&G.act, "GOAL MET"), "room 2 clears room 1 activity");
-    snprintf(prog, sizeof prog, "%s/workspace/level_1/hello_world.txt", state);
+    snprintf(prog, sizeof prog, "%s/workspace/prior_levels/level_1/hello_world.txt", state);
     CHECK(access(hello, F_OK) != 0 && access(prog, F_OK) == 0,
           "room 1 file moves into its archive");
     CHECK(G.sc.y == START_Y && G.sc.door == 0, "room 2 entrance, door shut");
@@ -1410,6 +1412,7 @@ static void test_render_and_flow(void)
     /* a restart resumes in room 2 */
     CHECK(game_init(&G, ".", state, false, err, sizeof err), "restart");
     CHECK(G.sc.level == 1, "resumed in room 2");
+    G.level_cleanup = true;
     game_render(&G, &cur);
     char room_file[2400];
     snprintf(room_file, sizeof room_file, "%s/workspace/room-two-notes.txt", state);
@@ -1464,7 +1467,7 @@ static void menu_press(uint32_t key)
 
 static int menu_item_page(int item)
 {
-    for (int page = MENU_PAGE_MAIN; page <= MENU_PAGE_BENCH; page++) {
+    for (int page = MENU_PAGE_MAIN; page <= MENU_PAGE_BETWEEN; page++) {
         int rows[12];
         int n = menu_page_rows(page, draw_neuronte_available(), rows, 12);
         for (int i = 0; i < n; i++) if (rows[i] == item) return page;
@@ -1486,6 +1489,7 @@ static void menu_to(int item)
         int group = page == MENU_PAGE_MODEL || page == MENU_PAGE_DOWNLOAD ? MENU_MODEL :
                     page == MENU_PAGE_SCORES ? MENU_SCORES :
                     page == MENU_PAGE_DISPLAY ? MENU_DISPLAY :
+                    page == MENU_PAGE_BETWEEN ? MENU_BETWEEN :
                     page == MENU_PAGE_BENCH ? MENU_BENCH : MENU_RESETS;
         menu_press(KEY_HOME);
         for (int guard = 0; G.menu.selected != group && guard < 12; guard++)
@@ -1645,6 +1649,149 @@ static void test_agent_frames(void)
     write_file(path, (char *)wide, (size_t)n);
     CHECK(!kilix_embed_load_ppm(path, &px, &w, &h) && px == NULL,
           "other sample depths are refused");
+}
+
+static void cross_door(bool forward)
+{
+    int previous = G.sc.level;
+    G.sc.x = START_X;
+    G.sc.y = forward ? DOOR_EXIT_Y : CANVAS_H - 2;
+    G.sc.focus = FOCUS_ROOM;
+    G.release_events = true;
+    menu_press(forward ? KEY_UP : KEY_DOWN);
+    for (int i = 0; i < 10 && G.sc.level == previous && !G.transition_pending; i++)
+        game_update(&G, 1.0 / 60);
+}
+
+static void test_between_levels(void)
+{
+    char err[256], state[2300], live[2500], goal[2500], hints[2500], archive[2400], file[2500];
+    char *echo[] = {"/bin/sh", "-c", "while IFS= read -r cmd; do echo accepted-$cmd; done", NULL};
+    sub(state, sizeof state, "between-levels");
+    CHECK(game_init(&G, ".", state, false, err, sizeof err), "between-level game: %s", err);
+    CHECK(G.session_mode == SESSION_KEEP && !G.level_cleanup, "fresh saves keep the session and workspace");
+    snprintf(live, sizeof live, "%s/workspace/hello_world.txt", state);
+    snprintf(goal, sizeof goal, "%s/workspace/GOAL.md", state);
+    snprintf(hints, sizeof hints, "%s/workspace/HINTS.md", state);
+    snprintf(archive, sizeof archive, "%s/workspace/prior_levels", state);
+    write_file(live, "Hello, World!\n", 14);
+    write_file(goal, "my annotated goal", 17);
+    CHECK(pty_spawn(&G.omp, echo, NULL, 60, 20) && pty_spawn(&G.shell, echo, NULL, 60, 20),
+          "open stand-in coding and shell processes");
+    pid_t agent = G.omp.pid, shell = G.shell.pid;
+    feed(&G.omp_vt, "ongoing conversation");
+    game_update(&G, 0.6);
+    G.sc.door = 1;
+    G.act.tokens_used = 100;
+    G.act.tokens_reported = true;
+    cross_door(true);
+    CHECK(G.sc.level == 1 && access(live, F_OK) == 0 && G.omp.pid == agent && G.shell.pid == shell &&
+          strstr(row(&G.omp_vt, 0), "ongoing conversation") && !pty_has(&G.omp, "accepted-"),
+          "the default crosses the door without clearing the workspace or either session");
+    snprintf(file, sizeof file, "%s/GOAL_level_1.md", archive);
+    CHECK(file_contains(file, "my annotated goal") && file_contains(goal, "strawberry"),
+          "an edited outgoing goal is archived under its room number");
+    snprintf(file, sizeof file, "%s/HINTS_level_1.md", archive);
+    CHECK(file_contains(file, "Walk to the agent") && file_contains(hints, "count every r"),
+          "old hints and current hints belong to their respective rooms");
+    CHECK(G.ranked_attempt.id && G.ranked_session_tokens == 100, "the running model starts room 2 at its token baseline");
+    G.act.tokens_used = 112;
+    game_update(&G, 0.6);
+    CHECK(G.ranked_attempt.measure[SCORE_TOKENS] == 12, "room 2 counts only the additional tokens");
+
+    menu_to(MENU_LEVEL_SESSION);
+    CHECK(G.menu.page == MENU_PAGE_BETWEEN && G.menu.selected == MENU_LEVEL_SESSION, "select coding session via the menu");
+    menu_press(KEY_ENTER);
+    CHECK(G.session_mode == SESSION_CLEAR, "select /clear");
+    menu_close();
+    cross_door(false);
+    CHECK(G.sc.level == 0 && G.omp.pid == agent && G.shell.pid == shell &&
+          pty_has(&G.omp, "accepted-/clear") && !pty_has(&G.shell, "/clear"),
+          "the /clear option submits the command only to the same running coding process");
+    G.use_pi = true;
+    G.sc.door = 1;
+    cross_door(true);
+    CHECK(G.sc.level == 1 && pty_has(&G.omp, "accepted-/new"), "Pi clears with its native new-session command");
+    snprintf(file, sizeof file, "%s/GOAL_level_1.md.1", archive);
+    CHECK(file_contains(file, "Hello, World"), "a repeat visit preserves the earlier guide under a new name");
+
+    snprintf(file, sizeof file, "%s/workspace/level_4", state);
+    CHECK(mkdir(file, 0700) == 0, "make a player directory with a numbered name");
+    snprintf(file, sizeof file, "%s/workspace/level_4/.notes", state);
+    write_file(file, "notes", 5);
+    menu_to(MENU_CLEAN_DISK);
+    menu_press(KEY_ENTER);
+    CHECK(strstr(G.menu.notice, "prior_levels/level_2") && !G.level_cleanup &&
+          access(live, F_OK) != 0 && access(goal, F_OK) == 0 && access(hints, F_OK) == 0,
+          "one-shot cleanup moves work and leaves both live guides and the preference in place");
+    snprintf(file, sizeof file, "%s/level_2/level_4/.notes", archive);
+    CHECK(file_contains(file, "notes"), "manual cleanup keeps nested and hidden player files");
+    write_file(live, "later revision", 14);
+    menu_to(MENU_ROOM_BUTTONS);
+    menu_press(KEY_ENTER);
+    menu_close();
+    rect button = layout_room_button(BUTTON_CLEAN_DISK);
+    game_click(&G, button.x + 3, button.y + 3);
+    snprintf(file, sizeof file, "%s/level_2/hello_world.txt.1", archive);
+    CHECK(file_contains(file, "later revision") && access(live, F_OK) != 0,
+          "the floor cleanup button keeps both colliding versions");
+
+    menu_to(MENU_LEVEL_CLEANUP);
+    menu_press(KEY_ENTER);
+    menu_to(MENU_LEVEL_SESSION);
+    menu_press(KEY_ENTER);
+    CHECK(G.session_mode == SESSION_RESTART && G.level_cleanup, "enable automatic cleanup and restart");
+    game_shutdown(&G);
+    CHECK(game_init(&G, ".", state, false, err, sizeof err) && G.session_mode == SESSION_RESTART &&
+          G.level_cleanup && access(live, F_OK) != 0, "settings survive reopening without undoing manual cleanup");
+    snprintf(file, sizeof file, "%s/HINTS_level_2.md.1", archive);
+    CHECK(access(file, F_OK) != 0, "reopening identical guides does not create another archived copy");
+    menu_to(MENU_LEVEL_SESSION);
+    menu_press(KEY_ENTER);
+    CHECK(G.session_mode == SESSION_KEEP, "session setting cycles back to Keep");
+    game_shutdown(&G);
+}
+
+static void test_agent_focus_note(void)
+{
+    char err[256], state[2300], kx[2400], prompt[2450];
+    sub(state, sizeof state, "agent-focus-note");
+    CHECK(game_init(&G, ".", state, false, err, sizeof err), "focus game: %s", err);
+    snprintf(kx, sizeof kx, "%s/kx", state);
+    CHECK(mkdir(kx, 0700) == 0, "create private frame directory");
+    snprintf(prompt, sizeof prompt, "%s/agent-prompt", kx);
+    write_file(prompt, "old instructions", 16);
+    char *standin[] = {"/bin/cat", NULL};
+    CHECK(pty_spawn(&G.embed.proc, standin, NULL, 60, 20), "stand-in for the private Kilix");
+    pid_t private_pid = G.embed.proc.pid;
+    G.spawn = true;
+    G.auto_agent_closed = true;
+    snprintf(G.omp_note, sizeof G.omp_note, "Focus the agent pane to start a session.");
+    key_event focus = {.key = KEY_LEFT, .mods = MOD_ALT, .action = 1};
+    game_key(&G, &focus);
+    struct stat st;
+    CHECK(!G.auto_agent_closed && !G.omp_note[0] && G.sc.focus == FOCUS_OMP &&
+          G.embed.proc.pid == private_pid && strstr(G.embed.pending, "focus agent") &&
+          !strstr(G.embed.pending, "restart-agent") && stat(prompt, &st) == 0 && st.st_size == 0,
+          "focusing the agent dismisses the stale note and preserves the private session");
+    G.embed.pending_len = 0;
+    G.embed.pending[0] = 0;
+    snprintf(G.omp_note, sizeof G.omp_note, "Starting the sandbox Kilix.");
+    G.embed.shell_px = calloc(1, sizeof *G.embed.shell_px);
+    game_update(&G, 0.01);
+    CHECK(G.omp_note[0], "a shell frame cannot dismiss the coding pane's startup notice");
+    G.embed.agent_px = calloc(1, sizeof *G.embed.agent_px);
+    game_update(&G, 0.01);
+    CHECK(!G.omp_note[0], "the coding pane's own frame dismisses its startup notice");
+    G.session_mode = SESSION_RESTART;
+    G.sc.door = 1;
+    G.sc.goal_met = true;
+    G.poll_timer = 10;
+    cross_door(true);
+    CHECK(G.sc.level == 1 && G.embed.proc.pid == private_pid && strstr(G.embed.pending, "restart-agent") &&
+          !strstr(G.embed.pending, "close-shell") && !G.omp_note[0],
+          "Restart starts the next room's agent in the same private Kilix without closing the shell");
+    game_shutdown(&G);
 }
 
 static void test_auto_play(void)
@@ -2779,6 +2926,8 @@ int main(void)
     test_menu();
     test_bench_menu();
     test_agent_frames();
+    test_between_levels();
+    test_agent_focus_note();
     test_auto_play();
     test_pane_focus();
     test_goal_and_action_panes();

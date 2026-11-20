@@ -49,7 +49,10 @@ typedef enum compute_mode { COMPUTE_AUTO, COMPUTE_CPU, COMPUTE_GPU } compute_mod
 
 enum { MENU_RESUME, MENU_QUIT, MENU_RESET, MENU_RESET_LEVEL, MENU_THINKING, MENU_COMPUTE, MENU_TOOLTIPS, MENU_ROOM_BUTTONS, MENU_HINTS_FILE, MENU_MODEL_DETAILS, MENU_LEADERBOARD, MENU_CAMPAIGN, MENU_CAMPAIGN_BOARD, MENU_CLEAR_CAMPAIGN, MENU_HARNESS, MENU_CODEX, MENU_GROK, MENU_LOCAL, MENU_OLLAMA, MENU_NEURONTE, MENU_MODEL, MENU_SCORES, MENU_DISPLAY, MENU_RESETS, MENU_CLAUDE, MENU_YOLO, MENU_DOWNLOADS, MENU_DL_GGUF_08, MENU_DL_GGUF_4B, MENU_DL_OLLAMA_06, MENU_DL_OLLAMA_4B, MENU_DL_NAME, MENU_BENCH, MENU_YESNO, MENU_AUTOTRUST, MENU_AUTO };
 
-enum { MENU_PAGE_MAIN, MENU_PAGE_MODEL, MENU_PAGE_SCORES, MENU_PAGE_DISPLAY, MENU_PAGE_RESET, MENU_PAGE_DOWNLOAD, MENU_PAGE_BENCH };
+typedef enum { SESSION_KEEP, SESSION_CLEAR, SESSION_RESTART } level_session_mode;
+enum { MENU_BETWEEN = MENU_AUTO + 1, MENU_LEVEL_SESSION, MENU_LEVEL_CLEANUP, MENU_CLEAN_DISK };
+
+enum { MENU_PAGE_MAIN, MENU_PAGE_MODEL, MENU_PAGE_SCORES, MENU_PAGE_DISPLAY, MENU_PAGE_RESET, MENU_PAGE_DOWNLOAD, MENU_PAGE_BENCH, MENU_PAGE_BETWEEN };
 
 int menu_page_rows(int page, bool neuronte, int *out, int cap);
 
@@ -65,7 +68,7 @@ void render_menu(sr_canvas *c, int selected, const char *active_model,
                  bool started, int level, bool confirm_reset, const char *notice, int thinking_support, bool thinking_enabled, const char *hosted_agent,
                  bool pi, compute_mode compute, bool tooltips, bool room_buttons,
                  bool campaign, const char *campaign_model, bool hints_file, bool yolo, int page,
-                 bool naming, bool auto_play);
+                 bool naming, bool auto_play, level_session_mode session_mode, bool level_cleanup);
 void render_model_menu(sr_canvas *c, bool ollama, const struct model_option *models,
                        int count, int selected, bool loading, bool failed,
                        const char *llama_model);

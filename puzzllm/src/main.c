@@ -238,6 +238,12 @@ static int render_to(const char *root, const char *state, const char *dir)
         fprintf(stderr, "puzzllm: %s\n", err);
         return 1;
     }
+    /* Preview rooms without replacing the saved room's guides or puzzles. */
+    if (the_game.state_lock >= 0) {
+        close(the_game.state_lock);
+        the_game.state_lock = -1;
+    }
+    game_enter_level(&the_game, 0);
     start_renderer(state);
     if (!sr_canvas_init(&canvas, CANVAS_W, CANVAS_H)) return 1;
     feed(&the_game.omp_vt, "\033[1;36momp\033[0m  Qwen 3.5 (local)\r\n"

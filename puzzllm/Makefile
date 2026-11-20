@@ -19,7 +19,7 @@ DEPFLAGS := -MMD -MP
 
 B        := build
 O        := $(B)/obj
-CORE     := count_puzzle history keys pty levels json activity leaderboard layout scene draw art render game \
+CORE     := count_puzzle history keys pty levels workspace json activity leaderboard layout scene draw art render game \
 	kilix_art damage kilix_embed
 KILIX_ASSETS := third_party/kilix-game-sdk/kilix-assets
 NEUROTERM_BUILD_DIR := $(O)/neuroterm

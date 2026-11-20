@@ -3,6 +3,7 @@
 #include "game.h"
 #include "draw.h"
 #include "render.h"
+#include "workspace.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -19,7 +20,6 @@
 #include <sys/stat.h>
 
 static bool save_hints_file(const game *g);
-static bool remove_workspace_file(const game *g, const char *name);
 
 static const char AUTO_ASK[] = "Complete the goal in GOAL.md.";
 enum { AUTO_SAMPLES = 64, AUTO_IDLE_MS = 2000 };
@@ -60,6 +60,7 @@ static bool save_level(const char *state, const char *name, int level)
     return save_state_line(state, name, line);
 }
 
+static const char *const session_name[] = {"keep", "clear", "restart"};
 static const char *const compute_name[] = {"auto", "cpu", "gpu"};
 
 static bool load_preference(const char *state, const char *name, char value[8])
@@ -211,92 +212,9 @@ bool game_reset_progress(const char *state)
     return ok;
 }
 
-static bool move_room_entry(int source, const char *name, int dest)
-{
-    char candidate[256];
-    snprintf(candidate, sizeof candidate, "%s", name);
-    for (unsigned suffix = 1; ; suffix++) {
-        if (renameat2(source, name, dest, candidate, RENAME_NOREPLACE) == 0 ||
-            errno == ENOENT) return true;
-        if (errno != EEXIST) return false;
-        snprintf(candidate, sizeof candidate, "%.240s.%u", name, suffix);
-    }
-}
-
-static bool archive_workspace(const char *workspace, int number)
-{
-    char folder[32];
-    snprintf(folder, sizeof folder, "level_%d", number);
-    DIR *dir = opendir(workspace);
-    if (!dir) return false;
-    int source = dirfd(dir);
-    int dest = -1;
-    if (mkdirat(source, folder, 0700) == 0 || errno == EEXIST)
-        dest = openat(source, folder, O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-    bool ok = dest >= 0;
-    while (ok) {
-        errno = 0;
-        struct dirent *entry = readdir(dir);
-        if (!entry) {
-            ok = errno == 0;
-            break;
-        }
-        const char *name = entry->d_name;
-        /* The running shell keeps its log and the mounted help across rooms. */
-        if (!strcmp(name, ".") || !strcmp(name, "..") ||
-            !strcmp(name, "shell.log") || !strcmp(name, "docs") ||
-            !strcmp(name, ".system")) continue;
-        const char *digits = name + (strncmp(name, "level_", 6) == 0 ? 6 : 0);
-        if (digits != name && *digits && digits[strspn(digits, "0123456789")] == 0) {
-            struct stat st;
-            if (fstatat(source, name, &st, AT_SYMLINK_NOFOLLOW) == 0 &&
-                S_ISDIR(st.st_mode)) continue;
-        }
-        ok = move_room_entry(source, name, dest);
-    }
-    if (dest >= 0) close(dest);
-    closedir(dir);
-    return ok;
-}
-
-static bool restore_workspace(const char *workspace, int number)
-{
-    char folder[32];
-    snprintf(folder, sizeof folder, "level_%d", number);
-    int dest = open(workspace, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-    if (dest < 0) return false;
-    int source = openat(dest, folder, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-    if (source < 0) {
-        bool absent = errno == ENOENT;
-        close(dest);
-        return absent;
-    }
-    DIR *dir = fdopendir(source);
-    if (!dir) {
-        close(source);
-        close(dest);
-        return false;
-    }
-    bool ok = true;
-    while (ok) {
-        errno = 0;
-        struct dirent *entry = readdir(dir);
-        if (!entry) {
-            ok = errno == 0;
-            break;
-        }
-        const char *name = entry->d_name;
-        if (strcmp(name, ".") && strcmp(name, ".."))
-            ok = move_room_entry(source, name, dest);
-    }
-    closedir(dir);
-    close(dest);
-    return ok;
-}
-
 typedef struct room_transition {
     int from, direction;
-    bool restoring;
+    bool restoring, clean, legacy;
 } room_transition;
 
 static bool read_transition(const game *g, room_transition *move)
@@ -312,12 +230,27 @@ static bool read_transition(const game *g, room_transition *move)
     fclose(file);
     if (fields != 2 || room < 1 || room > g->levels.count) return false;
     move->from = room - 1;
-    if (!strcmp(phase, "level") || !strcmp(phase, "restore-next"))
-        move->direction = 1;
-    else if (!strcmp(phase, "back") || !strcmp(phase, "restore-back"))
-        move->direction = -1;
-    else return false;
-    move->restoring = strncmp(phase, "restore-", 8) == 0;
+    static const struct {
+        const char *forward, *backward;
+        bool clean, restoring, legacy;
+    } phases[] = {
+        {"level",     "back",         true,  false, true},
+        {"restore-next", "restore-back", true, true, true},
+        {"file-next", "file-back",    true,  false, false},
+        {"load-next", "load-back",    true,  true,  false},
+        {"keep-next", "keep-back",    false, false, false},
+        {"enter-next", "enter-back",  false, true,  false},
+    };
+    for (size_t i = 0; i < sizeof phases / sizeof phases[0]; i++) {
+        if (!strcmp(phase, phases[i].forward)) move->direction = 1;
+        else if (!strcmp(phase, phases[i].backward)) move->direction = -1;
+        else continue;
+        move->legacy = phases[i].legacy;
+        move->clean = phases[i].clean;
+        move->restoring = phases[i].restoring;
+        break;
+    }
+    if (!move->direction) return false;
     int target = move->from + move->direction;
     return target >= 0 && target < g->levels.count;
 }
@@ -325,8 +258,13 @@ static bool read_transition(const game *g, room_transition *move)
 static bool save_transition(const game *g, room_transition move)
 {
     char line[48];
-    const char *phase = move.direction > 0 ? (move.restoring ? "restore-next" : "level") :
-                                           (move.restoring ? "restore-back" : "back");
+    const char *phase;
+    if (move.clean)
+        phase = move.direction > 0 ? (move.restoring ? "load-next" : "file-next") :
+                                     (move.restoring ? "load-back" : "file-back");
+    else
+        phase = move.direction > 0 ? (move.restoring ? "enter-next" : "keep-next") :
+                                     (move.restoring ? "enter-back" : "keep-back");
     snprintf(line, sizeof line, "%s %d", phase, move.from + 1);
     return save_state_line(g->state, "transition", line);
 }
@@ -334,8 +272,12 @@ static bool save_transition(const game *g, room_transition move)
 /* Record the restore phase before moving any files back into the live home. */
 static bool finish_transition(const game *g, room_transition move)
 {
+    if (move.legacy && (!migrate_workspace(g->workspace, move.from + 1) ||
+        !migrate_workspace(g->workspace, move.from + move.direction + 1))) return false;
     if (!move.restoring) {
-        if (!archive_workspace(g->workspace, move.from + 1)) return false;
+        if (!archive_guide(g->workspace, move.from + 1, "GOAL.md") ||
+            !archive_guide(g->workspace, move.from + 1, "HINTS.md")) return false;
+        if (move.clean && !archive_workspace(g->workspace, move.from + 1)) return false;
         move.restoring = true;
         if (!save_transition(g, move)) return false;
     }
@@ -698,7 +640,7 @@ static bool write_agent_prompt(const game *g, const char *prompt)
     char path[4096], tmp[4096];
     int fd;
     size_t n;
-    if (!prompt || !prompt[0]) return false;
+    if (!prompt) prompt = "";
     if (snprintf(path, sizeof path, "%s/kx/agent-prompt", g->state) >= (int)sizeof path)
         return false;
     if (snprintf(tmp, sizeof tmp, "%s/kx/.agent-prompt", g->state) >= (int)sizeof tmp)
@@ -756,7 +698,10 @@ static void spawn_agent_prompt(game *g, const char *prompt)
     snprintf(agent_env, sizeof agent_env, "PUZZLLM_AGENT=%s", mode);
     if (kilix_embed_running(&g->embed)) {
         /* The new pane reads this file as its opening prompt. */
-        if (prompt && prompt[0]) write_agent_prompt(g, prompt);
+        if (!write_agent_prompt(g, prompt)) {
+            activity_add(&g->act, ACT_ERROR, "Could not prepare the agent prompt.");
+            return;
+        }
         kilix_embed_command(&g->embed, "restart-agent");
         g->auto_agent_closed = false;
         g->omp_note[0] = 0;
@@ -1278,7 +1223,7 @@ static void select_model(game *g, bool codex, bool grok, const model_option *mod
             g->act.codex = codex;
             g->use_grok = g->act.grok = grok;
             g->use_claude = g->act.claude = false;
-            activity_begin_room(&g->act, g->state, g->workspace);
+            activity_begin_room(&g->act, g->state, g->workspace, false);
         }
         restart_agent(g);
     } else if (g->spawn && g->started && pty_poll_exit(&g->omp)) {
@@ -1305,7 +1250,7 @@ static void select_claude(game *g)
         g->use_codex = g->act.codex = false;
         g->use_grok = g->act.grok = false;
         g->use_claude = g->act.claude = true;
-        activity_begin_room(&g->act, g->state, g->workspace);
+        activity_begin_room(&g->act, g->state, g->workspace, false);
         restart_agent(g);
     } else if (g->spawn && g->started && pty_poll_exit(&g->omp)) {
         restart_agent(g);
@@ -1749,6 +1694,17 @@ static void set_auto_play(game *g, bool enabled)
     activity_add(&g->act, ACT_INFO, "Auto is %s.", enabled ? "on" : "off");
 }
 
+static void clean_disk(game *g)
+{
+    char message[96];
+    bool ok = g->state_lock >= 0 && !g->transition_pending &&
+              archive_workspace(g->workspace, cur_level(g)->number);
+    if (ok) snprintf(message, sizeof message, "Moved workspace files to ~/prior_levels/level_%d/.", cur_level(g)->number);
+    else snprintf(message, sizeof message, "Could not finish moving workspace files. You can retry.");
+    snprintf(g->menu.notice, sizeof g->menu.notice, "%s", message);
+    activity_add(&g->act, ok ? ACT_INFO : ACT_ERROR, "%s", message);
+}
+
 static void menu_key(game *g, const key_event *ev)
 {
     game_menu *menu = &g->menu;
@@ -1797,10 +1753,11 @@ static void menu_key(game *g, const key_event *ev)
         menu->notice[0] = 0;
         if (menu->selected == MENU_MODEL || menu->selected == MENU_SCORES ||
             menu->selected == MENU_DISPLAY || menu->selected == MENU_BENCH ||
-            menu->selected == MENU_RESETS) {
+            menu->selected == MENU_BETWEEN || menu->selected == MENU_RESETS) {
             menu->page = menu->selected == MENU_MODEL ? MENU_PAGE_MODEL :
                          menu->selected == MENU_SCORES ? MENU_PAGE_SCORES :
                          menu->selected == MENU_DISPLAY ? MENU_PAGE_DISPLAY :
+                         menu->selected == MENU_BETWEEN ? MENU_PAGE_BETWEEN :
                          menu->selected == MENU_BENCH ? MENU_PAGE_BENCH : MENU_PAGE_RESET;
             menu_move(g, 0);
             break;
@@ -1841,7 +1798,7 @@ static void menu_key(game *g, const key_event *ev)
                 poll_ranked_attempt(g);
                 g->ranked_session_model[0] = 0;
                 g->use_pi = g->act.pi = pi;
-                activity_begin_room(&g->act, g->state, g->workspace);
+                activity_begin_room(&g->act, g->state, g->workspace, false);
                 if (g->spawn && g->started && !g->transition_pending) spawn_agent(g);
             } else {
                 snprintf(menu->notice, sizeof menu->notice, "Could not save the harness setting.");
@@ -1860,6 +1817,19 @@ static void menu_key(game *g, const key_event *ev)
                 snprintf(menu->notice, sizeof menu->notice, "Could not save the compute setting.");
             }
         }
+        if (menu->selected == MENU_LEVEL_SESSION) {
+            level_session_mode next = g->session_mode == SESSION_RESTART ? SESSION_KEEP : g->session_mode + 1;
+            if (g->state_lock >= 0 && save_state_line(g->state, "level-session", session_name[next]))
+                g->session_mode = next;
+            else snprintf(menu->notice, sizeof menu->notice, "Could not save the coding session setting.");
+        }
+        if (menu->selected == MENU_LEVEL_CLEANUP) {
+            bool enabled = !g->level_cleanup;
+            if (g->state_lock >= 0 && save_state_line(g->state, "level-cleanup", enabled ? "on" : "off"))
+                g->level_cleanup = enabled;
+            else snprintf(menu->notice, sizeof menu->notice, "Could not save the cleanup setting.");
+        }
+        if (menu->selected == MENU_CLEAN_DISK) clean_disk(g);
         if (menu->selected == MENU_TOOLTIPS) {
             bool enabled = !g->tooltips;
             if (g->state_lock >= 0 && save_state_line(g->state, "tooltips", enabled ? "on" : "off"))
@@ -1878,7 +1848,7 @@ static void menu_key(game *g, const key_event *ev)
             bool enabled = !g->hints_file;
             if (g->state_lock < 0 || !save_state_line(g->state, "hints-file", enabled ? "on" : "off"))
                 snprintf(menu->notice, sizeof menu->notice, "Could not save the hint file setting.");
-            else if (!(enabled ? save_hints_file(g) : remove_workspace_file(g, "HINTS.md"))) {
+            else if (!(enabled ? save_hints_file(g) : archive_guide(g->workspace, cur_level(g)->number, "HINTS.md"))) {
                 save_state_line(g->state, "hints-file", g->hints_file ? "on" : "off");
                 snprintf(menu->notice, sizeof menu->notice, "Could not save the hint file setting.");
             } else {
@@ -1952,40 +1922,13 @@ static void menu_key(game *g, const key_event *ev)
     }
 }
 
-static bool write_workspace_file(const game *g, const char *name, const char *temp,
-                                 const char *body, size_t length)
-{
-    int dirfd = open(g->workspace, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-    if (dirfd < 0) return false;
-    unlinkat(dirfd, temp, 0);
-    int fd = openat(dirfd, temp, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
-    bool ok = false;
-    if (fd >= 0) {
-        ok = write(fd, body, length) == (ssize_t)length;
-        if (close(fd) != 0) ok = false;
-        if (ok) ok = renameat(dirfd, temp, dirfd, name) == 0;
-        if (!ok) unlinkat(dirfd, temp, 0);
-    }
-    close(dirfd);
-    return ok;
-}
-
-static bool remove_workspace_file(const game *g, const char *name)
-{
-    int dirfd = open(g->workspace, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-    if (dirfd < 0) return false;
-    bool ok = unlinkat(dirfd, name, 0) == 0 || errno == ENOENT;
-    close(dirfd);
-    return ok;
-}
-
 static bool save_goal_file(const game *g)
 {
     const level *lv = cur_level(g);
     char body[LEVEL_TEXT + 32];
     int length = snprintf(body, sizeof body, "# Goal\n\n%s\n", lv->goal);
     if (length < 0 || (size_t)length >= sizeof body) return false;
-    return write_workspace_file(g, "GOAL.md", ".goal-save", body, (size_t)length);
+    return write_guide(g->workspace, lv->number, "GOAL.md", ".goal-save", body, (size_t)length);
 }
 
 static bool save_hints_file(const game *g)
@@ -2004,10 +1947,10 @@ static bool save_hints_file(const game *g)
         if (extra < 0 || (size_t)length + (size_t)extra >= sizeof body) return false;
         length += extra;
     }
-    return write_workspace_file(g, "HINTS.md", ".hints-save", body, (size_t)length);
+    return write_guide(g->workspace, lv->number, "HINTS.md", ".hints-save", body, (size_t)length);
 }
 
-void game_enter_level(game *g, int level)
+static void enter_level(game *g, int level, bool keep_session)
 {
     if (g->state_lock >= 0) seed_system_files(g);
     count_puzzle_stop(&g->count_check);
@@ -2025,7 +1968,12 @@ void game_enter_level(game *g, int level)
     g->auto_sent = false;
     g->auto_heard = false;
     g->auto_samples_valid = false;
-    activity_begin_room(&g->act, g->state, g->workspace);
+    activity_begin_room(&g->act, g->state, g->workspace, keep_session);
+    if (keep_session) {
+        begin_ranked_agent(g);
+        snprintf(g->ranked_session_path, sizeof g->ranked_session_path, "%s", g->act.session_path);
+        g->ranked_session_tokens = g->act.tokens_used;
+    }
     if (cur_level(g)->check == CHECK_CHEST && g->state_lock >= 0 && !prepare_chest(g))
         activity_add(&g->act, ACT_ERROR, "Could not prepare chest.zip (requires zip).");
     if (cur_level(g)->check == CHECK_COUNT_FILES && g->state_lock >= 0 &&
@@ -2046,10 +1994,15 @@ void game_enter_level(game *g, int level)
         if (g->hints_file) {
             if (!save_hints_file(g))
                 activity_add(&g->act, ACT_ERROR, "Could not save ~/HINTS.md.");
-        } else if (!remove_workspace_file(g, "HINTS.md")) {
+        } else if (!archive_guide(g->workspace, cur_level(g)->number, "HINTS.md")) {
             activity_add(&g->act, ACT_ERROR, "Could not remove ~/HINTS.md.");
         }
     }
+}
+
+void game_enter_level(game *g, int level)
+{
+    enter_level(g, level, false);
 }
 
 bool game_init(game *g, const char *root, const char *state, bool spawn,
@@ -2099,6 +2052,12 @@ bool game_init(game *g, const char *root, const char *state, bool spawn,
     g->use_pi = g->act.pi = load_preference(state, "harness", harness) && strcmp(harness, "pi") == 0;
     char tips[8];
     g->tooltips = load_preference(state, "tooltips", tips) && strcmp(tips, "on") == 0;
+    char setting[8];
+    if (load_preference(state, "level-session", setting)) {
+        if (!strcmp(setting, session_name[SESSION_CLEAR])) g->session_mode = SESSION_CLEAR;
+        if (!strcmp(setting, session_name[SESSION_RESTART])) g->session_mode = SESSION_RESTART;
+    }
+    g->level_cleanup = load_preference(state, "level-cleanup", setting) && !strcmp(setting, "on");
     char buttons[8];
     g->room_buttons = load_preference(state, "room-buttons", buttons) && strcmp(buttons, "on") == 0;
     char hints_file[8];
@@ -2114,6 +2073,16 @@ bool game_init(game *g, const char *root, const char *state, bool spawn,
     if (g->campaign) apply_locked_model(g, g->campaign_model);
     scene_init(&g->sc, 0, g->levels.count);
 
+    if (g->state_lock >= 0 && !load_preference(state, "archive-layout", setting)) {
+        bool migrated = true;
+        for (int i = 0; migrated && i < g->levels.count; i++)
+            migrated = migrate_workspace(g->workspace, g->levels.items[i].number);
+        if (!migrated || !save_state_line(state, "archive-layout", "1")) {
+            snprintf(err, errcap, "could not migrate the saved room archives");
+            game_shutdown(g);
+            return false;
+        }
+    }
     room_transition move;
     if (g->state_lock >= 0 && (!read_transition(g, &move) ||
         (move.direction && !finish_transition(g, move)))) {
@@ -2251,10 +2220,18 @@ static void focus_screen(game *g, focus_id f)
     if (f != FOCUS_ROOM) g->last_pane = f;
     for (int i = 0; i < 4; i++) g->held_until[i] = 0;
     if (f != FOCUS_ROOM && g->spawn && (f != FOCUS_OMP || !g->transition_pending)) {
-        if (kilix_embed_running(&g->embed))
+        if (kilix_embed_running(&g->embed)) {
+            if (f == FOCUS_OMP && g->auto_agent_closed) {
+                write_agent_prompt(g, NULL);
+                activity_begin_session(&g->act, g->state);
+                begin_ranked_agent(g);
+                g->auto_agent_closed = false;
+                g->omp_note[0] = 0;
+            }
             kilix_embed_focus(&g->embed, f == FOCUS_SHELL ? 1 : 0);
-        else if (f == FOCUS_OMP) spawn_agent(g);
-        else spawn_shell(g);
+        } else if (f == FOCUS_OMP) {
+            if (g->omp.pid <= 0 || pty_poll_exit(&g->omp)) spawn_agent(g);
+        } else if (g->shell.pid <= 0 || pty_poll_exit(&g->shell)) spawn_shell(g);
     }
     if (f == FOCUS_OMP) g->sc.dir = g->sc.x < AISLE_X0 ? 1 : 2;
     if (f == FOCUS_SHELL) g->sc.dir = g->sc.y < FLOOR_Y ? 3 : 1;
@@ -2328,6 +2305,9 @@ static void press_room_button(game *g, room_button button)
             open_leaderboard(g);
         }
         break;
+    case BUTTON_CLEAN_DISK:
+        clean_disk(g);
+        break;
     case BUTTON_AUTO:
         set_auto_play(g, !g->auto_play);
         break;
@@ -2392,6 +2372,7 @@ void game_key(game *g, const key_event *ev)
                 g->menu.selected = page == MENU_PAGE_MODEL ? MENU_MODEL :
                                    page == MENU_PAGE_SCORES ? MENU_SCORES :
                                    page == MENU_PAGE_DISPLAY ? MENU_DISPLAY :
+                                   page == MENU_PAGE_BETWEEN ? MENU_BETWEEN :
                                    page == MENU_PAGE_BENCH ? MENU_BENCH : MENU_RESETS;
             }
             else if (!g->menu.open) open_menu(g);
@@ -2745,21 +2726,17 @@ static void auto_mark_sent(game *g)
     activity_add(&g->act, ACT_INFO, "Auto asked the model to finish GOAL.md.");
 }
 
-static void auto_send_goal(game *g)
+static bool submit_agent_line(game *g, const char *text)
 {
     char line[80];
-    int n;
-    if (kilix_embed_running(&g->embed)) {
-        n = snprintf(line, sizeof line, "%s\n", AUTO_ASK);
-        if (n <= 0) return;
+    bool embedded = kilix_embed_running(&g->embed);
+    int n = snprintf(line, sizeof line, "%s%c", text, embedded ? '\n' : '\r');
+    if (n <= 0 || (size_t)n >= sizeof line) return false;
+    if (embedded) {
         kilix_embed_type(&g->embed, 0, line, (size_t)n);
-        auto_mark_sent(g);
-        return;
+        return true;
     }
-    if (g->omp.pid <= 0 || pty_poll_exit(&g->omp)) return;
-    n = snprintf(line, sizeof line, "%s\r", AUTO_ASK);
-    if (n <= 0 || !pty_write(&g->omp, line, (size_t)n)) return;
-    auto_mark_sent(g);
+    return g->omp.pid > 0 && !pty_poll_exit(&g->omp) && pty_write(&g->omp, line, (size_t)n);
 }
 
 static bool auto_room_open(const game *g)
@@ -2784,8 +2761,7 @@ static void auto_prompt_if_idle(game *g, double dt, bool busy)
     if (g->auto_quiet < need) g->auto_quiet += dt;
     if (g->auto_quiet < need) return;
     due = !g->auto_sent || g->auto_heard;
-    /* Leaving a room closes the agent pane. Kilix itself stays up, so the
-     * next room has to open a new session instead of typing at a dead pane. */
+    /* The private Kilix can remain up while its coding pane is closed. */
     pane_down = g->auto_agent_closed || !agent_alive(g);
     if (pane_down && (g->auto_agent_closed || due)) {
         if (!g->spawn) return;
@@ -2797,12 +2773,24 @@ static void auto_prompt_if_idle(game *g, double dt, bool busy)
     }
     if (!due) return;
     if (!kilix_embed_running(&g->embed) && !auto_at_prompt(g)) return;
-    auto_send_goal(g);
+    if (submit_agent_line(g, AUTO_ASK)) auto_mark_sent(g);
 }
 
 static void arrive_in_room(game *g, room_transition move)
 {
-    game_enter_level(g, move.from + move.direction);
+    bool running = !g->auto_agent_closed && agent_alive(g);
+    bool restart = running && g->session_mode == SESSION_RESTART;
+    if (restart) stop_room_agent(g);
+    enter_level(g, move.from + move.direction, running && !restart);
+    if (restart && g->spawn && g->started) {
+        if (g->auto_play) {
+            spawn_agent_prompt(g, AUTO_ASK);
+            auto_mark_sent(g);
+        } else spawn_agent(g);
+    } else if (running && g->session_mode == SESSION_CLEAR) {
+        const char *command = g->use_codex || (g->use_pi && !hosted_agent(g)) ? "/new" : "/clear";
+        if (!submit_agent_line(g, command)) activity_add(&g->act, ACT_ERROR, "Could not clear the coding session.");
+    }
     if (move.direction < 0) {
         g->sc.y = AISLE_Y0 + SCENE_WALK_SPEED;
         g->sc.dir = 0;
@@ -2820,10 +2808,12 @@ void game_update(game *g, double dt)
     bool agent_busy = false;
     if (g->spawn) {
         if (g->embed.proc.pid > 0) {
-            bool before = g->embed.saw_frame;
             int motion;
             kilix_embed_poll(&g->embed);
-            if (!before && g->embed.saw_frame) g->omp_note[0] = g->shell_note[0] = 0;
+            if (g->embed.agent_px && !strcmp(g->omp_note, "Starting the sandbox Kilix."))
+                g->omp_note[0] = 0;
+            if (g->embed.shell_px && !strcmp(g->shell_note, "Starting the sandbox Kilix."))
+                g->shell_note[0] = 0;
             if (g->embed.proc.exited &&
                 (g->omp_note[0] == 0 || strcmp(g->omp_note, "Starting the sandbox Kilix.") == 0)) {
                 const char *why = g->embed.error[0] ? g->embed.error :
@@ -2904,13 +2894,13 @@ void game_update(game *g, double dt)
             break;
         }
         if (ev == SCENE_NEXT_ROOM || ev == SCENE_BOTTOM_EXIT) {
-            room_transition move = {.from = g->sc.level,
+            room_transition move = {.from = g->sc.level, .clean = g->level_cleanup,
                                     .direction = ev == SCENE_NEXT_ROOM ? 1 : -1};
             if (!save_transition(g, move)) {
                 activity_add(&g->act, ACT_ERROR, "Could not save room transition.");
                 if (move.direction < 0) g->sc.y = CANVAS_H - 2;
             } else {
-                stop_room_agent(g);
+                poll_ranked_attempt(g);
                 if (move.direction > 0 && g->sc.goal_met && !g->final_score_saved)
                     record_completed_room(g);
                 if (finish_transition(g, move)) {
@@ -3016,5 +3006,6 @@ void game_render(game *g, sr_canvas *c)
                     g->started, g->sc.level + 1, g->menu.confirm_reset, g->menu.notice,
                     g->thinking_support, g->thinking_enabled, v.hosted_agent, g->use_pi,
                     g->compute, g->tooltips, g->room_buttons, g->campaign, g->campaign_model,
-                    g->hints_file, g->yolo, g->menu.page, g->menu.name_edit, g->auto_play);
+                    g->hints_file, g->yolo, g->menu.page, g->menu.name_edit, g->auto_play,
+                    g->session_mode, g->level_cleanup);
 }

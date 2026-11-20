@@ -319,7 +319,7 @@ static void room_background(sr_canvas *c, const room_art *art, const char *style
 int menu_page_rows(int page, bool neuronte, int *out, int cap)
 {
     static const int main_rows[] = {
-        MENU_HARNESS, MENU_MODEL, MENU_RESUME, MENU_CAMPAIGN, MENU_SCORES, MENU_DISPLAY, MENU_BENCH, MENU_AUTO, MENU_RESETS, MENU_QUIT
+        MENU_HARNESS, MENU_MODEL, MENU_RESUME, MENU_CAMPAIGN, MENU_SCORES, MENU_DISPLAY, MENU_BENCH, MENU_AUTO, MENU_BETWEEN, MENU_RESETS, MENU_QUIT
     };
     static const int model_rows[] = {
         MENU_CODEX, MENU_GROK, MENU_CLAUDE, MENU_LOCAL, MENU_OLLAMA,
@@ -336,6 +336,7 @@ int menu_page_rows(int page, bool neuronte, int *out, int cap)
         MENU_DL_GGUF_08, MENU_DL_GGUF_4B, MENU_DL_OLLAMA_06, MENU_DL_OLLAMA_4B, MENU_DL_NAME
     };
     static const int bench_rows[] = { MENU_YESNO, MENU_AUTOTRUST };
+    static const int between_rows[] = { MENU_LEVEL_SESSION, MENU_LEVEL_CLEANUP, MENU_CLEAN_DISK };
     const int *rows = main_rows;
     int n = (int)(sizeof main_rows / sizeof main_rows[0]);
     if (page == MENU_PAGE_MODEL) {
@@ -354,6 +355,9 @@ int menu_page_rows(int page, bool neuronte, int *out, int cap)
     } else if (page == MENU_PAGE_DOWNLOAD) {
         rows = download_rows;
         n = (int)(sizeof download_rows / sizeof download_rows[0]);
+    } else if (page == MENU_PAGE_BETWEEN) {
+        rows = between_rows;
+        n = (int)(sizeof between_rows / sizeof between_rows[0]);
     } else if (page == MENU_PAGE_BENCH) {
         rows = bench_rows;
         n = (int)(sizeof bench_rows / sizeof bench_rows[0]);
@@ -367,7 +371,7 @@ void render_menu(sr_canvas *c, int selected, const char *active_model,
                  bool started, int level, bool confirm_reset, const char *notice, int support, bool thinking_enabled, const char *hosted_agent,
                  bool pi, compute_mode compute, bool tooltips, bool room_buttons,
                  bool campaign, const char *campaign_model, bool hints_file, bool yolo, int page,
-                 bool naming, bool auto_play)
+                 bool naming, bool auto_play, level_session_mode session_mode, bool level_cleanup)
 {
     static const char *const actions[] = {
         [MENU_QUIT] = "Exit game", [MENU_RESET] = "Reset Game",
@@ -394,6 +398,8 @@ void render_menu(sr_canvas *c, int selected, const char *active_model,
         [MENU_SCORES] = "Scores >",
         [MENU_DISPLAY] = "Display >",
         [MENU_RESETS] = "Reset >",
+        [MENU_BETWEEN] = "Between levels >",
+        [MENU_CLEAN_DISK] = "Clean up disk now",
     };
     int ids[12];
     int width = 560, row_h = 27, chrome = 125;
@@ -433,6 +439,7 @@ void render_menu(sr_canvas *c, int selected, const char *active_model,
                         page == MENU_PAGE_DISPLAY ? "Display" :
                         page == MENU_PAGE_RESET ? "Reset" :
                         page == MENU_PAGE_DOWNLOAD ? "Downloads" :
+                        page == MENU_PAGE_BETWEEN ? "Between levels" :
                         page == MENU_PAGE_BENCH ? "Bench" : "Game menu";
     draw_text(c, x + 18, y + 13, title, 0xffde8c, 1);
     snprintf(label, sizeof label, "Agent model: %s", *active_model ? active_model : "Qwen 3.5 (llama.cpp)");
@@ -469,6 +476,11 @@ void render_menu(sr_canvas *c, int selected, const char *active_model,
             snprintf(label, sizeof label, "Hint file: %s", hints_file ? "On" : "Off");
         else if (i == MENU_YOLO)
             snprintf(label, sizeof label, "Yolo: %s", yolo ? "On" : "Off");
+        else if (i == MENU_LEVEL_SESSION)
+            snprintf(label, sizeof label, "Coding session: %s", session_mode == SESSION_CLEAR ? "/clear" :
+                     session_mode == SESSION_RESTART ? "Restart" : "Keep");
+        else if (i == MENU_LEVEL_CLEANUP)
+            snprintf(label, sizeof label, "Clean up workspace each level: %s", level_cleanup ? "On" : "Off");
         else if (i == MENU_AUTO)
             snprintf(label, sizeof label, "Auto: %s", auto_play ? "On" : "Off");
         else if (i == MENU_CAMPAIGN)
@@ -747,7 +759,7 @@ static void render_room_buttons(sr_canvas *c, const scene *s, bool auto_on)
 {
     static const char *const labels[ROOM_BUTTON_COUNT] = {
         "Clear model", "Clear shell", "Harness", "Model",
-        "Shell log", "Reset level", "Reset game", "Metrics", "Auto",
+        "Shell log", "Reset level", "Reset game", "Metrics", "Auto", "Clean disk",
     };
     room_button aimed = s->focus == FOCUS_ROOM ? scene_room_button_at(s->x, s->y) : BUTTON_NONE;
     for (int i = 0; i < ROOM_BUTTON_COUNT; i++) {

@@ -38,7 +38,6 @@ void kilix_embed_stop(kilix_embed *k)
     pty_init(&k->proc);
     free_frames(k);
     k->resize_sent = false;
-    k->saw_frame = false;
     k->error[0] = 0;
 }
 
@@ -56,7 +55,6 @@ bool kilix_embed_start(kilix_embed *k, const char *state,
         return false;
     k->bridge = -1;
     k->pending_len = 0;
-    k->saw_frame = false;
     k->resize_sent = false;
     k->error[0] = 0;
     return pty_spawn(&k->proc, argv, env, 80, 24);
@@ -463,10 +461,8 @@ void kilix_embed_poll(kilix_embed *k)
         kilix_embed_command(k, line);
         k->resize_sent = true;
     }
-    if (snprintf(path, sizeof path, "%s/kx/frames/agent.ppm", k->state) < (int)sizeof path &&
-        load_ppm(path, &k->agent_px, &k->agent_w, &k->agent_h, &k->agent_mt, &k->agent_bytes))
-        k->saw_frame = true;
-    if (snprintf(path, sizeof path, "%s/kx/frames/shell.ppm", k->state) < (int)sizeof path &&
-        load_ppm(path, &k->shell_px, &k->shell_w, &k->shell_h, &k->shell_mt, &k->shell_bytes))
-        k->saw_frame = true;
+    if (snprintf(path, sizeof path, "%s/kx/frames/agent.ppm", k->state) < (int)sizeof path)
+        load_ppm(path, &k->agent_px, &k->agent_w, &k->agent_h, &k->agent_mt, &k->agent_bytes);
+    if (snprintf(path, sizeof path, "%s/kx/frames/shell.ppm", k->state) < (int)sizeof path)
+        load_ppm(path, &k->shell_px, &k->shell_w, &k->shell_h, &k->shell_mt, &k->shell_bytes);
 }
