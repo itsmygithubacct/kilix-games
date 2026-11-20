@@ -109,8 +109,9 @@ play has started.
 starts an agent session and tells it to complete the goal in `GOAL.md`.
 A session that is already open and quiet for a couple of seconds gets the
 same sentence. When the door opens, Kilix walks into the next playable
-room and that room starts again. The unfinished room at the end is left
-alone. The setting is remembered.
+room and that room starts again. Auto stops in the last playable room.
+An eligible campaign is ranked there as soon as the door opens and the
+agent reports token use. The setting is remembered.
 
 **Bench** holds **Kilix yes/no bench**. That row runs the OneBit yes/no
 suite with **autotrust-jev**. The model row offers the same Ollama model

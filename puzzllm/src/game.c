@@ -1631,6 +1631,27 @@ static int playable_level_numbers(const game *g, int out[LEVEL_MAX])
     return count;
 }
 
+static bool record_completed_room(game *g)
+{
+    const score_entry *score = &g->ranked_attempt;
+    if (!score->id || score->measure[SCORE_TOKENS] <= 0 || !strcmp(score->model, "*"))
+        return false;
+    bool saved = leaderboard_submit(g->state, score);
+    if (!saved) activity_add(&g->act, ACT_ERROR, "Could not save the leaderboard result.");
+    if (g->campaign) {
+        int needed[LEVEL_MAX];
+        int count = playable_level_numbers(g, needed);
+        bool ranked = false;
+        if (!campaign_note(g->state, score, needed, count, &ranked)) {
+            activity_add(&g->act, ACT_ERROR, "Could not save the campaign.");
+            saved = false;
+        } else if (ranked) {
+            activity_add(&g->act, ACT_INFO, "Campaign complete. It is on the campaign board.");
+        }
+    }
+    return saved;
+}
+
 static void open_score_board(game *g, bool campaign)
 {
     game_menu *menu = &g->menu;
@@ -1999,6 +2020,7 @@ void game_enter_level(game *g, int level)
     g->selection = (pane_selection){0};
     g->level_time = 0;
     g->was_met = false;
+    g->final_score_saved = false;
     g->auto_quiet = 0;
     g->auto_sent = false;
     g->auto_heard = false;
@@ -2845,6 +2867,9 @@ void game_update(game *g, double dt)
         activity_poll(&g->act, g->state);
         checkpoint_ranked_attempt(g);
         game_poll_goal(g);
+        if (g->auto_play && !g->final_score_saved && g->sc.goal_met &&
+            scene_door_passable(&g->sc) && !auto_can_advance(g))
+            g->final_score_saved = record_completed_room(g);
     }
     /* hints arrive on their own as time passes, never faster than H */
     if (!g->sc.goal_met && g->hints_shown < cur_level(g)->nhints &&
@@ -2886,20 +2911,8 @@ void game_update(game *g, double dt)
                 if (move.direction < 0) g->sc.y = CANVAS_H - 2;
             } else {
                 stop_room_agent(g);
-                score_entry *score = &g->ranked_attempt;
-                if (move.direction > 0 && g->sc.goal_met && score->id &&
-                    score->measure[SCORE_TOKENS] > 0 && strcmp(score->model, "*") &&
-                    !leaderboard_submit(g->state, score))
-                    activity_add(&g->act, ACT_ERROR, "Could not save the leaderboard result.");
-                if (move.direction > 0 && g->sc.goal_met && g->campaign) {
-                    int needed[LEVEL_MAX];
-                    int count = playable_level_numbers(g, needed);
-                    bool ranked = false;
-                    if (!campaign_note(g->state, score, needed, count, &ranked))
-                        activity_add(&g->act, ACT_ERROR, "Could not save the campaign.");
-                    else if (ranked)
-                        activity_add(&g->act, ACT_INFO, "Campaign complete. It is on the campaign board.");
-                }
+                if (move.direction > 0 && g->sc.goal_met && !g->final_score_saved)
+                    record_completed_room(g);
                 if (finish_transition(g, move)) {
                     arrive_in_room(g, move);
                 } else {

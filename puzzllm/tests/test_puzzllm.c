@@ -1732,6 +1732,33 @@ static void test_auto_play(void)
             game_update(&G, 0.25);
         CHECK(G.sc.level == last && !G.quit && G.sc.goal_met,
               "auto does not walk into an unfinished room");
+
+        int needed[LEVEL_MAX], n = 0, count = 0;
+        score_entry room = {.id = 1, .measure = {7, 12}, .model = "Test model", .player = "Player"};
+        score_entry *board = NULL;
+        for (int i = 0; i <= last; i++)
+            if (G.levels.items[i].check != CHECK_NONE) needed[n++] = G.levels.items[i].number;
+        CHECK(campaign_restart(state, room.model, room.player, 55), "start the auto campaign");
+        for (int i = 0; i + 1 < n; i++) {
+            room.level = needed[i];
+            room.id = (unsigned long long)room.level;
+            CHECK(campaign_note(state, &room, needed, n, NULL), "record earlier room %d", room.level);
+        }
+        G.campaign = true;
+        room.level = needed[n - 1];
+        room.id = (unsigned long long)room.level;
+        G.ranked_attempt = room;
+        G.ranked_attempt.measure[SCORE_TOKENS] = 0;
+        game_update(&G, 0.5);
+        CHECK(campaign_load(state, &board, &count) && count == 0, "wait for final room token use");
+        free(board);
+        board = NULL;
+        G.ranked_attempt.measure[SCORE_TOKENS] = 7;
+        for (int i = 0; i < 4; i++) game_update(&G, 0.5);
+        CHECK(G.sc.level == last && campaign_load(state, &board, &count) && count == 1 &&
+              board[0].measure[SCORE_TOKENS] == 7 * n,
+              "Auto ranks the completed campaign once while it stays in the final room");
+        free(board);
     }
     game_shutdown(&G);
 }

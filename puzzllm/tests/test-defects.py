@@ -15,6 +15,9 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # (name, file, old, new, make target[, "neuronte" when it needs that build])
 DEFECTS = [
+    ("Auto skips the final campaign result",
+     "src/game.c", "g->final_score_saved = record_completed_room(g);",
+     "g->final_score_saved = true;", "test-unit"),
     ("the shell covers the coding window during capture",
      "libexec/puzzllm_kilix_bridge.py", 'x = "1024" if kind == "shell" else "0"',
      'x = "0"', "test-kilix-display"),

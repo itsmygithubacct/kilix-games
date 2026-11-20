@@ -151,6 +151,7 @@ typedef struct game {
     double auto_quiet;          /* seconds the agent has looked idle */
     bool auto_sent, auto_heard; /* goal sentence in flight, then the agent answered */
     bool auto_agent_closed;     /* room change closed the agent; Auto must open the next one */
+    bool final_score_saved;
     bool auto_samples_valid;
     uint32_t auto_samples[64];  /* coarse agent-frame samples; a blink changes one */
     kilix_embed embed;
