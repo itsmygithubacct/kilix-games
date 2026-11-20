@@ -415,6 +415,11 @@ static const level *cur_level(const game *g)
     return &g->levels.items[g->sc.level];
 }
 
+static const char *hosted_agent(const game *g)
+{
+    return g->use_codex ? "Codex" : g->use_grok ? "Grok" : NULL;
+}
+
 static void stop_metrics(agent_metrics *metrics)
 {
     pty_stop(&metrics->worker);
@@ -427,7 +432,7 @@ static void start_metrics(game *g)
 {
     char helper[4096], pid[32];
     const char *gpu = getenv("PUZZLLM_GPU");
-    const char *backend = g->use_codex ? "codex" : g->ollama_model[0] ? "ollama" : "llama";
+    const char *backend = g->use_codex ? "codex" : g->use_grok ? "grok" : g->ollama_model[0] ? "ollama" : "llama";
     bool cpu = g->compute == COMPUTE_CPU || (g->compute == COMPUTE_AUTO && (!gpu || !*gpu));
     char *argv[] = {helper, pid, (char *)backend, g->ollama_model, cpu ? "cpu" : "auto", NULL};
 
@@ -539,9 +544,9 @@ static void begin_ranked_agent(game *g)
     char model[SCORE_MODEL_CAP], clean[SCORE_MODEL_CAP];
     const char *weights = getenv("PUZZLLM_MODEL");
     const char *leaf = weights ? strrchr(weights, '/') : NULL;
-    snprintf(model, sizeof model, "%s%s", g->use_codex ? "" :
+    snprintf(model, sizeof model, "%s%s", hosted_agent(g) ? "" :
              (g->ollama_model[0] ? "Ollama/" : "llama.cpp/"),
-             g->use_codex ? "Codex" : g->ollama_model[0] ? g->ollama_model :
+             hosted_agent(g) ? hosted_agent(g) : g->ollama_model[0] ? g->ollama_model :
              weights && *weights ? (leaf ? leaf + 1 : weights) : "Qwen3.5-0.8B-Q8_0.gguf");
     leaderboard_label(clean, sizeof clean, model);
     bool same = !strcmp(score->model, clean) ||
@@ -581,7 +586,7 @@ static void spawn_agent_prompt(game *g, const char *prompt)
     activity_begin_session(&g->act, g->state);
     begin_ranked_agent(g);
     char sandbox[4096], st_env[2100], model_env[OLLAMA_NAME_CAP + 32];
-    char *argv[] = {sandbox, g->use_codex ? "codex" : "agent", (char *)prompt, NULL};
+    char *argv[] = {sandbox, g->use_codex ? "codex" : g->use_grok ? "grok" : "agent", (char *)prompt, NULL};
     char *think_env = g->thinking_enabled ? "PUZZLLM_THINK=1" : "PUZZLLM_THINK=0";
     char compute_env[32];
     snprintf(compute_env, sizeof compute_env, "PUZZLLM_COMPUTE=%s", compute_name[g->compute]);
@@ -886,7 +891,7 @@ static void refresh_model_details(game *g)
     pty_init(&menu->prompt_counter);
     menu->prompt_count[0] = 0;
     menu->prompt_input_len = 0;
-    if (!menu->prompt[0] || !g->spawn || menu->details_tab == DETAILS_CODEX) return;
+    if (!menu->prompt[0] || !g->spawn || menu->details_tab == DETAILS_CODEX || menu->details_tab == DETAILS_GROK) return;
     char helper[4096], input[MODEL_SPEC_CAP + 32];
     snprintf(helper, sizeof helper, "%s/libexec/puzzllm-prompt-tokens", g->root);
     snprintf(input, sizeof input, "PUZZLLM_PROMPT_TEXT=%s", menu->prompt);
@@ -981,7 +986,7 @@ static void prompt_editor_key(game *g, const key_event *ev)
             menu->details_scroll = 0;
             refresh_model_details(g);
             bool editing_ollama = strcmp(prompt_file(g), "ollama-prompt.txt") == 0;
-            if (!g->use_codex && editing_ollama == (g->ollama_model[0] != 0))
+            if (!hosted_agent(g) && editing_ollama == (g->ollama_model[0] != 0))
                 restart_agent(g);
         } else if (ev->key == 'u' || ev->key == 'U') {
             text[0] = 0;
@@ -1042,21 +1047,22 @@ static void prompt_editor_key(game *g, const key_event *ev)
     }
 }
 
-static void select_model(game *g, bool codex, const model_option *model)
+static void select_model(game *g, bool codex, bool grok, const model_option *model)
 {
     const char *name = model ? model->name : "";
-    thinking_support support = codex ? THINK_UNAVAILABLE :
+    thinking_support support = (codex || grok) ? THINK_UNAVAILABLE :
                                model ? model->thinking : bundled_thinking();
-    if (codex != g->use_codex || strcmp(name, g->ollama_model) != 0 ||
+    if (codex != g->use_codex || grok != g->use_grok || strcmp(name, g->ollama_model) != 0 ||
         support != g->thinking_support) {
         g->thinking_enabled = false;
         g->thinking_support = support;
         snprintf(g->ollama_model, sizeof g->ollama_model, "%s", name);
-        if (g->use_codex != codex) {
+        if (g->use_codex != codex || g->use_grok != grok) {
             poll_ranked_attempt(g);
             g->ranked_session_model[0] = 0;
             g->use_codex = codex;
             g->act.codex = codex;
+            g->use_grok = g->act.grok = grok;
             activity_begin_room(&g->act, g->state, g->workspace);
         }
         restart_agent(g);
@@ -1084,7 +1090,7 @@ static void model_menu_key(game *g, const key_event *ev)
     case KEY_END: menu->model_selected = count - 1; break;
     case KEY_ENTER:
         if (ev->action == 1)
-            select_model(g, false, ollama ? &menu->models[menu->model_selected] : NULL);
+            select_model(g, false, false, ollama ? &menu->models[menu->model_selected] : NULL);
         break;
     default: break;
     }
@@ -1156,7 +1162,8 @@ static void menu_key(game *g, const key_event *ev)
     }
     if (menu->details_open) {
         if (menu->prompt_edit) prompt_editor_key(g, ev);
-        else if (ev->key == KEY_ENTER && ev->action == 1 && menu->details_tab != DETAILS_CODEX) {
+        else if (ev->key == KEY_ENTER && ev->action == 1 && menu->details_tab != DETAILS_CODEX &&
+                 menu->details_tab != DETAILS_GROK) {
             snprintf(menu->prompt_draft, sizeof menu->prompt_draft, "%s", menu->prompt);
             menu->prompt_cursor = strlen(menu->prompt_draft);
             menu->notice[0] = 0;
@@ -1192,7 +1199,7 @@ static void menu_key(game *g, const key_event *ev)
         if (menu->selected == MENU_QUIT) g->quit = true;
         if (menu->selected == MENU_RESET || menu->selected == MENU_RESET_LEVEL)
             menu->confirm_reset = true;
-        if (menu->selected == MENU_HARNESS && !g->use_codex) {
+        if (menu->selected == MENU_HARNESS && !hosted_agent(g)) {
             bool pi = !g->use_pi;
             if (g->state_lock >= 0 && save_state_line(g->state, "harness", pi ? "pi" : "omp")) {
                 pty_stop(&g->omp);
@@ -1209,7 +1216,7 @@ static void menu_key(game *g, const key_event *ev)
             g->thinking_enabled = !g->thinking_enabled;
             restart_agent(g);
         }
-        if (menu->selected == MENU_COMPUTE && !g->use_codex) {
+        if (menu->selected == MENU_COMPUTE && !hosted_agent(g)) {
             compute_mode compute = g->compute == COMPUTE_GPU ? COMPUTE_AUTO : g->compute + 1;
             if (g->state_lock >= 0 && save_state_line(g->state, "compute", compute_name[compute])) {
                 g->compute = compute;
@@ -1228,12 +1235,13 @@ static void menu_key(game *g, const key_event *ev)
         if (menu->selected == MENU_MODEL_DETAILS) {
             menu->details_open = true;
             menu->details_scroll = 0;
-            menu->details_tab = g->use_codex ? DETAILS_CODEX : g->use_pi ? DETAILS_PI :
+            menu->details_tab = g->use_codex ? DETAILS_CODEX : g->use_grok ? DETAILS_GROK : g->use_pi ? DETAILS_PI :
                                 g->ollama_model[0] ? DETAILS_OLLAMA : DETAILS_LLAMA;
             refresh_model_details(g);
         }
         if (menu->selected == MENU_LEADERBOARD) open_leaderboard(g);
-        if (menu->selected == MENU_CODEX) select_model(g, true, NULL);
+        if (menu->selected == MENU_CODEX) select_model(g, true, false, NULL);
+        if (menu->selected == MENU_GROK) select_model(g, false, true, NULL);
         if (menu->selected == MENU_LOCAL || menu->selected == MENU_OLLAMA) {
             menu->model_submenu = menu->selected;
             menu->model_selected = 0;
@@ -1498,7 +1506,7 @@ static void press_room_button(game *g, room_button button)
         g->menu.notice[0] = 0;
         if (button == BUTTON_HARNESS) g->menu.selected = MENU_HARNESS;
         if (button == BUTTON_MODEL)
-            g->menu.selected = g->use_codex ? MENU_CODEX : g->ollama_model[0] ? MENU_OLLAMA : MENU_LOCAL;
+            g->menu.selected = g->use_codex ? MENU_CODEX : g->use_grok ? MENU_GROK : g->ollama_model[0] ? MENU_OLLAMA : MENU_LOCAL;
         if (button == BUTTON_RESET_LEVEL || button == BUTTON_RESET_GAME) {
             g->menu.selected = button == BUTTON_RESET_LEVEL ? MENU_RESET_LEVEL : MENU_RESET;
             g->menu.confirm_reset = true;
@@ -1904,8 +1912,8 @@ static view game_view(const game *g)
     if (g->sc.level + 1 < g->levels.count)
         v.next_room = g->levels.items[g->sc.level + 1].number;
     v.omp = &g->omp_vt;
-    v.agent_model = g->use_codex ? "Codex" : g->ollama_model;
-    v.codex = g->use_codex;
+    v.hosted_agent = hosted_agent(g);
+    v.agent_model = v.hosted_agent ? v.hosted_agent : g->ollama_model;
     v.pi = g->use_pi;
     v.shell = &g->shell_vt;
     v.omp_history = &g->omp_history;
@@ -1955,6 +1963,6 @@ void game_render(game *g, sr_canvas *c)
     else if (g->menu.open)
         render_menu(c, g->menu.selected, v.agent_model,
                     g->started, g->sc.level + 1, g->menu.confirm_reset, g->menu.notice,
-                    g->thinking_support, g->thinking_enabled, g->use_codex, g->use_pi,
+                    g->thinking_support, g->thinking_enabled, v.hosted_agent, g->use_pi,
                     g->compute, g->tooltips);
 }

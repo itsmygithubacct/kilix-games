@@ -35,6 +35,7 @@ typedef struct act_file {
 
 typedef struct activity {
     bool codex;
+    bool grok;
     bool pi;
     bool tokens_reported;
     unsigned long long tokens_used;

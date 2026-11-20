@@ -1,0 +1,14 @@
+#!/bin/bash
+set -eu
+umask 077
+grok=/opt/puzzllm/bin/grok
+if [ "${1:-}" = --version ]; then exec "$grok" --version; fi
+if [ ! -s "$GROK_HOME/config.toml" ]; then
+    printf '[cli]\nauto_update = false\n' > "$GROK_HOME/config.toml"
+fi
+if [ ! -s "$GROK_HOME/auth.json" ]; then
+    printf 'Sign in to Grok Build for PuzzLLM.\n'
+    "$grok" login --device-auth
+fi
+exec "$grok" --sandbox strict --disable-web-search --no-subagents \
+    --rules 'The player shell transcript is at ~/shell.log.' "$@"

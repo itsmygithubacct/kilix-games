@@ -134,6 +134,13 @@ profile grants workspace access, denies access to that directory, and
 disables command networking. The Codex client uses OpenAI's hosted service
 when selected. Set `PUZZLLM_CODEX` to override the executable found on PATH.
 
+Choose **Grok Build (xAI)** to use the native Grok Build CLI with the same
+workspace. Install the native `grok` executable or set `PUZZLLM_GROK` to
+its path. On first use, follow the device sign-in instructions in the
+pane. Grok stores its sign-in separately in the game's `grok/` state
+directory and runs with its strict sandbox profile. Its session token
+usage is currently available in Grok's own `/usage` view.
+
 PuzzLLM requests **32,768 context tokens** from Ollama for every turn.
 `PUZZLLM_CTX` changes the requested limit. The game checks the model's
 reported maximum and requires at least 16,384 tokens. If Ollama reports

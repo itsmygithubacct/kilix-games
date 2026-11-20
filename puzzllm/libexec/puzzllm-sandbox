@@ -3,6 +3,7 @@
 #
 #   puzzllm-sandbox agent [OMP-ARGS...]     llama-server + omp, interactive
 #   puzzllm-sandbox codex                   Codex CLI with separate sign-in
+#   puzzllm-sandbox grok                    Grok Build CLI with separate sign-in
 #   puzzllm-sandbox shell                   the player's bash
 #   puzzllm-sandbox agent-exec -- CMD...    CMD with exactly the agent's mounts
 #   puzzllm-sandbox shell-exec -- CMD...    CMD with exactly the shell's mounts
@@ -24,6 +25,7 @@
 # Environment (all optional):
 #   PUZZLLM_STATE         persistent folder, default ~/.local/share/puzzllm
 #   PUZZLLM_CODEX          Codex CLI executable (default: codex on PATH)
+#   PUZZLLM_GROK           Native Grok Build executable
 #   PUZZLLM_OMP           omp binary (default: omp on PATH, then ~/.local/bin/omp)
 #   PUZZLLM_HARNESS       omp (default) or pi
 #   PUZZLLM_PI            Pi entry point (default: pi on PATH or ~/.local/bin/pi)
@@ -300,6 +302,25 @@ codex)
            --ro-bind "$here/puzzllm-codex-init" /opt/puzzllm/bin/puzzllm-codex-init)
     [ ! -r /etc/resolv.conf ] || args+=(--ro-bind /etc/resolv.conf /etc/resolv.conf)
     ;;
+grok)
+    grok_bin=${PUZZLLM_GROK:-$(command -v grok || true)}
+    if [ -z "$grok_bin" ]; then
+        for candidate in "$HOME/.grok/bin/grok" "$HOME/.local/bin/grok"; do
+            if [ -x "$candidate" ]; then grok_bin=$candidate; break; fi
+        done
+    fi
+    [ -n "$grok_bin" ] && [ -x "$grok_bin" ] ||
+        die "Grok Build not found (install the native grok CLI or set PUZZLLM_GROK)"
+    (umask 077 && mkdir -p "$state/grok") || die "cannot create Grok state"
+    args+=(--share-net
+           --bind "$state/workspace" "$box_home"
+           --bind "$state/grok" /opt/puzzllm/grok-home
+           --chdir "$box_home"
+           --setenv GROK_HOME /opt/puzzllm/grok-home
+           --ro-bind "$(readlink -f "$grok_bin")" /opt/puzzllm/bin/grok
+           --ro-bind "$here/puzzllm-grok-init" /opt/puzzllm/bin/puzzllm-grok-init)
+    [ ! -r /etc/resolv.conf ] || args+=(--ro-bind /etc/resolv.conf /etc/resolv.conf)
+    ;;
 shell|shell-exec)
     args+=(--bind "$state/workspace" "$box_home"
            --chdir "$box_home"
@@ -308,12 +329,12 @@ shell|shell-exec)
            --ro-bind "$here/puzzllm-shell-init" /opt/puzzllm/bin/puzzllm-shell-init)
     ;;
 *)
-    die "usage: puzzllm-sandbox agent|codex|shell|agent-exec -- CMD|shell-exec -- CMD|paths"
+    die "usage: puzzllm-sandbox agent|codex|grok|shell|agent-exec -- CMD|shell-exec -- CMD|paths"
     ;;
 esac
 
 case "$mode" in
-agent|agent-exec|codex|shell|shell-exec)
+agent|agent-exec|codex|grok|shell|shell-exec)
     # This mount must follow the workspace mount.
     args+=(--ro-bind "$here/docs" "$box_home/docs")
     ;;
@@ -388,6 +409,9 @@ EOF
     ;;
 codex)
     exec bwrap "${args[@]}" --remount-ro / -- /opt/puzzllm/bin/puzzllm-codex-init "$codex_command" "$@"
+    ;;
+grok)
+    exec bwrap "${args[@]}" --remount-ro / -- /opt/puzzllm/bin/puzzllm-grok-init "$@"
     ;;
 shell)
     exec bwrap "${args[@]}" --remount-ro / -- /opt/puzzllm/bin/puzzllm-shell-init

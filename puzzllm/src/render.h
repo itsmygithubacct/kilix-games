@@ -32,7 +32,7 @@ typedef struct view {
     pane_selection selection;
     const char *agent_model;
     const char *resource_summary, *resource_devices;
-    bool codex;
+    const char *hosted_agent;
     bool pi;
     const char *omp_note;     /* shown over the omp screen when not NULL */
     const char *shell_note;
@@ -44,10 +44,10 @@ typedef struct view {
 
 typedef enum compute_mode { COMPUTE_AUTO, COMPUTE_CPU, COMPUTE_GPU } compute_mode;
 
-enum { MENU_RESUME, MENU_QUIT, MENU_RESET, MENU_RESET_LEVEL, MENU_THINKING, MENU_COMPUTE, MENU_TOOLTIPS, MENU_MODEL_DETAILS, MENU_LEADERBOARD, MENU_HARNESS, MENU_CODEX, MENU_LOCAL, MENU_OLLAMA };
+enum { MENU_RESUME, MENU_QUIT, MENU_RESET, MENU_RESET_LEVEL, MENU_THINKING, MENU_COMPUTE, MENU_TOOLTIPS, MENU_MODEL_DETAILS, MENU_LEADERBOARD, MENU_HARNESS, MENU_CODEX, MENU_GROK, MENU_LOCAL, MENU_OLLAMA };
 
 enum { MODEL_SPEC_CAP = 16384 };
-typedef enum model_details_tab { DETAILS_OLLAMA, DETAILS_LLAMA, DETAILS_CODEX, DETAILS_PI, DETAILS_COUNT } model_details_tab;
+typedef enum model_details_tab { DETAILS_OLLAMA, DETAILS_LLAMA, DETAILS_CODEX, DETAILS_PI, DETAILS_GROK, DETAILS_COUNT } model_details_tab;
 
 int render_model_details(sr_canvas *c, model_details_tab tab, int scroll,
                          const char *prompt, const char *schema, const char *count);
@@ -55,7 +55,7 @@ void render_prompt_editor(sr_canvas *c, const char *draft, size_t cursor, const 
 
 struct model_option;
 void render_menu(sr_canvas *c, int selected, const char *active_model,
-                 bool started, int level, bool confirm_reset, const char *notice, int thinking_support, bool thinking_enabled, bool codex,
+                 bool started, int level, bool confirm_reset, const char *notice, int thinking_support, bool thinking_enabled, const char *hosted_agent,
                  bool pi, compute_mode compute, bool tooltips);
 void render_model_menu(sr_canvas *c, bool ollama, const struct model_option *models,
                        int count, int selected, bool loading, bool failed,

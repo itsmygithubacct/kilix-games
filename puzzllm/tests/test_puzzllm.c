@@ -1361,11 +1361,18 @@ static void test_codex_menu(void)
     CHECK(has_line(&G.act, "tool exec_command"), "Codex tool calls reach the activity screen");
 
     menu_press(KEY_ESCAPE);
+    for (int i = 0; i < MENU_GROK; i++) menu_press(KEY_DOWN);
+    menu_press(KEY_ENTER);
+    CHECK(G.use_grok && G.act.grok && !G.use_codex && !G.menu.open &&
+          G.thinking_support == THINK_UNAVAILABLE,
+          "Grok is a separate hosted option alongside Codex");
+    menu_press(KEY_ESCAPE);
     menu_press(KEY_END);
     menu_press(KEY_UP);
     menu_press(KEY_ENTER);
     menu_press(KEY_ENTER);
-    CHECK(!G.use_codex && !G.act.codex, "the bundled model switches back from Codex");
+    CHECK(!G.use_codex && !G.act.codex && !G.use_grok && !G.act.grok,
+          "the bundled model switches back from a hosted agent");
     game_shutdown(&G);
 }
 
