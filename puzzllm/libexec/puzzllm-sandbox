@@ -395,8 +395,11 @@ agent|agent-exec|codex|grok|claude|shell|shell-exec)
     # This mount must follow the workspace mount.
     (umask 077 && mkdir -p "$state/goals") || die "cannot prepare the goal status socket directory"
     [ ! -L "$state/goals" ] || die "invalid goal status directory"
-    args+=(--ro-bind "$here/docs" "$box_home/docs"
-           --ro-bind "$here/docs/check_goal_status.sh" "$box_home/check_goal_status.sh")
+    args+=(--ro-bind "$here/docs" "$box_home/docs")
+    # Earlier live sandboxes published this relative link to the same read-only guide.
+    if [[ $(readlink "$state/workspace/check_goal_status.sh") != docs/check_goal_status.sh ]]; then
+        args+=(--ro-bind "$here/docs/check_goal_status.sh" "$box_home/check_goal_status.sh")
+    fi
     if [ "$kilix_session" != 1 ]; then
         args+=(--ro-bind "$state/goals" /opt/puzzllm/kx/goals)
     fi

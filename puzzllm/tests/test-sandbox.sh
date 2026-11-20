@@ -339,6 +339,7 @@ fi
 
 goal_state=$scratch/status-state
 mkdir -p "$goal_state/workspace"
+ln -s docs/check_goal_status.sh "$goal_state/workspace/check_goal_status.sh"
 "$here/libexec/puzzllm-goal-service" "$$" "$here" "$goal_state" "$here/build/puzzllm" &
 goal_service=$!
 for _ in $(seq 50); do [ -S "$goal_state/goals/status.sock" ] && break; sleep 0.1; done
