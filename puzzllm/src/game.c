@@ -548,7 +548,8 @@ static void start_metrics(game *g)
     char *argv[] = {helper, pid, (char *)backend, g->ollama_model, cpu ? "cpu" : "auto", NULL};
 
     snprintf(helper, sizeof helper, "%s/libexec/puzzllm-metrics", g->root);
-    snprintf(pid, sizeof pid, "%ld", (long)g->omp.pid);
+    pid_t watched = kilix_embed_running(&g->embed) ? g->embed.proc.pid : g->omp.pid;
+    snprintf(pid, sizeof pid, "%ld", (long)watched);
     if (!pty_spawn(&g->metrics.worker, argv, NULL, 100, 8))
         snprintf(g->metrics.summary, sizeof g->metrics.summary, "Resource data unavailable");
 }
@@ -556,7 +557,7 @@ static void start_metrics(game *g)
 static void pump_metrics(game *g)
 {
     agent_metrics *metrics = &g->metrics;
-    pty_proc *agent = &g->omp;
+    pty_proc *agent = kilix_embed_running(&g->embed) ? &g->embed.proc : &g->omp;
     if (metrics->worker.fd < 0) return;
     if (pty_poll_exit(agent)) {
         stop_metrics(metrics);
@@ -679,19 +680,26 @@ static void poll_ranked_attempt(game *g)
     }
 }
 
+static void note_embed_sizes(game *g)
+{
+    rect agent = layout_screen(SCREEN_OMP);
+    rect shell = layout_screen(SCREEN_SHELL);
+    kilix_embed_set_sizes(&g->embed, agent.w, agent.h, shell.w, shell.h);
+}
+
 static void spawn_agent_prompt(game *g, const char *prompt)
 {
     poll_ranked_attempt(g);
     activity_begin_session(&g->act, g->state);
     begin_ranked_agent(g);
-    char sandbox[4096], st_env[2100], model_env[OLLAMA_NAME_CAP + 32], yolo_env[18];
+    char helper[4096], st_env[2100], model_env[OLLAMA_NAME_CAP + 32], yolo_env[18], agent_env[32];
     char *mode = g->use_codex ? "codex" : g->use_grok ? "grok" : g->use_claude ? "claude" : "agent";
-    char *argv[] = {sandbox, mode, (char *)prompt, NULL};
+    char *argv[] = {helper, "session", (char *)prompt, NULL};
     char *think_env = g->thinking_enabled ? "PUZZLLM_THINK=1" : "PUZZLLM_THINK=0";
     char compute_env[32];
     snprintf(compute_env, sizeof compute_env, "PUZZLLM_COMPUTE=%s", compute_name[g->compute]);
     snprintf(yolo_env, sizeof yolo_env, "PUZZLLM_YOLO=%d", g->yolo ? 1 : 0);
-    char *env[9];
+    char *env[10];
     int en = 0;
     env[en++] = st_env;
     env[en++] = model_env;
@@ -700,23 +708,34 @@ static void spawn_agent_prompt(game *g, const char *prompt)
     env[en++] = yolo_env;
     env[en++] = g->use_pi ? "PUZZLLM_HARNESS=pi" : "PUZZLLM_HARNESS=omp";
     env[en++] = "TERM=xterm-256color";
+    env[en++] = agent_env;
     if (!g->use_codex && !g->use_grok && !g->use_claude && !g->ollama_model[0] && g->llama_model[0]) {
         snprintf(g->gguf_env, sizeof g->gguf_env, "PUZZLLM_MODEL=%s", g->llama_model);
         env[en++] = g->gguf_env;
     }
     env[en] = NULL;
 
-    snprintf(sandbox, sizeof sandbox, "%s/libexec/puzzllm-sandbox", g->root);
+    snprintf(helper, sizeof helper, "%s/libexec/puzzllm-kilix", g->root);
     snprintf(st_env, sizeof st_env, "PUZZLLM_STATE=%s", g->state);
     snprintf(model_env, sizeof model_env, "PUZZLLM_OLLAMA_MODEL=%s", g->ollama_model);
+    snprintf(agent_env, sizeof agent_env, "PUZZLLM_AGENT=%s", mode);
+    if (kilix_embed_running(&g->embed)) {
+        kilix_embed_command(&g->embed, "restart-agent");
+        g->omp_note[0] = 0;
+        activity_add(&g->act, ACT_INFO, "agent pane restarted");
+        return;
+    }
     stop_metrics(&g->metrics);
     neuroterm_feed(&g->omp_vt, "\033c", 2);
     history_clear(&g->omp_history);
     g->omp_note[0] = '\0';
-    if (!pty_spawn(&g->omp, argv, env, OMP_COLS, OMP_ROWS))
+    g->shell_note[0] = '\0';
+    if (!kilix_embed_start(&g->embed, g->state, argv, env))
         snprintf(g->omp_note, sizeof g->omp_note, "could not start the agent sandbox");
     else {
+        note_embed_sizes(g);
         start_metrics(g);
+        snprintf(g->omp_note, sizeof g->omp_note, "Starting the sandbox Kilix.");
         activity_add(&g->act, ACT_INFO, "agent sandbox started");
     }
 }
@@ -728,6 +747,15 @@ static void spawn_agent(game *g)
 
 static void stop_room_agent(game *g)
 {
+    if (kilix_embed_running(&g->embed)) {
+        kilix_embed_close_agent(&g->embed);
+        poll_ranked_attempt(g);
+        g->ranked_session_model[0] = 0;
+        neuroterm_feed(&g->omp_vt, "\033c", 2);
+        history_clear(&g->omp_history);
+        snprintf(g->omp_note, sizeof g->omp_note, "Focus the agent pane to start a session.");
+        return;
+    }
     stop_metrics(&g->metrics);
     pty_stop(&g->omp);
     poll_ranked_attempt(g);
@@ -740,16 +768,8 @@ static void stop_room_agent(game *g)
 
 static void spawn_shell(game *g)
 {
-    char sandbox[4096], st_env[2100];
-    char *argv[] = {sandbox, "shell", NULL};
-    char *env[] = {st_env, "TERM=xterm-256color", NULL};
-
-    snprintf(sandbox, sizeof sandbox, "%s/libexec/puzzllm-sandbox", g->root);
-    snprintf(st_env, sizeof st_env, "PUZZLLM_STATE=%s", g->state);
-    neuroterm_feed(&g->shell_vt, "\033[2J\033[H", 7);
-    g->shell_note[0] = '\0';
-    if (!pty_spawn(&g->shell, argv, env, SHELL_COLS, SHELL_ROWS))
-        snprintf(g->shell_note, sizeof g->shell_note, "could not start the shell sandbox");
+    if (kilix_embed_running(&g->embed)) return;
+    spawn_agent(g);
 }
 
 static void clear_models(game_menu *menu)
@@ -862,6 +882,7 @@ static void reset_from_menu(game *g)
     poll_ranked_attempt(g);
     g->ranked_session_model[0] = 0;
     pty_stop(&g->shell);
+    kilix_embed_stop(&g->embed);
     pty_init(&g->omp);
     pty_init(&g->shell);
     g->started = false;
@@ -908,7 +929,9 @@ static thinking_support bundled_thinking(void)
 
 static void restart_agent(game *g)
 {
-    if (g->spawn && g->started && !g->transition_pending && g->omp.pid != 0) {
+    if (g->spawn && g->started && !g->transition_pending &&
+        (g->omp.pid != 0 || kilix_embed_running(&g->embed))) {
+        kilix_embed_stop(&g->embed);
         pty_stop(&g->omp);
         spawn_agent(g);
     }
@@ -1733,6 +1756,7 @@ static void menu_key(game *g, const key_event *ev)
         if (menu->selected == MENU_HARNESS && !hosted_agent(g)) {
             bool pi = !g->use_pi;
             if (g->state_lock >= 0 && save_state_line(g->state, "harness", pi ? "pi" : "omp")) {
+                kilix_embed_stop(&g->embed);
                 pty_stop(&g->omp);
                 poll_ranked_attempt(g);
                 g->ranked_session_model[0] = 0;
@@ -1948,6 +1972,7 @@ bool game_init(game *g, const char *root, const char *state, bool spawn,
     char path[4096];
 
     memset(g, 0, sizeof *g);
+    kilix_embed_init(&g->embed);
     if (L.w == 0) layout_set(LAYOUT_DEFAULT_W, LAYOUT_DEFAULT_H);
     snprintf(g->root, sizeof g->root, "%s", root);
     snprintf(g->state, sizeof g->state, "%s", state);
@@ -2023,6 +2048,7 @@ void game_shutdown(game *g)
     pty_stop(&g->omp);
     poll_ranked_attempt(g);
     pty_stop(&g->shell);
+    kilix_embed_stop(&g->embed);
     pty_stop(&g->menu.discovery);
     pty_stop(&g->menu.fetch);
     pty_stop(&g->menu.yesno);
@@ -2061,6 +2087,10 @@ static view game_view(const game *g);
 static void paste_into_terminal(game *g, const char *text, size_t len)
 {
     if (!len || g->menu.open || g->sc.focus == FOCUS_ROOM) return;
+    if (kilix_embed_running(&g->embed)) {
+        kilix_embed_type(&g->embed, g->sc.focus == FOCUS_SHELL ? 1 : 0, text, len);
+        return;
+    }
     bool agent = g->sc.focus == FOCUS_OMP;
     history *h = agent ? &g->omp_history : &g->shell_history;
     pty_proc *p = agent ? &g->omp : &g->shell;
@@ -2129,13 +2159,13 @@ static void next_hint(game *g)
 
 static void focus_screen(game *g, focus_id f)
 {
-    pty_proc *p = f == FOCUS_OMP ? &g->omp : f == FOCUS_SHELL ? &g->shell : NULL;
     g->sc.focus = f;
     if (f != FOCUS_ROOM) g->last_pane = f;
     for (int i = 0; i < 4; i++) g->held_until[i] = 0;
-    if (p != NULL && g->spawn && (f != FOCUS_OMP || !g->transition_pending) &&
-        (p->pid == 0 || pty_poll_exit(p))) {
-        if (f == FOCUS_OMP) spawn_agent(g);
+    if (f != FOCUS_ROOM && g->spawn && (f != FOCUS_OMP || !g->transition_pending)) {
+        if (kilix_embed_running(&g->embed))
+            kilix_embed_focus(&g->embed, f == FOCUS_SHELL ? 1 : 0);
+        else if (f == FOCUS_OMP) spawn_agent(g);
         else spawn_shell(g);
     }
     if (f == FOCUS_OMP) g->sc.dir = g->sc.x < AISLE_X0 ? 1 : 2;
@@ -2168,14 +2198,16 @@ static void press_room_button(game *g, room_button button)
         break;
     case BUTTON_CLEAR_SHELL:
         history_clear(&g->shell_history);
-        if (g->shell.pid > 0 && !pty_poll_exit(&g->shell))
+        if (kilix_embed_running(&g->embed))
+            kilix_embed_command(&g->embed, "key shell ctrl+l");
+        else if (g->shell.pid > 0 && !pty_poll_exit(&g->shell))
             pty_write(&g->shell, "\014", 1);
         else if (g->spawn) spawn_shell(g);
         activity_add(&g->act, ACT_INFO, "Cleared shell display.");
         break;
     case BUTTON_SHELL_LOG: {
         const char text[] = "The player shell transcript is at ~/shell.log.";
-        bool ready = g->omp.pid > 0 && !pty_poll_exit(&g->omp);
+        bool ready = (g->omp.pid > 0 && !pty_poll_exit(&g->omp)) || kilix_embed_running(&g->embed);
         if (!ready && g->spawn) spawn_agent_prompt(g, text);
         focus_screen(g, FOCUS_OMP);
         if (ready) paste_into_terminal(g, text, sizeof text - 1);
@@ -2315,6 +2347,10 @@ void game_key(game *g, const key_event *ev)
     }
 
     if (!in_room) {
+        if (kilix_embed_running(&g->embed)) {
+            if (press) kilix_embed_key(&g->embed, g->sc.focus == FOCUS_SHELL ? 1 : 0, ev);
+            return;
+        }
         pty_proc *p = g->sc.focus == FOCUS_OMP ? &g->omp : &g->shell;
         neuroterm *t = g->sc.focus == FOCUS_OMP ? &g->omp_vt : &g->shell_vt;
         char buf[256];
@@ -2383,8 +2419,17 @@ void game_click(game *g, int x, int y)
         press_room_button(g, button);
         return;
     }
-    if (inside(layout_screen(SCREEN_OMP), x, y)) focus_screen(g, FOCUS_OMP);
-    else if (inside(layout_screen(SCREEN_SHELL), x, y)) focus_screen(g, FOCUS_SHELL);
+    if (inside(layout_screen(SCREEN_OMP), x, y)) {
+        rect r = layout_screen(SCREEN_OMP);
+        focus_screen(g, FOCUS_OMP);
+        if (kilix_embed_running(&g->embed))
+            kilix_embed_click(&g->embed, 0, x - r.x, y - r.y, r.w, r.h, 3, 1);
+    } else if (inside(layout_screen(SCREEN_SHELL), x, y)) {
+        rect r = layout_screen(SCREEN_SHELL);
+        focus_screen(g, FOCUS_SHELL);
+        if (kilix_embed_running(&g->embed))
+            kilix_embed_click(&g->embed, 1, x - r.x, y - r.y, r.w, r.h, 3, 1);
+    }
     else if (inside(layout_screen(SCREEN_GOAL), x, y)) next_hint(g);
     else if (inside(layout_screen(SCREEN_ACT), x, y) || inside(layout_resources(), x, y)) return;
     else focus_screen(g, FOCUS_ROOM);
@@ -2403,6 +2448,24 @@ void game_pointer(game *g, int x, int y, pointer_action action)
     if (g->menu.open) {
         s->dragging = false;
         return;
+    }
+    if (kilix_embed_running(&g->embed)) {
+        int pane = inside(layout_screen(SCREEN_OMP), x, y) ? 0 :
+                   inside(layout_screen(SCREEN_SHELL), x, y) ? 1 : -1;
+        if (pane >= 0) {
+            rect r = layout_screen(pane == 0 ? SCREEN_OMP : SCREEN_SHELL);
+            s->dragging = false;
+            if (action == POINTER_MIDDLE) {
+                if (!g->primary[0]) return;
+                focus_screen(g, pane == 0 ? FOCUS_OMP : FOCUS_SHELL);
+                kilix_embed_type(&g->embed, pane, g->primary, strlen(g->primary));
+                return;
+            }
+            if (action == POINTER_DOWN) focus_screen(g, pane == 0 ? FOCUS_OMP : FOCUS_SHELL);
+            kilix_embed_click(&g->embed, pane, x - r.x, y - r.y, r.w, r.h,
+                              action == POINTER_DOWN ? 1 : action == POINTER_UP ? 2 : 0, 1);
+            return;
+        }
     }
     if (action == POINTER_MIDDLE) {
         if (!g->primary[0]) return;
@@ -2460,6 +2523,12 @@ void game_scroll(game *g, int x, int y, int rows)
         screen_id id = (screen_id)i;
         if (!inside(layout_screen(id), x, y)) continue;
         if (g->selection.pane == id) g->selection = (pane_selection){0};
+        if ((id == SCREEN_OMP || id == SCREEN_SHELL) && kilix_embed_running(&g->embed)) {
+            rect r = layout_screen(id);
+            kilix_embed_scroll(&g->embed, id == SCREEN_SHELL ? 1 : 0, rows,
+                               x - r.x, y - r.y, r.w, r.h);
+            return;
+        }
         if (id == SCREEN_GOAL || id == SCREEN_ACT) {
             scroll_text(g, id, id == SCREEN_GOAL ? rows : -rows);
             return;
@@ -2493,12 +2562,14 @@ void game_scroll(game *g, int x, int y, int rows)
     }
 }
 
-static void pump(pty_proc *p, neuroterm *t, char *note, size_t notecap, const char *who)
+static bool pump(pty_proc *p, neuroterm *t, char *note, size_t notecap, const char *who)
 {
+    bool got = false;
     char buf[16384], reply[256];
     for (int i = 0; i < 16; i++) {   /* bounded per frame */
         long n = pty_read(p, buf, sizeof buf);
         if (n <= 0) break;
+        got = true;
         neuroterm_feed(t, buf, (size_t)n);
         size_t bytes;
         while ((bytes = neuroterm_read(t, reply, sizeof reply)) != 0)
@@ -2506,6 +2577,7 @@ static void pump(pty_proc *p, neuroterm *t, char *note, size_t notecap, const ch
     }
     if (p->pid > 0 && pty_poll_exit(p) && note[0] == '\0')
         snprintf(note, notecap, "%s exited - press Enter here to restart", who);
+    return got;
 }
 
 static void arrive_in_room(game *g, room_transition move)
@@ -2526,8 +2598,21 @@ void game_update(game *g, double dt)
     poll_fetch(&g->menu);
     poll_yesno(&g->menu);
     if (g->spawn) {
-        pump(&g->omp, &g->omp_vt, g->omp_note, sizeof g->omp_note, "the agent");
-        pump(&g->shell, &g->shell_vt, g->shell_note, sizeof g->shell_note, "the shell");
+        if (g->embed.proc.pid > 0) {
+            bool before = g->embed.saw_frame;
+            kilix_embed_poll(&g->embed);
+            if (!before && g->embed.saw_frame) g->omp_note[0] = g->shell_note[0] = 0;
+            if (g->embed.proc.exited &&
+                (g->omp_note[0] == 0 || strcmp(g->omp_note, "Starting the sandbox Kilix.") == 0)) {
+                const char *why = g->embed.error[0] ? g->embed.error :
+                    "the agent exited - press Enter here to restart";
+                snprintf(g->omp_note, sizeof g->omp_note, "%.95s", why);
+                snprintf(g->shell_note, sizeof g->shell_note, "%.95s", why);
+            }
+        } else {
+            pump(&g->omp, &g->omp_vt, g->omp_note, sizeof g->omp_note, "the agent");
+            pump(&g->shell, &g->shell_vt, g->shell_note, sizeof g->shell_note, "the shell");
+        }
         pump_metrics(g);
     }
     if (g->started && g->ranked_attempt.id && g->ranked_session_model[0] && !g->transition_pending) {
@@ -2621,6 +2706,7 @@ bool game_resize(game *g, int w, int h)
     if (neuroterm_resize(&g->omp_vt, OMP_COLS, OMP_ROWS)) pty_resize(&g->omp, OMP_COLS, OMP_ROWS);
     if (neuroterm_resize(&g->shell_vt, SHELL_COLS, SHELL_ROWS))
         pty_resize(&g->shell, SHELL_COLS, SHELL_ROWS);
+    note_embed_sizes(g);
     scene_relayout(&g->sc, &old);
     return true;
 }
@@ -2645,8 +2731,15 @@ static view game_view(const game *g)
     v.omp_history = &g->omp_history;
     v.shell_history = &g->shell_history;
     v.act = &g->act;
+    bool sampling = (g->omp.pid > 0 && !g->omp.exited) || kilix_embed_running(&g->embed);
     v.resource_summary = g->metrics.summary[0] ? g->metrics.summary :
-        g->omp.pid > 0 && !g->omp.exited ? "Sampling resources..." : "Resources   Agent idle";
+        sampling ? "Sampling resources..." : "Resources   Agent idle";
+    v.agent_px = g->embed.agent_px;
+    v.agent_pw = g->embed.agent_w;
+    v.agent_ph = g->embed.agent_h;
+    v.shell_px = g->embed.shell_px;
+    v.shell_pw = g->embed.shell_w;
+    v.shell_ph = g->embed.shell_h;
     v.resource_devices = g->metrics.devices;
     v.goal_scroll = g->goal_scroll;
     v.action_scroll = g->action_scroll;

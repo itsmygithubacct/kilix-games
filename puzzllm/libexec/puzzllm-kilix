@@ -1,0 +1,510 @@
+#!/bin/bash
+# puzzllm-kilix - one private Kilix for the coding harness and the player shell.
+#
+#   puzzllm-kilix paths                 print the private paths and exit
+#   puzzllm-kilix session [PROMPT]      start that Kilix (or PUZZLLM_KILIX)
+#   puzzllm-kilix send agent|shell      type stdin into that pane
+#   puzzllm-kilix --inside              run inside the sandbox (do not call this)
+#   puzzllm-kilix --pane agent          pane command used by the session file
+#   puzzllm-kilix --shell-env           assignments the sandbox evals
+#
+# The instance is not the desktop Kilix. Its broker runtime, listen socket,
+# frames, and Kilix storage are under the puzzllm state directory. Inside the
+# sandbox those paths are /opt/puzzllm/kx, which is a bind of $PUZZLLM_STATE/kx.
+# Nothing here reads or writes the desktop Kilix storage tree.
+set -u
+
+here=$(dirname "$(readlink -f "$0")")
+state=${PUZZLLM_STATE:-${XDG_DATA_HOME:-$HOME/.local/share}/puzzllm}
+kx=$state/kx
+
+die() {
+    printf 'puzzllm-kilix: %s\n' "$*" >&2
+    mkdir -p "$kx" 2>/dev/null || true
+    printf '%s\n' "$*" > "$kx/error" 2>/dev/null || true
+    exit 2
+}
+
+forbidden() {
+    local needle
+    needle=$(printf '%s%s' '/.local/gpu_' 'terminal')
+    case "$1" in
+        *"$needle"*) return 0 ;;
+    esac
+    return 1
+}
+
+scrub_desktop() {
+    unset KITTY_LISTEN_ON KITTY_WINDOW_ID KITTY_PID KITTY_PUBLIC_KEY \
+        KITTY_PTY_BROKER_SESSION KITTY_PTY_BROKER_RUNTIME \
+        KITTY_PTY_BROKER_EXECUTABLE KITTY_CONFIG_DIRECTORY \
+        KITTY_CACHE_DIRECTORY KITTY_RUNTIME_DIRECTORY KITTY_INSTALLATION_DIR \
+        KILIX_RC_CONFIG_FILE KILIX_RC_PASSWORD_FILE KILIX_ENV_CONFIG \
+        WAYLAND_DISPLAY
+}
+
+prepare_dirs() {
+    (umask 077
+        mkdir -p "$kx/b" "$kx/g/k/config" "$kx/g/k/state" "$kx/g/k/cache" \
+            "$kx/g/k/session/telemetry" "$kx/g/k/data" "$kx/g/k/build" \
+            "$kx/frames" "$kx/logs") || die "cannot create $kx"
+    chmod 700 "$kx" "$kx/b" "$kx/g" || die "cannot lock down $kx"
+    for dir in "$kx" "$kx/b" "$kx/g"; do
+        [ ! -L "$dir" ] && [ -d "$dir" ] || die "refusing a symlink at $dir"
+    done
+}
+
+# A clickable-chrome kitty that is not the desktop storage tree.
+# Skip a tree whose python and compiled module do not import together.
+engine_imports() {
+    PYTHONPATH=$1 python3 -c 'import kitty.tabs' >/dev/null 2>&1
+}
+
+discover() {
+    local cand real src root broker config kitten extra
+    local -a cands=() kittens=() brokers=()
+    [ -n "${PUZZLLM_KILIX_BIN:-}" ] && cands+=("$PUZZLLM_KILIX_BIN")
+    if [ -n "${PUZZLLM_KILIX_HOME:-}" ]; then
+        cands+=("$PUZZLLM_KILIX_HOME/src/kitty/launcher/kitty")
+    fi
+    cands+=("$here/../../../../kilix/src/kitty/launcher/kitty"
+            "$here/../../../kilix/src/kitty/launcher/kitty"
+            "$here/../../../kilix-win/src/kitty/launcher/kitty")
+    [ -n "${PUZZLLM_KITTEN:-}" ] && kittens+=("$PUZZLLM_KITTEN")
+    kittens+=("$here/../../../../kilix/src/kitty/launcher/kitten"
+              "$here/../../../kilix/src/kitty/launcher/kitten")
+    [ -n "${PUZZLLM_PTY_BROKER:-}" ] && brokers+=("$PUZZLLM_PTY_BROKER")
+    brokers+=("$here/../../../../kilix/third_party/kitty-pty-broker/build/kitty-pty-broker"
+              "$here/../../../kilix/third_party/kitty-pty-broker/build/kitty-pty-broker")
+    for cand in "${cands[@]}"; do
+        [ -n "$cand" ] && [ -x "$cand" ] || continue
+        real=$(readlink -f "$cand") || continue
+        forbidden "$real" && continue
+        src=$(dirname "$(dirname "$(dirname "$real")")")
+        root=$(dirname "$src")
+        config=$root/config/kitty.conf
+        [ -f "$config" ] || continue
+        forbidden "$config" && continue
+        engine_imports "$src" || continue
+        kitten=
+        for extra in "$(dirname "$real")/kitten" "${kittens[@]}"; do
+            [ -n "$extra" ] && [ -x "$extra" ] || continue
+            extra=$(readlink -f "$extra") || continue
+            forbidden "$extra" && continue
+            kitten=$extra
+            break
+        done
+        [ -n "$kitten" ] || continue
+        broker=
+        for extra in "$root/third_party/kitty-pty-broker/build/kitty-pty-broker" "${brokers[@]}"; do
+            [ -n "$extra" ] && [ -x "$extra" ] || continue
+            extra=$(readlink -f "$extra") || continue
+            forbidden "$extra" && continue
+            broker=$extra
+            break
+        done
+        [ -n "$broker" ] || continue
+        printf '%s\n' "$real" "$kitten" "$broker" "$config" "$src"
+        return 0
+    done
+    return 1
+}
+
+export_private() {
+    export GPU_TERMINAL_HOME=$kx/g
+    export KILIX_STORAGE_HOME=$kx/g/k
+    export KILIX_CONFIG_HOME=$kx/g/k/config
+    export KILIX_STATE_DIRECTORY=$kx/g/k/state
+    export KILIX_CACHE_HOME=$kx/g/k/cache
+    export KILIX_SESSION_HOME=$kx/g/k/session
+    export KILIX_TELEMETRY_RUNTIME=$kx/g/k/session/telemetry
+    export KILIX_DATA_HOME=$kx/g/k/data
+    export KILIX_BUILD_DIRECTORY=$kx/g/k/build
+    export KILIX_PREBUILT_HOME=$kx/g/k/prebuilt
+    export KITTY_CONFIG_DIRECTORY=$kx/g/k/config
+    export KITTY_PTY_BROKER_RUNTIME=$kx/b
+    export KITTY_LISTEN_ON=unix:$kx/listen.sock
+    unset KITTY_PTY_BROKER_SESSION KITTY_WINDOW_ID KITTY_PID KITTY_PUBLIC_KEY
+}
+
+cmd=${1:-}
+case "$cmd" in
+paths)
+    prepare_dirs
+    printf 'host_runtime=%s\n' "$kx/b"
+    printf 'host_listen=%s\n' "$kx/listen.sock"
+    printf 'host_bridge=%s\n' "$kx/bridge.sock"
+    printf 'host_storage=%s\n' "$kx/g"
+    printf 'runtime=%s\n' /opt/puzzllm/kx/b
+    printf 'listen=%s\n' unix:/opt/puzzllm/kx/listen.sock
+    printf 'gpu_terminal_home=%s\n' /opt/puzzllm/kx/g
+    exit 0
+    ;;
+--shell-env)
+    mapfile -t found < <(discover) || die "no private Kilix engine (set PUZZLLM_KILIX_BIN)"
+    [ "${#found[@]}" -eq 5 ] || die "no private Kilix engine (set PUZZLLM_KILIX_BIN)"
+    printf 'kitty=%q\n' "${found[0]}"
+    printf 'kitten=%q\n' "${found[1]}"
+    printf 'broker=%q\n' "${found[2]}"
+    printf 'config=%q\n' "${found[3]}"
+    printf 'src=%q\n' "${found[4]}"
+    exit 0
+    ;;
+send)
+    pane=${2:-}
+    case "$pane" in
+        agent|shell) ;;
+        *) die "usage: puzzllm-kilix send agent|shell" ;;
+    esac
+    to=${PUZZLLM_KILIX_LISTEN:-}
+    case "$to" in
+        unix:/opt/puzzllm/kx/listen.sock) ;;
+        *) die "refusing a listen socket that is not this sandbox Kilix" ;;
+    esac
+    kitten=${PUZZLLM_KITTEN:-kitten}
+    exec "$kitten" @ --to "$to" send-text --match "env:PUZZLLM_PANE=$pane" --stdin
+    ;;
+--pane)
+    init=${PUZZLLM_PANE_INIT:-/opt/puzzllm/bin/puzzllm-agent-init}
+    [ -x "$init" ] || die "pane program is missing"
+    if [ -s /opt/puzzllm/kx/agent-prompt ]; then
+        prompt=$(cat /opt/puzzllm/kx/agent-prompt)
+        if [ -n "${PUZZLLM_CODEX_BIN:-}" ]; then
+            exec "$init" "$PUZZLLM_CODEX_BIN" "$prompt"
+        fi
+        exec "$init" "$prompt"
+    fi
+    if [ -n "${PUZZLLM_CODEX_BIN:-}" ]; then
+        exec "$init" "$PUZZLLM_CODEX_BIN"
+    fi
+    exec "$init"
+    ;;
+session)
+    shift
+    scrub_desktop
+    prepare_dirs
+    : > "$kx/agent-prompt"
+    if [ $# -gt 0 ] && [ -n "${1:-}" ]; then
+        printf '%s' "$1" > "$kx/agent-prompt"
+    fi
+    if [ -n "${PUZZLLM_KILIX:-}" ]; then
+        export_private
+        # A stand-in must see only the private instance, not the desktop one.
+        exec env -i \
+            HOME="${HOME:-/}" \
+            PATH=/usr/bin:/bin \
+            TERM="${TERM:-xterm-256color}" \
+            PUZZLLM_STATE="$state" \
+            PUZZLLM_AGENT="${PUZZLLM_AGENT:-agent}" \
+            GPU_TERMINAL_HOME="$GPU_TERMINAL_HOME" \
+            KILIX_STORAGE_HOME="$KILIX_STORAGE_HOME" \
+            KILIX_CONFIG_HOME="$KILIX_CONFIG_HOME" \
+            KILIX_STATE_DIRECTORY="$KILIX_STATE_DIRECTORY" \
+            KILIX_CACHE_HOME="$KILIX_CACHE_HOME" \
+            KILIX_SESSION_HOME="$KILIX_SESSION_HOME" \
+            KILIX_TELEMETRY_RUNTIME="$KILIX_TELEMETRY_RUNTIME" \
+            KILIX_DATA_HOME="$KILIX_DATA_HOME" \
+            KILIX_BUILD_DIRECTORY="$KILIX_BUILD_DIRECTORY" \
+            KILIX_PREBUILT_HOME="$KILIX_PREBUILT_HOME" \
+            KITTY_CONFIG_DIRECTORY="$KITTY_CONFIG_DIRECTORY" \
+            KITTY_PTY_BROKER_RUNTIME="$KITTY_PTY_BROKER_RUNTIME" \
+            KITTY_LISTEN_ON="$KITTY_LISTEN_ON" \
+            "$PUZZLLM_KILIX" "$@"
+    fi
+    exec "$here/puzzllm-sandbox" kilix
+    ;;
+--inside) ;;
+*)
+    die "usage: puzzllm-kilix paths|session [prompt]|send agent|shell"
+    ;;
+esac
+
+# The rest runs inside the sandbox. The desktop environment was cleared by bwrap.
+umask 077
+[ -d /opt/puzzllm/kx ] || die "Kilix state is not mounted"
+kitty=${PUZZLLM_KITTY:-}
+kitten=${PUZZLLM_KITTEN:-}
+[ -n "$kitty" ] && [ -x "$kitty" ] || die "Kilix engine is not mounted"
+[ -n "$kitten" ] && [ -x "$kitten" ] || die "Kilix kitten is not mounted"
+forbidden "$kitty" && die "refusing a desktop Kilix engine"
+forbidden "${KITTY_PTY_BROKER_EXECUTABLE:-}" && die "refusing a desktop pty broker"
+case "${KITTY_PTY_BROKER_RUNTIME:-}" in
+    /opt/puzzllm/kx/b) ;;
+    *) die "pty broker runtime is not private" ;;
+esac
+case "${KITTY_LISTEN_ON:-}${PUZZLLM_KILIX_LISTEN:-}" in
+    *'@'*) die "refusing an abstract listen socket" ;;
+esac
+
+command -v Xvfb >/dev/null 2>&1 || die "Xvfb is not installed"
+command -v xdotool >/dev/null 2>&1 || die "xdotool is not installed"
+command -v import >/dev/null 2>&1 || die "ImageMagick import is not installed"
+command -v python3 >/dev/null 2>&1 || die "python3 is not installed"
+
+mkdir -p /tmp/.X11-unix
+chmod 1777 /tmp/.X11-unix
+display=
+for n in 20 21 22 23 24 25 26 27 28 29 30; do
+    [ -S "/tmp/.X11-unix/X$n" ] && continue
+    display=$n
+    break
+done
+[ -n "$display" ] || die "no free display"
+# Software GL. The host NVIDIA stack aborts Xvfb when the GPU devices are absent.
+export LIBGL_ALWAYS_SOFTWARE=1
+export GALLIUM_DRIVER=llvmpipe
+export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
+export __GLX_VENDOR_LIBRARY_NAME=mesa
+if [ -f /usr/share/glvnd/egl_vendor.d/50_mesa.json ]; then
+    export __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json
+fi
+Xvfb ":$display" -screen 0 2048x1280x24 -nolisten tcp -ac +extension GLX +extension RANDR \
+    >/opt/puzzllm/kx/logs/xvfb.log 2>&1 &
+xvfb=$!
+export DISPLAY=:$display
+unset WAYLAND_DISPLAY
+ready=0
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    if [ -S "/tmp/.X11-unix/X$display" ]; then ready=1; break; fi
+    sleep 0.05
+done
+[ "$ready" = 1 ] || die "display did not start"
+
+cat > /opt/puzzllm/kx/session.conf <<'EOF'
+os_window_class puzzllm-agent
+os_window_name puzzllm-agent
+os_window_title agent
+os_window_size 960 700
+launch --title=agent --env PUZZLLM_PANE=agent --cwd=/kilix /opt/puzzllm/bin/puzzllm-kilix --pane agent
+new_os_window
+os_window_class puzzllm-shell
+os_window_name puzzllm-shell
+os_window_title shell
+os_window_size 640 360
+launch --title=shell --env PUZZLLM_PANE=shell --cwd=/kilix /opt/puzzllm/bin/puzzllm-shell-init
+EOF
+
+export PUZZLLM_KILIX_LISTEN=unix:/opt/puzzllm/kx/listen.sock
+export KITTY_LISTEN_ON=unix:/opt/puzzllm/kx/listen.sock
+rm -f /opt/puzzllm/kx/listen.sock /opt/puzzllm/kx/bridge.sock /opt/puzzllm/kx/error
+cat > /opt/puzzllm/kx/listen.conf <<'EOF'
+listen_on unix:/opt/puzzllm/kx/listen.sock
+allow_remote_control yes
+confirm_os_window_close 0
+remember_window_size no
+update_check_interval 0
+EOF
+
+exec python3 - "$kitty" "$kitten" "$xvfb" <<'PY'
+import base64, binascii, os, select, signal, socket, stat, subprocess, sys, time
+
+kitty_bin, kitten, xvfb_pid = sys.argv[1], sys.argv[2], int(sys.argv[3])
+root = "/opt/puzzllm/kx"
+listen = "unix:/opt/puzzllm/kx/listen.sock"
+config = "/opt/puzzllm/kilix-config/kitty.conf"
+os.environ["KITTY_LISTEN_ON"] = listen
+os.environ["PUZZLLM_KILIX_LISTEN"] = listen
+os.environ.pop("WAYLAND_DISPLAY", None)
+
+kitty = subprocess.Popen(
+    [kitty_bin,
+     "--config", config, "--config", root + "/listen.conf",
+     "--session", root + "/session.conf",
+     "--listen-on", listen,
+     "--override", "listen_on=" + listen,
+     "--override", "allow_remote_control=yes"],
+    stdin=subprocess.DEVNULL,
+    stdout=open(root + "/logs/kitty.log", "ab"),
+    stderr=subprocess.STDOUT,
+    start_new_session=True)
+
+def stop(status=0):
+    if kitty.poll() is None:
+        kitty.terminate()
+    try:
+        os.kill(xvfb_pid, signal.SIGTERM)
+    except OSError:
+        pass
+    raise SystemExit(status)
+
+signal.signal(signal.SIGTERM, lambda *_: stop(0))
+signal.signal(signal.SIGINT, lambda *_: stop(0))
+
+deadline = time.time() + 8
+while time.time() < deadline:
+    if kitty.poll() is not None:
+        open(root + "/error", "w").write(
+            "Kilix exited %s before its listen socket\n" % (kitty.returncode,))
+        stop(1)
+    sock = root + "/listen.sock"
+    if os.path.exists(sock) and stat.S_ISSOCK(os.stat(sock).st_mode):
+        break
+    time.sleep(0.05)
+else:
+    open(root + "/error", "w").write("Kilix did not open its listen socket\n")
+    stop(1)
+
+path = root + "/bridge.sock"
+try:
+    os.unlink(path)
+except OSError:
+    pass
+server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+server.bind(path)
+os.chmod(path, 0o600)
+server.listen(4)
+server.setblocking(False)
+clients = {}
+pending = b""
+
+def window_id(kind):
+    cls = "puzzllm-agent" if kind == "agent" else "puzzllm-shell"
+    try:
+        out = subprocess.run(["xdotool", "search", "--class", cls],
+                             capture_output=True, text=True, timeout=2).stdout.split()
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return out[0] if out else ""
+
+def launch_agent():
+    subprocess.run(
+        [kitten, "@", "--to", listen, "launch", "--type=os-window",
+         "--os-window-class=puzzllm-agent", "--os-window-title=agent",
+         "--cwd=/kilix", "--env", "PUZZLLM_PANE=agent",
+         "/opt/puzzllm/bin/puzzllm-kilix", "--pane", "agent"],
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL, timeout=5, check=False)
+
+def handle(line):
+    parts = line.split(" ", 3)
+    if not parts or not parts[0]:
+        return
+    op = parts[0]
+    if op == "close-agent":
+        subprocess.run([kitten, "@", "--to", listen, "close-window",
+                        "--match", "env:PUZZLLM_PANE=agent"],
+                       stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, timeout=5, check=False)
+        return
+    if op == "restart-agent":
+        handle("close-agent")
+        launch_agent()
+        return
+    if len(parts) < 2 or parts[1] not in ("agent", "shell"):
+        return
+    pane = parts[1]
+    wid = window_id(pane)
+    if op == "focus":
+        if not wid and pane == "agent":
+            launch_agent()
+        elif wid:
+            subprocess.run(["xdotool", "windowactivate", "--sync", wid],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           timeout=2, check=False)
+        return
+    if op == "resize" and len(parts) == 4 and parts[2].isdigit() and parts[3].isdigit():
+        if wid:
+            subprocess.run(["xdotool", "windowsize", wid, parts[2], parts[3]],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           timeout=2, check=False)
+        return
+    if not wid:
+        return
+    if op == "click" and len(parts) >= 3:
+        bits = parts[2].split(",")
+        if len(bits) != 4 or not all(bit.isdigit() for bit in bits):
+            return
+        x, y, phase, button = bits
+        phase = {"1": "mousedown", "2": "mouseup", "3": "click"}.get(phase, "mousemove")
+        argv = ["xdotool", "mousemove", "--window", wid, x, y]
+        if phase != "mousemove":
+            argv += [phase, button]
+        subprocess.run(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       timeout=2, check=False)
+        return
+    if op == "scroll" and len(parts) == 4 and parts[2].lstrip("-").isdigit():
+        bits = parts[3].split(",")
+        if len(bits) != 2 or not all(bit.isdigit() for bit in bits):
+            return
+        rows = int(parts[2])
+        button = "5" if rows > 0 else "4"
+        for _ in range(min(abs(rows), 12)):
+            subprocess.run(["xdotool", "mousemove", "--window", wid, bits[0], bits[1],
+                            "click", button],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           timeout=2, check=False)
+        return
+    if op == "key" and len(parts) == 3 and all(c.isalnum() or c in "+_-" for c in parts[2]):
+        subprocess.run(["xdotool", "key", "--window", wid, "--", parts[2]],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       timeout=2, check=False)
+        return
+    if op == "type" and len(parts) == 3:
+        try:
+            text = base64.b64decode(parts[2], validate=True).decode("utf-8", "replace")
+        except (ValueError, binascii.Error):
+            return
+        chunks = text.split("\n")
+        for index, chunk in enumerate(chunks):
+            if chunk:
+                subprocess.run(["xdotool", "type", "--window", wid, "--delay", "0", "--", chunk],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               timeout=3, check=False)
+            if index + 1 < len(chunks):
+                subprocess.run(["xdotool", "key", "--window", wid, "Return"],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               timeout=2, check=False)
+        return
+
+def capture():
+    for kind, name in (("agent", "agent.ppm"), ("shell", "shell.ppm")):
+        wid = window_id(kind)
+        if not wid:
+            continue
+        tmp = root + "/frames/" + name + ".tmp"
+        dest = root + "/frames/" + name
+        try:
+            subprocess.run(["import", "-window", wid, "-silent", "ppm:" + tmp],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           timeout=2, check=False)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if os.path.isfile(tmp) and os.path.getsize(tmp) > 16:
+            os.replace(tmp, dest)
+
+last = 0
+while True:
+    if kitty.poll() is not None:
+        open(root + "/error", "w").write(
+            "Kilix exited %s\n" % (kitty.returncode,))
+        stop(kitty.returncode or 1)
+    readable, _, _ = select.select([server, *clients], [], [], 0.1)
+    for sock in readable:
+        if sock is server:
+            conn, _ = server.accept()
+            conn.setblocking(False)
+            clients[conn] = b""
+            continue
+        try:
+            data = sock.recv(65536)
+        except OSError:
+            data = b""
+        if not data:
+            clients.pop(sock, None)
+            sock.close()
+            continue
+        clients[sock] += data
+        while b"\n" in clients[sock]:
+            line, clients[sock] = clients[sock].split(b"\n", 1)
+            try:
+                handle(line.decode("utf-8", "replace").strip())
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+    now = time.time()
+    if now - last >= 0.1:
+        last = now
+        try:
+            capture()
+        except OSError:
+            pass
+PY

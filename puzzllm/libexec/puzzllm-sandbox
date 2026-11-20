@@ -173,6 +173,14 @@ model=$(find_model)
 mode=${1:-}
 [ $# -gt 0 ] && shift
 
+# One private Kilix owns both panes. The requested agent is the real mode so
+# the mounts below stay the ones that agent already uses.
+kilix_session=0
+if [ "$mode" = kilix ]; then
+    kilix_session=1
+    mode=${PUZZLLM_AGENT:-agent}
+fi
+
 if [ "$mode" = paths ]; then
     printf 'state=%s\nomp=%s\nllama_server=%s\nmodel=%s\nmodel_id=%s\n' \
         "$state" "${omp_bin:-}" "${llama_bin:-}" "${model:-}" "$model_id"
@@ -260,6 +268,7 @@ agent|agent-exec|codex|grok|claude|shell|shell-exec)
     (umask 077 && mkdir -p "$state/tmux") || die "cannot create tmux state"
     tmux_mount=--ro-bind
     [ "$mode" = shell ] && tmux_mount=--bind
+    [ "$kilix_session" = 1 ] && tmux_mount=--bind
     args+=("$tmux_mount" "$state/tmux" /opt/puzzllm/tmux
            --setenv TMUX_TMPDIR /opt/puzzllm/tmux)
     ;;
@@ -388,6 +397,85 @@ agent|agent-exec|codex|grok|claude|shell|shell-exec)
     ;;
 esac
 
+# Bind the private Kilix over the puzzllm state directory and point every
+# storage variable at that bind. The desktop instance is not mounted.
+mount_kilix() {
+    local env_text kitty kitten broker config src kittendir needle
+    env_text=$("$here/puzzllm-kilix" --shell-env) || die "no private Kilix engine"
+    kitty=; kitten=; broker=; config=; src=
+    eval "$env_text"
+    [ -n "${kitty:-}" ] && [ -n "${kitten:-}" ] && [ -n "${broker:-}" ] &&
+        [ -n "${config:-}" ] && [ -n "${src:-}" ] || die "no private Kilix engine"
+    needle=$(printf '%s%s' '/.local/gpu_' 'terminal')
+    case "$kitty$kitten$broker$config$src" in
+        *"$needle"*) die "refusing a desktop Kilix engine" ;;
+    esac
+    [ -x "$kitty" ] && [ -x "$kitten" ] && [ -x "$broker" ] &&
+        [ -f "$config" ] && [ -d "$src" ] || die "Kilix engine is incomplete"
+    kittendir=$(dirname "$kitten")
+    mkdir -p "$state/kx/frames" "$state/kx/logs" "$state/kx/b" "$state/kx/g" ||
+        die "cannot create Kilix state"
+    chmod 700 "$state/kx" "$state/kx/b" "$state/kx/g" || die "cannot lock down Kilix state"
+    cat > "$state/kx/listen.conf" <<'EOF'
+listen_on unix:/opt/puzzllm/kx/listen.sock
+allow_remote_control yes
+confirm_os_window_close 0
+remember_window_size no
+update_check_interval 0
+EOF
+    args+=(--bind "$state/kx" /opt/puzzllm/kx
+           --ro-bind "$here/puzzllm-kilix" /opt/puzzllm/bin/puzzllm-kilix
+           --ro-bind "$src" "$src"
+           --ro-bind "$(dirname "$config")" /opt/puzzllm/kilix-config)
+    # The broker loads libkitty-pty-broker.so from $ORIGIN. Binding only the
+    # executable leaves that directory empty inside the sandbox, and every
+    # pane exits before its control socket exists.
+    case "$broker" in
+        "$src"|"$src"/*) ;;
+        *) args+=(--ro-bind "$(dirname "$broker")" "$(dirname "$broker")") ;;
+    esac
+    case "$kitty" in
+        "$src"/*) ;;
+        *) args+=(--ro-bind "$kitty" "$kitty") ;;
+    esac
+    case "$kitten" in
+        "$src"/*) ;;
+        *) args+=(--ro-bind "$kitten" "$kitten") ;;
+    esac
+    [ -d /etc/fonts ] && args+=(--ro-bind /etc/fonts /etc/fonts)
+    [ -e /etc/machine-id ] && args+=(--ro-bind /etc/machine-id /etc/machine-id)
+    [ -e /var/lib/dbus/machine-id ] &&
+        args+=(--ro-bind /var/lib/dbus/machine-id /var/lib/dbus/machine-id)
+    if [ "$mode" != shell ]; then
+        args+=(--ro-bind "$here/puzzllm-shellrc" /opt/puzzllm/shellrc
+               --ro-bind "$here/puzzllm-shell-log" /opt/puzzllm/bin/puzzllm-shell-log
+               --ro-bind "$here/puzzllm-shell-init" /opt/puzzllm/bin/puzzllm-shell-init)
+    fi
+    args+=(--setenv GPU_TERMINAL_HOME /opt/puzzllm/kx/g
+           --setenv KILIX_STORAGE_HOME /opt/puzzllm/kx/g/k
+           --setenv KILIX_CONFIG_HOME /opt/puzzllm/kx/g/k/config
+           --setenv KILIX_STATE_DIRECTORY /opt/puzzllm/kx/g/k/state
+           --setenv KILIX_CACHE_HOME /opt/puzzllm/kx/g/k/cache
+           --setenv KILIX_SESSION_HOME /opt/puzzllm/kx/g/k/session
+           --setenv KILIX_TELEMETRY_RUNTIME /opt/puzzllm/kx/g/k/session/telemetry
+           --setenv KILIX_DATA_HOME /opt/puzzllm/kx/g/k/data
+           --setenv KILIX_BUILD_DIRECTORY /opt/puzzllm/kx/g/k/build
+           --setenv KILIX_PREBUILT_HOME /opt/puzzllm/kx/g/k/prebuilt
+           --setenv KITTY_CONFIG_DIRECTORY /opt/puzzllm/kx/g/k/config
+           --setenv KITTY_PTY_BROKER_RUNTIME /opt/puzzllm/kx/b
+           --setenv KITTY_PTY_BROKER_EXECUTABLE "$broker"
+           --setenv KITTY_PTY_BROKER_TRANSCRIPT_DIR /opt/puzzllm/kx/logs
+           --setenv KITTY_PTY_BROKER_AUTO_RECOVER 0
+           --setenv KILIX_PTY_BROKER 1
+           --setenv KITTY_LISTEN_ON unix:/opt/puzzllm/kx/listen.sock
+           --setenv PUZZLLM_KILIX_LISTEN unix:/opt/puzzllm/kx/listen.sock
+           --setenv PUZZLLM_AGENT "$mode"
+           --setenv PUZZLLM_PANE_INIT "/opt/puzzllm/bin/puzzllm-${mode}-init"
+           --setenv PUZZLLM_KITTY "$kitty"
+           --setenv PUZZLLM_KITTEN "$kitten"
+           --setenv PATH "$kittendir:/opt/puzzllm/bin:/usr/local/bin:/usr/bin:/bin")
+}
+
 case "$mode" in
 agent)
     [ "$harness" = pi ] || { [ -n "$omp_bin" ] && [ -x "$omp_bin" ]; } ||
@@ -449,6 +537,14 @@ EOF
         printf 'setupVersion: 2\n' >> "$cfg"
     fi
     fi
+    if [ "$kilix_session" = 1 ]; then
+        mount_kilix
+        if [ -n "$ollama" ]; then
+            exec "$here/puzzllm-ollama" host "$state" "$ollama" \
+                bwrap "${args[@]}" --remount-ro / -- /opt/puzzllm/bin/puzzllm-kilix --inside "$@"
+        fi
+        exec bwrap "${args[@]}" --remount-ro / -- /opt/puzzllm/bin/puzzllm-kilix --inside "$@"
+    fi
     if [ -n "$ollama" ]; then
         exec "$here/puzzllm-ollama" host "$state" "$ollama" \
             bwrap "${args[@]}" --remount-ro / -- /opt/puzzllm/bin/puzzllm-agent-init "$@"
@@ -456,12 +552,25 @@ EOF
     exec bwrap "${args[@]}" --remount-ro / -- /opt/puzzllm/bin/puzzllm-agent-init "$@"
     ;;
 codex)
+    if [ "$kilix_session" = 1 ]; then
+        args+=(--setenv PUZZLLM_CODEX_BIN "$codex_command")
+        mount_kilix
+        exec bwrap "${args[@]}" --remount-ro / -- /opt/puzzllm/bin/puzzllm-kilix --inside "$@"
+    fi
     exec bwrap "${args[@]}" --remount-ro / -- /opt/puzzllm/bin/puzzllm-codex-init "$codex_command" "$@"
     ;;
 grok)
+    if [ "$kilix_session" = 1 ]; then
+        mount_kilix
+        exec bwrap "${args[@]}" --remount-ro / -- /opt/puzzllm/bin/puzzllm-kilix --inside "$@"
+    fi
     exec bwrap "${args[@]}" --remount-ro / -- /opt/puzzllm/bin/puzzllm-grok-init "$@"
     ;;
 claude)
+    if [ "$kilix_session" = 1 ]; then
+        mount_kilix
+        exec bwrap "${args[@]}" --remount-ro / -- /opt/puzzllm/bin/puzzllm-kilix --inside "$@"
+    fi
     exec bwrap "${args[@]}" --remount-ro / -- /opt/puzzllm/bin/puzzllm-claude-init "$@"
     ;;
 shell)

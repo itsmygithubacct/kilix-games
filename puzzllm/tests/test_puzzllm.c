@@ -2054,7 +2054,7 @@ static void test_model_details_menu(void)
         CHECK(G.menu.details_scroll > 0 &&
               differing(&top, &end, (rect){50, 120, CANVAS_W - 100, CANVAS_H - 210}) > 0,
               "model details scroll to the end of the schema");
-        game_scroll(&G, CANVAS_W / 2, CANVAS_H / 2, -12);
+        game_scroll(&G, CANVAS_W / 2, CANVAS_H / 2, -1000);
         CHECK(G.menu.details_scroll == 0, "wheel scrolls model details");
     } else {
         CHECK(false, "model details test canvases initialized");

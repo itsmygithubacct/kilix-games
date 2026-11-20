@@ -775,13 +775,23 @@ void render_frame(sr_canvas *c, const view *v)
     art_screen(c, layout_screen(SCREEN_OMP), hud,
                s->focus == FOCUS_OMP, near == SCREEN_OMP);
     layout_text_origin(SCREEN_OMP, &tx, &ty);
-    if (v->omp) vt_cells(c, v->omp, v->omp_history, tx, ty, s->focus == FOCUS_OMP && v->blink);
+    if (v->agent_px) {
+        rect r = layout_screen(SCREEN_OMP);
+        draw_picture(c, v->agent_px, v->agent_pw, v->agent_ph, r.x, r.y, r.w, r.h, 1);
+    } else if (v->omp) {
+        vt_cells(c, v->omp, v->omp_history, tx, ty, s->focus == FOCUS_OMP && v->blink);
+    }
     if (v->omp_note) note_over(c, SCREEN_OMP, v->omp_note);
 
     art_screen(c, layout_screen(SCREEN_SHELL), "shell  -  sandbox home",
                s->focus == FOCUS_SHELL, near == SCREEN_SHELL);
     layout_text_origin(SCREEN_SHELL, &tx, &ty);
-    if (v->shell) vt_cells(c, v->shell, v->shell_history, tx, ty, s->focus == FOCUS_SHELL && v->blink);
+    if (v->shell_px) {
+        rect r = layout_screen(SCREEN_SHELL);
+        draw_picture(c, v->shell_px, v->shell_pw, v->shell_ph, r.x, r.y, r.w, r.h, 1);
+    } else if (v->shell) {
+        vt_cells(c, v->shell, v->shell_history, tx, ty, s->focus == FOCUS_SHELL && v->blink);
+    }
     if (v->shell_note) note_over(c, SCREEN_SHELL, v->shell_note);
 
     snprintf(hud, sizeof hud, "Goal  |  Room %d: %.100s", v->lv->number, v->lv->title);

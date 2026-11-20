@@ -253,5 +253,47 @@ KILIX_LLM_MODELS_DIR=$models PUZZLLM_FETCH_FIXTURE_ID=fixture \
 ! grep -q 'bwrap' "$fetch" && pass "the fetcher does not enter the sandbox" ||
     fail "fetcher mentions the sandbox"
 
+kx=$here/libexec/puzzllm-kilix
+! grep -F '/.local/gpu_terminal' "$kx" &&
+    pass "the Kilix launcher does not name the desktop storage tree" ||
+    fail "launcher names the desktop storage tree"
+"$kx" paths > "$scratch/kxpaths"; rc=$?
+[ "$rc" -eq 0 ] &&
+    grep -qx "host_runtime=$PUZZLLM_STATE/kx/b" "$scratch/kxpaths" &&
+    grep -qx "host_listen=$PUZZLLM_STATE/kx/listen.sock" "$scratch/kxpaths" &&
+    grep -qx "host_bridge=$PUZZLLM_STATE/kx/bridge.sock" "$scratch/kxpaths" &&
+    grep -qx "listen=unix:/opt/puzzllm/kx/listen.sock" "$scratch/kxpaths" &&
+    grep -qx "gpu_terminal_home=/opt/puzzllm/kx/g" "$scratch/kxpaths" &&
+    [ "$(stat -c %a "$PUZZLLM_STATE/kx")" = 700 ] &&
+    [ "$(stat -c %a "$PUZZLLM_STATE/kx/b")" = 700 ] &&
+    pass "Kilix paths stay under the puzzllm state directory" ||
+    fail "kilix paths rc=$rc $(cat "$scratch/kxpaths")"
+cat > "$scratch/fake-kilix" <<'EOF'
+#!/bin/sh
+env
+EOF
+chmod 755 "$scratch/fake-kilix"
+KITTY_LISTEN_ON=unix:@kilix-1516703 \
+    KITTY_WINDOW_ID=18 \
+    KITTY_PTY_BROKER_SESSION=desktop \
+    GPU_TERMINAL_HOME=$scratch/forbidden/.local/gpu_terminal \
+    PUZZLLM_KILIX=$scratch/fake-kilix \
+    "$kx" session > "$scratch/kxenv"; rc=$?
+[ "$rc" -eq 0 ] &&
+    grep -qx "GPU_TERMINAL_HOME=$PUZZLLM_STATE/kx/g" "$scratch/kxenv" &&
+    grep -qx "KITTY_PTY_BROKER_RUNTIME=$PUZZLLM_STATE/kx/b" "$scratch/kxenv" &&
+    grep -qx "KITTY_LISTEN_ON=unix:$PUZZLLM_STATE/kx/listen.sock" "$scratch/kxenv" &&
+    ! grep -F '/.local/gpu_terminal' "$scratch/kxenv" &&
+    ! grep -F 'unix:@kilix' "$scratch/kxenv" &&
+    ! grep -q '^KITTY_WINDOW_ID=' "$scratch/kxenv" &&
+    ! grep -q '^KITTY_PTY_BROKER_SESSION=' "$scratch/kxenv" &&
+    pass "a Kilix session does not attach to the desktop instance" ||
+    fail "kilix session rc=$rc $(cat "$scratch/kxenv")"
+PUZZLLM_KILIX_LISTEN=unix:@kilix-1 KITTY_LISTEN_ON=unix:@kilix-1 \
+    "$kx" send shell </dev/null > "$scratch/out" 2>&1; rc=$?
+[ "$rc" -eq 2 ] && grep -q 'not this sandbox Kilix' "$scratch/out" &&
+    pass "Kilix send refuses a desktop listen socket" ||
+    fail "kilix send rc=$rc $(cat "$scratch/out")"
+
 echo "test-cli: $fails failed"
 [ $fails -eq 0 ]

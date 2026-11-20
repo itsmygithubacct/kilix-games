@@ -9,6 +9,7 @@
 #include "art.h"
 #include "count_puzzle.h"
 #include "keys.h"
+#include "kilix_embed.h"
 #include "leaderboard.h"
 #include "levels.h"
 #include "pty.h"
@@ -147,6 +148,7 @@ typedef struct game {
     char campaign_model[SCORE_MODEL_CAP];
     bool transition_pending;
     char omp_note[96], shell_note[96];
+    kilix_embed embed;
 } game;
 
 bool game_init(game *g, const char *root, const char *state, bool spawn,

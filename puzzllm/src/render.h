@@ -12,6 +12,7 @@
 #include "neuroterm_terminal.h"
 
 #include <stdbool.h>
+#include <stdint.h>
 
 typedef struct pane_selection {
     screen_id pane;
@@ -40,6 +41,8 @@ typedef struct view {
     int hints_shown;          /* 0..nhints */
     bool tooltips, room_buttons;
     bool blink;               /* cursor blink phase */
+    const uint32_t *agent_px, *shell_px; /* private Kilix frames, or NULL */
+    int agent_pw, agent_ph, shell_pw, shell_ph;
 } view;
 
 typedef enum compute_mode { COMPUTE_AUTO, COMPUTE_CPU, COMPUTE_GPU } compute_mode;

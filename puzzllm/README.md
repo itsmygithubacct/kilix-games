@@ -36,6 +36,13 @@ same tmux server. Inspect it with `tmux capture-pane -p -t shell` (add
 across rooms and sessions. The sandbox includes instructions in
 `~/docs/tmux.md`. `~` is `/opt/puzzllm/home`, a symlink to the shared
 workspace at `/kilix`.
+
+Those two screens are panes of a private Kilix inside the sandbox, with its
+clickable title bars, its pty broker, and a listen socket under the puzzllm
+state directory. The agent can also type into the shell with
+`kitten @ --to unix:/opt/puzzllm/kx/listen.sock send-text --match env:PUZZLLM_PANE=shell`.
+See `libexec/docs/kilix-panes.md`. The tmux session remains available.
+
 Codex can read the log from its command sandbox. Resetting progress
 backs up the log with the other files.
 
