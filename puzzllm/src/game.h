@@ -98,6 +98,7 @@ typedef struct game {
     game_menu menu;
     char ollama_model[OLLAMA_NAME_CAP];
     bool use_codex;
+    bool use_pi;
     thinking_support thinking_support;
     bool thinking_enabled;
     compute_mode compute;

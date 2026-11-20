@@ -16,6 +16,8 @@ must_fail_write() {
 [ "$PWD" = "$HOME" ] && [ "$HOME" = /kilix ] &&
     ok "cwd is the sandbox home" || fail "cwd is $PWD and home is $HOME"
 [ ! -e "$HOME/workspace" ] && ok "no nested work directory" || fail "found an unexpected work subdirectory"
+grep -Fq 'tmux capture-pane -p -t shell' "$HOME/docs/tmux.md" &&
+    ok "tmux help is available at ~/docs/tmux.md" || fail "tmux help missing"
 
 # writes outside the workspace fail
 must_fail_write "$outside/escape-$mode"
@@ -25,6 +27,7 @@ must_fail_write /etc/escape
 must_fail_write /escape
 must_fail_write /opt/escape
 must_fail_write ../../../escape
+must_fail_write "$HOME/docs/tmux.md"
 [ "$mode" = agent ] && must_fail_write /opt/puzzllm/bin/omp
 
 # the workspace itself is writable, in both sandboxes (owner's decision)

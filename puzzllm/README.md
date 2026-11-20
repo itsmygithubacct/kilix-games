@@ -32,7 +32,8 @@ Neuronte nets draw the text, the terminal characters and Kilix himself (see
 The shell runs in a tmux session and window called `shell`. The coding
 agent using Ollama or llama.cpp can inspect it with
 `tmux capture-pane -p -t shell` (add `-S -` for scrollback). The shell
-appends its raw output to `~/shell.log` across rooms and sessions.
+appends its raw output to `~/shell.log` across rooms and sessions. The
+sandbox includes instructions in `~/docs/tmux.md`.
 Codex can read the log from its command sandbox. Resetting progress
 backs up the log with the other files.
 
@@ -77,12 +78,19 @@ reached. If an agent or shell session ends, press Enter on its screen to
 start a new one.
 
 The game opens on its menu. Use Up and Down to choose **Start game** or
-continue your save, **Exit game**, **Reset progress**, or an agent model.
-Press Enter to select. Reset asks for confirmation, backs up the current
-workspace, and returns you to the menu at level 1. The list refreshes each time you open
+continue your save, **Exit game**, **Reset Game**, **Reset Level**, or an agent model.
+Press Enter to select. Both resets ask for confirmation and back up the current
+workspace. **Reset Game** returns to the menu at level 1. **Reset Level**
+reopens the current level with a fresh workspace, coding session, and shell.
+The list refreshes each time you open
 the menu and includes the default llama.cpp model and the models installed
 on the local Ollama service. Model changes restart the agent with a fresh
-conversation in the same workspace. Choices apply until you quit.
+conversation in the same workspace. Model choices apply until you quit.
+
+**Harness** toggles between OMP and [Pi](https://pi.dev/) for the selected
+Ollama or llama.cpp model. Install Pi first. Switching restarts the agent
+in the same workspace. The choice is saved, and Pi stores its own game
+configuration and session history under `pi/` in the game state.
 
 Choose **Codex (OpenAI)** to run the Codex CLI in the agent pane with the
 same game workspace. The option needs Codex CLI with permission-profile
@@ -188,7 +196,7 @@ slate floor tiles, and a sliding wooden door. The sliding leaf reveals a black o
 
 ## The sandbox
 
-The shell and local omp agents run in [bubblewrap](https://github.com/containers/bubblewrap)
+The shell and local OMP and Pi agents run in [bubblewrap](https://github.com/containers/bubblewrap)
 sandboxes started by [`libexec/puzzllm-sandbox`](libexec/puzzllm-sandbox):
 
 - Every namespace is unshared, network included. The only reachable address
@@ -200,14 +208,13 @@ sandboxes started by [`libexec/puzzllm-sandbox`](libexec/puzzllm-sandbox):
 - Two folders are writable, both under `~/.local/share/puzzllm/` (or
   `$PUZZLLM_STATE`), and both survive restarts:
   - `workspace/`, mounted as `/kilix`. It is both `$HOME` and the working
-    directory of omp and the shell.
-  - `agent/`, mounted separately at `/opt/puzzllm/agent` in the agent
-    sandbox only. It holds omp's config and sessions.
+    directory of the coding agent and the shell.
+  - `agent/` for OMP or `pi/` for Pi, mounted separately at
+    `/opt/puzzllm/agent` in the agent sandbox only. It holds configuration and sessions.
 - In the agent sandbox, `puzzllm-agent-init` starts `llama-server` on the
   sandbox loopback with the Qwen weights mounted read-only. It waits for the
-  server to answer, then starts omp. omp's `models.yml` is written fresh in
-  the sandbox's own `agent/` folder, with one provider, `puzzllm-local`. The
-  user's `~/.omp` is never mounted, so no other provider or key is visible.
+  server to answer, then starts OMP or Pi. The launcher writes the harness's
+  provider configuration (`models.yml` or `models.json`) for `puzzllm-local`.
   If you select Ollama, the agent keeps its private network namespace and
   reaches only the chosen model's chat endpoint through a local Unix socket.
 
@@ -231,11 +238,12 @@ NeuroTerm's `embed.mk` and `include/neuroterm_terminal.h`.
 | tmux | `tmux` on `PATH` for the player shell | |
 | bubblewrap | `bwrap` on `PATH` | |
 | omp | `omp` on `PATH`, then `~/.local/bin/omp` | `PUZZLLM_OMP` |
+| Pi | `pi` on `PATH`, then `~/.local/bin/pi`, with a compatible Node runtime | `PUZZLLM_PI`, `PUZZLLM_PI_NODE` |
 | llama-server | `llama-server` on `PATH`, then a Kilix LLM bench build under `~/.local/share/kilix-llm/bench/engine/` | `PUZZLLM_LLAMA_SERVER` |
 | Neuronte (drawing; optional) | a checkout at `~/projects/neuronte`, built from its two library sources | `make NEURONTE=DIR`, `RENDER=raster`; weights `PUZZLLM_NEURONTE_WEIGHTS` |
 | Qwen 3.5 weights | `Qwen3.5-0.8B-Q8_0.gguf`, the model Zell routes to as `qwen3.5-0.8b`, in the Kilix LLM models folder | `PUZZLLM_MODEL` |
 
-Nothing is downloaded. If a part is missing, the omp screen says which one.
+Nothing is downloaded. If a part is missing, the coding pane says which one.
 `libexec/puzzllm-sandbox paths` prints what was found. In the game menu,
 select **Compute** and press Enter to cycle **Auto**, **CPU**, and **GPU**.
 The choice is saved and applies to Ollama and llama.cpp. Auto lets Ollama

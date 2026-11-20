@@ -319,10 +319,11 @@ static void room_background(sr_canvas *c, const room_art *art, const char *style
 void render_menu(sr_canvas *c, const model_option *models, int count, int selected,
                  const char *active_model, bool loading, bool failed,
                  bool started, int level, bool confirm_reset, const char *notice, int support, bool thinking_enabled, bool codex,
-                 compute_mode compute, bool tooltips)
+                 bool pi, compute_mode compute, bool tooltips)
 {
     static const char *const actions[] = {
-        [MENU_QUIT] = "Exit game", [MENU_RESET] = "Reset progress",
+        [MENU_QUIT] = "Exit game", [MENU_RESET] = "Reset Game",
+        [MENU_RESET_LEVEL] = "Reset Level",
         [MENU_MODEL_DETAILS] = "Model prompt and tools",
         [MENU_CODEX] = "Codex (OpenAI)",
         [MENU_LOCAL] = "Qwen 3.5 (llama.cpp)",
@@ -341,10 +342,13 @@ void render_menu(sr_canvas *c, const model_option *models, int count, int select
     draw_fill(c, 0, 0, c->w, c->h, 0x0c1018, 0.72f);
     if (confirm_reset) {
         int top = (c->h - 130) / 2;
+        bool level_only = selected == MENU_RESET_LEVEL;
         draw_fill(c, x, top, width, 130, 0x151d29, 1);
         draw_stroke(c, x, top, width, 130, 2, 0x826b47, 1);
-        draw_text(c, x + 18, top + 16, "Reset progress?", 0xffde8c, 1);
-        draw_text(c, x + 18, top + 46, "Start at level 1. The current workspace will be backed up.",
+        draw_text(c, x + 18, top + 16, level_only ? "Reset Level?" : "Reset Game?", 0xffde8c, 1);
+        draw_text(c, x + 18, top + 46, level_only ?
+                  "Restart this level. The current workspace will be backed up." :
+                  "Start at level 1. The current workspace will be backed up.",
                   0xf2efeb, 1);
         draw_text(c, x + 18, top + 93, "Enter reset    Esc cancel", 0xbccadb, 1);
         return;
@@ -371,14 +375,16 @@ void render_menu(sr_canvas *c, const model_option *models, int count, int select
         } else if (i == MENU_COMPUTE) {
             const char *mode = compute == COMPUTE_CPU ? "CPU" : compute == COMPUTE_GPU ? "GPU" : "Auto";
             snprintf(label, sizeof label, "Compute: %s", codex ? "managed in Codex" : mode);
-        } else if (i == MENU_TOOLTIPS)
+        } else if (i == MENU_HARNESS)
+            snprintf(label, sizeof label, "Harness: %s", codex ? "Codex" : pi ? "Pi (pi.dev)" : "OMP");
+        else if (i == MENU_TOOLTIPS)
             snprintf(label, sizeof label, "Tooltips: %s", tooltips ? "On" : "Off");
         else if (i < MENU_FIRST_OLLAMA)
             snprintf(label, sizeof label, "%s", actions[i]);
         else
             snprintf(label, sizeof label, "%s (Ollama)", models[i - MENU_FIRST_OLLAMA].name);
         bool disabled = (i == MENU_THINKING && support == THINK_UNAVAILABLE) ||
-                        (i == MENU_COMPUTE && codex);
+                        ((i == MENU_COMPUTE || i == MENU_HARNESS) && codex);
         uint32_t color = disabled ? 0xa6b5c6 : 0xf2efeb;
         text_line(c, x + 20, row_y + 5, label, color, (width - 40) / CELL_W);
     }
@@ -423,6 +429,9 @@ static void details_text(pane_text *pane, model_details_tab tab, const char *pro
     } else if (tab == DETAILS_LLAMA) {
         pane_message(pane, "omp supplies its built-in system prompt and tool definitions to llama.cpp.", 0xd0d4dc);
         pane_message(pane, "The Ollama tab shows the prompt and write schema configured by PuzzLLM.", 0xd0d4dc);
+    } else if (tab == DETAILS_PI) {
+        pane_message(pane, "Pi provides its built-in read, bash, edit and write tools.", 0xd0d4dc);
+        pane_message(pane, "Pi uses its built-in prompt with llama.cpp and the PuzzLLM prompt with Ollama.", 0xd0d4dc);
     } else {
         pane_message(pane, "The Codex CLI supplies its own prompt and tools.", 0xd0d4dc);
     }
@@ -431,7 +440,7 @@ static void details_text(pane_text *pane, model_details_tab tab, const char *pro
 int render_model_details(sr_canvas *c, model_details_tab tab, int scroll,
                          const char *prompt, const char *schema)
 {
-    static const char *const tabs[] = {"Ollama", "llama.cpp", "Codex"};
+    static const char *const tabs[] = {"Ollama", "llama.cpp", "Codex", "Pi"};
     int width = CANVAS_W < 1000 ? CANVAS_W - 100 : 880;
     int height = CANVAS_H - 96;
     int x = (CANVAS_W - width) / 2, y = 48;
@@ -485,7 +494,7 @@ void render_frame(sr_canvas *c, const view *v)
     art_door(c, v->room, v->lv->room, s->door, v->next_room);
 
     if (v->codex) snprintf(hud, sizeof hud, "Codex  -  OpenAI agent");
-    else snprintf(hud, sizeof hud, "omp  -  %.36s",
+    else snprintf(hud, sizeof hud, "%s  -  %.36s", v->pi ? "Pi" : "omp",
                   v->agent_model && v->agent_model[0] ? v->agent_model : "Qwen 3.5 (llama.cpp)");
     art_screen(c, layout_screen(SCREEN_OMP), hud,
                s->focus == FOCUS_OMP, near == SCREEN_OMP);

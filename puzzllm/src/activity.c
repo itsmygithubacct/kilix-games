@@ -207,7 +207,8 @@ static bool newest_session(const activity *a, const char *state, char *out, size
 {
     char root[4096];
     long long best = -1;
-    snprintf(root, sizeof root, "%s/%s/sessions", state, a->codex ? "codex" : "agent");
+    snprintf(root, sizeof root, "%s/%s/sessions", state,
+             a->codex ? "codex" : a->pi ? "pi" : "agent");
     find_session(root, a->codex ? 3 : 1, out, cap, &best);
     return best >= 0;
 }
@@ -218,6 +219,7 @@ void activity_begin_room(activity *a, const char *state, const char *workspace)
     a->head = a->count = 0;
     a->generation++;
     a->partial_len = 0;
+    a->status[0] = 0;
     a->session_path[0] = 0;
     a->session_offset = 0;
     if (newest_session(a, state, a->session_path, sizeof a->session_path) &&
@@ -315,7 +317,7 @@ static void poll_status(activity *a, const char *state)
 {
     char path[4096], buf[ACT_LINE_LEN];
     FILE *f;
-    snprintf(path, sizeof path, "%s/agent/puzzllm/status", state);
+    snprintf(path, sizeof path, "%s/%s/puzzllm/status", state, a->pi ? "pi" : "agent");
     f = fopen(path, "r");
     if (f == NULL) return;
     if (fgets(buf, sizeof buf, f) != NULL) {

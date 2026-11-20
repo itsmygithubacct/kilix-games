@@ -1358,6 +1358,22 @@ static void test_start_and_reset_menu(void)
           "start continues the existing save");
 
     menu_press(KEY_ESCAPE);
+    for (int i = 0; i < MENU_RESET_LEVEL; i++) menu_press(KEY_DOWN);
+    menu_press(KEY_ENTER);
+    CHECK(G.menu.confirm_reset && access(file, F_OK) == 0,
+          "reset level asks before changing the workspace");
+    menu_press(KEY_ENTER);
+    CHECK(G.started && !G.menu.open && G.sc.level == 2 && !G.sc.goal_met &&
+          game_load_progress(state, G.levels.count) == 2 && access(file, F_OK) != 0,
+          "reset level restarts the current room with a fresh workspace");
+    snprintf(pattern, sizeof pattern, "%s/level-reset-3-*/workspace/keepsake", state);
+    glob_t level_backup = {0};
+    CHECK(glob(pattern, 0, NULL, &level_backup) == 0 && level_backup.gl_pathc == 1,
+          "reset level backs up the old workspace");
+    globfree(&level_backup);
+    write_file(file, "keep me", 7);
+
+    menu_press(KEY_ESCAPE);
     menu_press(KEY_DOWN);
     menu_press(KEY_DOWN);
     menu_press(KEY_ENTER);
@@ -1381,6 +1397,23 @@ static void test_start_and_reset_menu(void)
 
     menu_press(KEY_ENTER);
     CHECK(G.started && !G.menu.open && G.sc.level == 0, "start after reset enters level 1");
+    game_shutdown(&G);
+}
+
+static void test_harness_menu(void)
+{
+    char err[256], state[2300];
+    sub(state, sizeof state, "harness-menu");
+    CHECK(game_init(&G, ".", state, false, err, sizeof err), "harness menu: %s", err);
+    CHECK(!G.use_pi, "OMP is the default harness");
+    menu_press(KEY_ESCAPE);
+    for (int i = 0; i < MENU_HARNESS; i++) menu_press(KEY_DOWN);
+    menu_press(KEY_ENTER);
+    CHECK(G.use_pi && G.act.pi && !G.use_codex && !G.ollama_model[0],
+          "Pi switches the local harness and activity source without changing the model");
+    game_shutdown(&G);
+    CHECK(game_init(&G, ".", state, false, err, sizeof err), "reopen harness preference: %s", err);
+    CHECK(G.use_pi && G.act.pi, "Pi selection survives reopening the save");
     game_shutdown(&G);
 }
 
@@ -1697,6 +1730,7 @@ int main(void)
     test_tooltips();
     test_model_details_menu();
     test_start_and_reset_menu();
+    test_harness_menu();
     test_neuroterm();
     test_keys();
     test_levels();

@@ -30,6 +30,17 @@ health() {
     return 1
 }
 
+start_pi() {
+    local thinking=off
+    [ "${PUZZLLM_THINK:-0}" = 1 ] && thinking=medium
+    exec "$PUZZLLM_PI_COMMAND" --provider puzzllm-local --model "$model_id" \
+        --models "puzzllm-local/$model_id" --thinking "$thinking" \
+        --session-dir "$PI_CODING_AGENT_DIR/sessions" \
+        --offline --no-approve --no-extensions --no-skills --no-prompt-templates \
+        --no-context-files --no-themes \
+        --append-system-prompt "Inspect the player shell as described in ~/docs/tmux.md." "$@"
+}
+
 compute=${PUZZLLM_COMPUTE:-auto}
 if [ -n "${PUZZLLM_OLLAMA_MODEL:-}" ]; then
     tool_prompt=$(cat /opt/puzzllm/ollama-prompt.txt) || exit 2
@@ -40,6 +51,10 @@ if [ -n "${PUZZLLM_OLLAMA_MODEL:-}" ]; then
         if { exec 3<>"/dev/tcp/127.0.0.1/$port"; } 2>/dev/null; then
             exec 3>&-
             say "using Ollama model $model_id (compute: $compute, requested ${PUZZLLM_CTX:-32768} context tokens)"
+            if [ -n "${PUZZLLM_PI_COMMAND:-}" ]; then
+                tool_prompt=${tool_prompt/and i (a short description)/and no other arguments}
+                start_pi --system-prompt "$tool_prompt" "$@"
+            fi
             exec /opt/puzzllm/bin/omp --model "puzzllm-local/$model_id" \
                 --system-prompt "$tool_prompt" \
                 --allow-home --no-title --no-lsp --no-extensions --no-skills --no-rules "$@"
@@ -85,6 +100,10 @@ for _ in $(seq 1 600); do
 done
 health || { say "llama-server did not come up"; exec bash -i; }
 
+if [ -n "${PUZZLLM_PI_COMMAND:-}" ]; then
+    say "Qwen 3.5 ready; starting Pi"
+    start_pi "$@"
+fi
 say "Qwen 3.5 ready; starting omp"
 exec /opt/puzzllm/bin/omp --model "puzzllm-local/$model_id" \
     --append-system-prompt "Inspect the player's shell with tmux capture-pane -p -t shell. Its output is recorded in ~/shell.log." \

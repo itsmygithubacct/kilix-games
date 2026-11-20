@@ -56,18 +56,20 @@ class OllamaHandler(http.server.BaseHTTPRequestHandler):
         effort = "none" if raw is False else "medium" if raw is True else raw
         message = {"role": "assistant", "content": f"Hello from the selected model ({effort})"}
         if request.get("tools"):
-            write = request["tools"][0]["function"]["parameters"]
+            write = next(tool["function"]["parameters"] for tool in request["tools"]
+                         if tool["function"]["name"] == "write")
             assert "content" in write["required"]
-            assert write["properties"]["path"]["description"].startswith("Path relative to the sandbox home")
-            assert write["properties"]["content"]["description"] == "Exact text to write to the file."
+            arguments = {"path": "/kilix/hello_world.txt", "content": "Hello, World!"}
+            if "i" in write["properties"]:
+                assert write["properties"]["path"]["description"].startswith("Path relative to the sandbox home")
+                assert write["properties"]["content"]["description"] == "Exact text to write to the file."
+                arguments["i"] = "write the greeting"
             if request["messages"][-1]["role"] == "tool":
                 assert request["messages"][-1]["tool_name"] == "write"
                 assert request["messages"][-2]["tool_calls"][0]["function"]["arguments"]["path"] == "hello_world.txt"
             else:
                 message = {"role": "assistant", "tool_calls": [
-                    {"function": {"name": "write", "arguments": {
-                        "path": "/kilix/hello_world.txt", "content": "Hello, World!", "i": "write the greeting",
-                    }}}
+                    {"function": {"name": "write", "arguments": arguments}}
                 ]}
         record = {"message": message, "done": True, "done_reason": "stop",
                   "prompt_eval_count": 11, "eval_count": 3}

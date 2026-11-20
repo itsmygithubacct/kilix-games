@@ -152,6 +152,23 @@ static bool reset_progress(const char *state)
     return ok;
 }
 
+/* Prepare the replacement before touching the active workspace. */
+static bool reset_level_workspace(const game *g)
+{
+    char backup[2300], fresh[2400];
+    snprintf(backup, sizeof backup, "%s/level-reset-%d-XXXXXX", g->state, g->sc.level + 1);
+    if (!mkdtemp(backup)) return false;
+    snprintf(fresh, sizeof fresh, "%s/workspace", backup);
+    if (mkdir(fresh, 0700) == 0 &&
+        renameat2(AT_FDCWD, g->workspace, AT_FDCWD, fresh, RENAME_EXCHANGE) == 0)
+        return true;
+    int error = errno;
+    rmdir(fresh);
+    rmdir(backup);
+    errno = error;
+    return false;
+}
+
 bool game_reset_progress(const char *state)
 {
     if (!make_dirs(state)) return false;
@@ -183,8 +200,9 @@ static bool archive_workspace(const char *workspace, int number)
             break;
         }
         const char *name = entry->d_name;
-        /* The running shell keeps appending to this log across rooms. */
-        if (!strcmp(name, ".") || !strcmp(name, "..") || !strcmp(name, "shell.log")) continue;
+        /* The running shell keeps its log and the mounted help across rooms. */
+        if (!strcmp(name, ".") || !strcmp(name, "..") ||
+            !strcmp(name, "shell.log") || !strcmp(name, "docs")) continue;
         const char *digits = name + (strncmp(name, "level_", 6) == 0 ? 6 : 0);
         if (digits != name && *digits && digits[strspn(digits, "0123456789")] == 0) {
             struct stat st;
@@ -362,7 +380,9 @@ static void spawn_agent(game *g)
     char *think_env = g->thinking_enabled ? "PUZZLLM_THINK=1" : "PUZZLLM_THINK=0";
     char compute_env[32];
     snprintf(compute_env, sizeof compute_env, "PUZZLLM_COMPUTE=%s", compute_name[g->compute]);
-    char *env[] = {st_env, model_env, think_env, compute_env, "TERM=xterm-256color", NULL};
+    char *env[] = {st_env, model_env, think_env, compute_env,
+                   g->use_pi ? "PUZZLLM_HARNESS=pi" : "PUZZLLM_HARNESS=omp",
+                   "TERM=xterm-256color", NULL};
 
     snprintf(sandbox, sizeof sandbox, "%s/libexec/puzzllm-sandbox", g->root);
     snprintf(st_env, sizeof st_env, "PUZZLLM_STATE=%s", g->state);
@@ -485,19 +505,31 @@ static void start_play(game *g)
 
 static void reset_from_menu(game *g)
 {
+    bool level_only = g->menu.selected == MENU_RESET_LEVEL;
+    int level = level_only ? g->sc.level : 0;
     g->menu.confirm_reset = false;
     if (g->state_lock < 0) {
         snprintf(g->menu.notice, sizeof g->menu.notice, "Could not lock the save for reset.");
         return;
     }
+    if (level_only && g->transition_pending) {
+        snprintf(g->menu.notice, sizeof g->menu.notice, "Resume to finish entering the next level.");
+        return;
+    }
+    bool was_started = g->started;
     stop_metrics(&g->metrics);
     pty_stop(&g->omp);
     pty_stop(&g->shell);
     pty_init(&g->omp);
     pty_init(&g->shell);
     g->started = false;
-    if (!reset_progress(g->state)) {
+    if (!(level_only ? reset_level_workspace(g) : reset_progress(g->state))) {
         snprintf(g->menu.notice, sizeof g->menu.notice, "Reset failed: %s", strerror(errno));
+        if (level_only && was_started && g->spawn) {
+            g->started = true;
+            spawn_agent(g);
+            spawn_shell(g);
+        } else if (level_only) g->started = was_started;
         return;
     }
     neuroterm_feed(&g->omp_vt, "\033c", 2);
@@ -507,9 +539,10 @@ static void reset_from_menu(game *g)
     g->omp_note[0] = g->shell_note[0] = 0;
     g->transition_pending = false;
     g->tick_debt = g->poll_timer = 0;
-    game_enter_level(g, 0);
+    game_enter_level(g, level);
     g->menu.selected = MENU_RESUME;
-    snprintf(g->menu.notice, sizeof g->menu.notice, "Progress reset. Previous files backed up.");
+    if (level_only) start_play(g);
+    else snprintf(g->menu.notice, sizeof g->menu.notice, "Game reset. Previous files backed up.");
 }
 
 static thinking_support bundled_thinking(void)
@@ -596,7 +629,19 @@ static void menu_key(game *g, const key_event *ev)
         menu->notice[0] = 0;
         if (menu->selected == MENU_RESUME) start_play(g);
         if (menu->selected == MENU_QUIT) g->quit = true;
-        if (menu->selected == MENU_RESET) menu->confirm_reset = true;
+        if (menu->selected == MENU_RESET || menu->selected == MENU_RESET_LEVEL)
+            menu->confirm_reset = true;
+        if (menu->selected == MENU_HARNESS && !g->use_codex) {
+            bool pi = !g->use_pi;
+            if (g->state_lock >= 0 && save_state_line(g->state, "harness", pi ? "pi" : "omp")) {
+                pty_stop(&g->omp);
+                g->use_pi = g->act.pi = pi;
+                activity_begin_room(&g->act, g->state, g->workspace);
+                if (g->spawn && g->started && !g->transition_pending) spawn_agent(g);
+            } else {
+                snprintf(menu->notice, sizeof menu->notice, "Could not save the harness setting.");
+            }
+        }
         if (menu->selected == MENU_THINKING && g->thinking_support != THINK_UNAVAILABLE) {
             g->thinking_enabled = !g->thinking_enabled;
             restart_agent(g);
@@ -620,7 +665,7 @@ static void menu_key(game *g, const key_event *ev)
         if (menu->selected == MENU_MODEL_DETAILS) {
             menu->details_open = true;
             menu->details_scroll = 0;
-            menu->details_tab = g->use_codex ? DETAILS_CODEX :
+            menu->details_tab = g->use_codex ? DETAILS_CODEX : g->use_pi ? DETAILS_PI :
                                 g->ollama_model[0] ? DETAILS_OLLAMA : DETAILS_LLAMA;
             read_model_spec(g->root, "puzzllm-ollama-prompt.txt", menu->prompt);
             read_model_spec(g->root, "puzzllm-write-tool.json", menu->write_schema);
@@ -717,6 +762,8 @@ bool game_init(game *g, const char *root, const char *state, bool spawn,
         return false;
     }
     g->compute = load_compute(state);
+    char harness[8];
+    g->use_pi = g->act.pi = load_preference(state, "harness", harness) && strcmp(harness, "pi") == 0;
     char tips[8];
     g->tooltips = load_preference(state, "tooltips", tips) && strcmp(tips, "on") == 0;
     scene_init(&g->sc, 0, g->levels.count);
@@ -1189,6 +1236,7 @@ static view game_view(const game *g)
     v.omp = &g->omp_vt;
     v.agent_model = g->use_codex ? "Codex" : g->ollama_model;
     v.codex = g->use_codex;
+    v.pi = g->use_pi;
     v.shell = &g->shell_vt;
     v.omp_history = &g->omp_history;
     v.shell_history = &g->shell_history;
@@ -1219,5 +1267,6 @@ void game_render(game *g, sr_canvas *c)
         render_menu(c, g->menu.models, g->menu.count, g->menu.selected,
                     v.agent_model, g->menu.loading, g->menu.load_failed,
                     g->started, g->sc.level + 1, g->menu.confirm_reset, g->menu.notice,
-                    g->thinking_support, g->thinking_enabled, g->use_codex, g->compute, g->tooltips);
+                    g->thinking_support, g->thinking_enabled, g->use_codex, g->use_pi,
+                    g->compute, g->tooltips);
 }

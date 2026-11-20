@@ -33,6 +33,7 @@ typedef struct view {
     const char *agent_model;
     const char *resource_summary, *resource_devices;
     bool codex;
+    bool pi;
     const char *omp_note;     /* shown over the omp screen when not NULL */
     const char *shell_note;
     const char *goal_why;     /* "hello_world.txt does not exist yet" */
@@ -43,10 +44,10 @@ typedef struct view {
 
 typedef enum compute_mode { COMPUTE_AUTO, COMPUTE_CPU, COMPUTE_GPU } compute_mode;
 
-enum { MENU_RESUME, MENU_QUIT, MENU_RESET, MENU_THINKING, MENU_COMPUTE, MENU_TOOLTIPS, MENU_MODEL_DETAILS, MENU_CODEX, MENU_LOCAL, MENU_FIRST_OLLAMA };
+enum { MENU_RESUME, MENU_QUIT, MENU_RESET, MENU_RESET_LEVEL, MENU_THINKING, MENU_COMPUTE, MENU_TOOLTIPS, MENU_MODEL_DETAILS, MENU_HARNESS, MENU_CODEX, MENU_LOCAL, MENU_FIRST_OLLAMA };
 
 enum { MODEL_SPEC_CAP = 4096 };
-typedef enum model_details_tab { DETAILS_OLLAMA, DETAILS_LLAMA, DETAILS_CODEX, DETAILS_COUNT } model_details_tab;
+typedef enum model_details_tab { DETAILS_OLLAMA, DETAILS_LLAMA, DETAILS_CODEX, DETAILS_PI, DETAILS_COUNT } model_details_tab;
 
 int render_model_details(sr_canvas *c, model_details_tab tab, int scroll,
                          const char *prompt, const char *schema);
@@ -55,7 +56,7 @@ struct model_option;
 void render_menu(sr_canvas *c, const struct model_option *models, int count, int selected,
                  const char *active_model, bool loading, bool failed,
                  bool started, int level, bool confirm_reset, const char *notice, int thinking_support, bool thinking_enabled, bool codex,
-                 compute_mode compute, bool tooltips);
+                 bool pi, compute_mode compute, bool tooltips);
 size_t render_copy_selection(const view *v, char *out, size_t cap);
 int render_scroll_limit(const view *v, screen_id id);
 void render_frame(sr_canvas *c, const view *v);
