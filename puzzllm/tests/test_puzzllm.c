@@ -1643,11 +1643,12 @@ static void test_bench_menu(void)
     sub(journal, sizeof journal, "bench-events");
     const char *events =
         "{\"event\":\"begin\",\"provider\":\"ollama\",\"model\":\"trial\",\"file\":\"run.jsonl\"}\n"
+        "{\"event\":\"machine\",\"runner\":{\"id\":\"runner123\",\"label\":\"Test rig\",\"cpu\":{\"model\":\"Fixture CPU\"},\"gpus\":[],\"ram_bytes\":1073741824}}\n"
         "{\"event\":\"size\",\"total\":3}\n"
-        "{\"event\":\"answer\",\"n\":1,\"question\":\"Is two even?\",\"band\":\"maths\",\"verdict\":\"correct\",\"reply\":\"YES\",\"expected\":\"YES\"}\n"
+        "{\"event\":\"answer\",\"n\":1,\"seconds\":0.75,\"question\":\"Is two even?\",\"band\":\"maths\",\"verdict\":\"correct\",\"reply\":\"YES\",\"expected\":\"YES\"}\n"
         "{\"event\":\"answer\",\"n\":2,\"question\":\"Is this green?\",\"band\":\"reading\",\"verdict\":\"wrong\",\"reply\":\"NO\",\"expected\":\"YES\"}\n"
         "{\"event\":\"answer\",\"n\":3,\"question\":\"Are the values equal?\",\"band\":\"logic\",\"verdict\":\"invalid\",\"reply\":\"Probably.\",\"expected\":\"NO\"}\n"
-        "{\"event\":\"end\"}\n";
+        "{\"event\":\"end\",\"wall_seconds\":4.5}\n";
     write_file(journal, events, strlen(events));
     char *args[] = {"cat", journal, NULL};
     CHECK(pty_spawn(&G.bench.worker.process, args, NULL, 80, 24), "run benchmark event source");
@@ -1697,6 +1698,15 @@ static void test_bench_menu(void)
     menu_press(KEY_ENTER);
     CHECK(G.bench.page == BENCH_RUNS && G.bench.run_count == 1 && yesno_options(&G.bench) == 1,
           "refresh keeps one slot and a model opens its saved runs");
+    CHECK(G.bench.runs[0].wall_seconds == 4.5 && G.bench.runs[0].mean_answer_seconds == 0.75 &&
+          !strcmp(G.bench.runs[0].runner.cpu, "Fixture CPU"), "history loads runner hardware and measured seconds");
+    menu_press('c');
+    CHECK(G.bench.page == BENCH_MACHINES && yesno_options(&G.bench) == 1 && G.bench.machine_count == 1 &&
+          G.bench.machines[0].mean_wall_seconds == 4.5 && G.bench.machines[0].timed_answers == 1,
+          "model history opens the per-machine averages");
+    rect toggle = yesno_button_rect(L.w, L.h, BENCH_RANKINGS);
+    game_pointer(&G, toggle.x+2, toggle.y+2, POINTER_DOWN);
+    CHECK(G.bench.page == BENCH_RUNS && G.bench.cursor == 0, "clicking Runs returns to the selected run");
     rect list = yesno_picker_rect(L.w, L.h);
     game_pointer(&G, list.x+10, list.y+3, POINTER_DOWN);
     if (G.bench.archive) drain_bench_stream(&G.bench.archive->worker);

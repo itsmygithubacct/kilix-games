@@ -25,6 +25,13 @@ rect yesno_picker_rect(int w, int h)
     return (rect){PAD, 133, w - 2 * PAD, h - 106 - 133};
 }
 
+rect yesno_runs_rect(int w, int h)
+{
+    rect r = yesno_picker_rect(w, h);
+    r.h -= 96;
+    return r;
+}
+
 /* One UTF-8 line, measured in cells as in the room renderer. */
 static const char *line(sr_canvas *c, int x, int y, int width, const char *text, unsigned color, bool wrap)
 {
@@ -62,10 +69,12 @@ static void dock(sr_canvas *c, const yesno_bench *b)
     if (b->page != BENCH_WATCH) {
         buttons[BENCH_MODEL] = NULL;
         if (b->page != BENCH_REPORT) buttons[BENCH_FILTER] = buttons[BENCH_LATEST] = NULL;
-        buttons[BENCH_RANKINGS] = b->page == BENCH_RANKS ? "U  Refresh" : NULL;
+        buttons[BENCH_RANKINGS] = b->page == BENCH_RANKS ? "U  Refresh" :
+                                  b->page == BENCH_RUNS ? "C  Machines" :
+                                  b->page == BENCH_MACHINES ? "C  Runs" : NULL;
         buttons[BENCH_START] = b->page == BENCH_RANKS ? "Enter  Runs" :
                                b->page == BENCH_RUNS ? "Enter  Answers" :
-                               b->page == BENCH_REPORT ? NULL : "Enter  Select";
+                               b->page == BENCH_REPORT || b->page == BENCH_MACHINES ? NULL : "Enter  Select";
     }
     draw_fill(c, 0, c->h-95, c->w, 95, PANEL, 1);
     draw_fill(c, 0, c->h-95, c->w, 1, LINE, 1);
@@ -119,12 +128,34 @@ static void picker(sr_canvas *c, const yesno_bench *b)
     }
 }
 
+static void runner_details(sr_canvas *c, rect r, const bench_runner *runner, const char *extra)
+{
+    char text[1100];
+    int y = r.y+r.h+4;
+    draw_fill(c, r.x, y, r.w, 88, PANEL, 1);
+    snprintf(text, sizeof text, "Runner   %s     %s", runner->label, runner->backend);
+    line(c, r.x+10, y+5, r.w-20, text, AQUA, false);
+    snprintf(text, sizeof text, "CPU   %s      RAM   %s", runner->cpu, runner->ram);
+    line(c, r.x+10, y+26, r.w-20, text, INK, false);
+    snprintf(text, sizeof text, "GPU   %s", runner->gpu);
+    line(c, r.x+10, y+46, r.w-20, text, INK, false);
+    line(c, r.x+10, y+66, r.w-20, extra, MUTED, false);
+}
+
+static void metric(sr_canvas *c, int x, int y, double value, int precision)
+{
+    char text[48];
+    snprintf(text, sizeof text, "%.*f", precision, value);
+    draw_text(c, x, y, value >= 0 ? text : "-", GOLD, 1);
+}
+
 static void records(sr_canvas *c, const yesno_bench *b)
 {
-    rect r = yesno_picker_rect(c->w, c->h);
     bool ranks = b->page == BENCH_RANKS;
+    bool machines = b->page == BENCH_MACHINES;
+    rect r = ranks ? yesno_picker_rect(c->w, c->h) : yesno_runs_rect(c->w, c->h);
     const bench_standing *group = ranks ? NULL : &b->standings[b->standing_index];
-    draw_text(c, PAD, 54, ranks ? "Model rankings" : "Run history", AQUA, 1);
+    draw_text(c, PAD, 54, ranks ? "Model rankings" : machines ? "Machine comparison" : "Run history", AQUA, 1);
     char text[4500];
     if (ranks) {
         snprintf(text, sizeof text, "%d model%s   /   %d run%s     Ranked by mean accuracy across finished runs.",
@@ -135,11 +166,17 @@ static void records(sr_canvas *c, const yesno_bench *b)
     line(c, PAD, 81, r.w, b->catalog_notice[0] ? b->catalog_notice : text,
          b->catalog_notice[0] ? RED : MUTED, false);
     int cols[] = {r.x+10, r.x+76, r.x+r.w-365, r.x+r.w-294, r.x+r.w-207, r.x+r.w-89, r.x+r.w};
-    int run_cols[] = {r.x+10, r.x+r.w/3, r.x+2*r.w/3, r.x+5*r.w/6, r.x+r.w};
+    int run_cols[] = {r.x+10, r.x+187, r.x+r.w-510, r.x+r.w-357,
+                      r.x+r.w-260, r.x+r.w-174, r.x+r.w-84, r.x+r.w};
     const char *headings[] = {"Rank", "Model", "Runs", "Finished", "Avg correct", "Avg %"};
-    const char *run_headings[] = {"Started (UTC)", "Status", "Answered", "Correct"};
-    for (int i=0; i<(ranks ? 6 : 4); i++)
-        draw_text(c, ranks ? cols[i] : run_cols[i], r.y-23, ranks ? headings[i] : run_headings[i], MUTED, 1);
+    const char *run_headings[] = {"Started (UTC)", "Runner", "Status", "Answered", "Correct", "Wall s", "s/answer"};
+    int machine_cols[] = {r.x+10, r.x+r.w/3, r.x+r.w-462, r.x+r.w-397,
+                          r.x+r.w-298, r.x+r.w-191, r.x+r.w-85};
+    const char *machine_headings[] = {"Runner", "Backend", "Runs", "Finished", "Avg %", "Avg wall s", "s/answer"};
+    const int *columns = ranks ? cols : machines ? machine_cols : run_cols;
+    const char *const *titles = ranks ? headings : machines ? machine_headings : run_headings;
+    for (int i=0; i<(ranks ? 6 : 7); i++)
+        draw_text(c, columns[i], r.y-23, titles[i], MUTED, 1);
     int rows = r.h / BENCH_ROW_H, first = yesno_picker_first(b, rows);
     int count = yesno_options(b);
     if (!count) {
@@ -170,15 +207,38 @@ static void records(sr_canvas *c, const yesno_bench *b)
             draw_text(c, cols[4], y, s->finished ? text : "-", INK, 1);
             snprintf(text, sizeof text, "%.1f%%", s->avg_percent);
             draw_text(c, cols[5], y, s->finished ? text : "-", AQUA, 1);
+        } else if (machines) {
+            const bench_machine_result *m = &b->machines[group->first_machine+i];
+            line(c, columns[0], y, columns[1]-columns[0]-8, m->runner.label, INK, false);
+            line(c, columns[1], y, columns[2]-columns[1]-8, m->runner.backend, MUTED, false);
+            snprintf(text, sizeof text, "%d", m->runs);
+            draw_text(c, columns[2], y, text, INK, 1);
+            snprintf(text, sizeof text, "%d", m->finished);
+            draw_text(c, columns[3], y, text, INK, 1);
+            metric(c, columns[4], y, m->avg_percent, 1);
+            metric(c, columns[5], y, m->mean_wall_seconds, 1);
+            metric(c, columns[6], y, m->mean_answer_seconds, 3);
         } else {
             const bench_saved_run *run = &b->runs[group->first_run+i];
             line(c, run_cols[0], y, run_cols[1]-run_cols[0]-8, run->started, INK, false);
-            draw_text(c, run_cols[1], y, run->status, AQUA, 1);
+            line(c, run_cols[1], y, run_cols[2]-run_cols[1]-8, run->runner.label, INK, false);
+            line(c, run_cols[2], y, run_cols[3]-run_cols[2]-8, run->status, AQUA, false);
             snprintf(text, sizeof text, "%d / %d", run->answered, run->total);
-            draw_text(c, run_cols[2], y, text, MUTED, 1);
+            draw_text(c, run_cols[3], y, text, MUTED, 1);
             snprintf(text, sizeof text, "%d", run->correct);
-            draw_text(c, run_cols[3], y, text, INK, 1);
+            draw_text(c, run_cols[4], y, text, INK, 1);
+            metric(c, run_cols[5], y, run->wall_seconds, 1);
+            metric(c, run_cols[6], y, run->mean_answer_seconds, 3);
         }
+    }
+    if (machines && b->cursor >= 0 && b->cursor < count) {
+        const bench_machine_result *m = &b->machines[group->first_machine+b->cursor];
+        snprintf(text, sizeof text, "Finished runs with wall timing   %d      Timed answers   %d",
+                 m->wall_timed_runs, m->timed_answers);
+        runner_details(c, r, &m->runner, text);
+    } else if (!ranks && b->cursor >= 0 && b->cursor < count) {
+        const bench_saved_run *run = &b->runs[group->first_run+b->cursor];
+        runner_details(c, r, &run->runner, run->usage);
     }
 }
 
@@ -251,7 +311,7 @@ void yesno_draw(sr_canvas *c, const yesno_bench *b)
     draw_fill(c, 0, 0, c->w, c->h, BG, 1);
     draw_text(c, PAD, 20, b->page == BENCH_REPORT ? "YES / NO BENCH    SAVED ANSWERS" : "YES / NO BENCH", GOLD, 1);
     if (b->page != BENCH_WATCH && b->page != BENCH_REPORT) {
-        if (b->page == BENCH_RANKS || b->page == BENCH_RUNS) records(c, b);
+        if (b->page == BENCH_RANKS || b->page == BENCH_RUNS || b->page == BENCH_MACHINES) records(c, b);
         else picker(c, b);
         dock(c, b);
         return;

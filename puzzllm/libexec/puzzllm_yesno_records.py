@@ -8,6 +8,9 @@ import os
 from pathlib import Path
 import tempfile
 
+from puzzllm_yesno_comparison import (duration, machine_comparisons, normalize_measurements, runner_labels,
+                                      timing_summary, usage_label)
+
 
 def model_id(provider, model):
     if not model:
@@ -35,7 +38,9 @@ def run_date(path):
 def read_run(path):
     provider = model = status = ""
     identities = set()
-    answers = {}
+    answers, latencies = {}, {}
+    runner = usage = scope = artifact = None
+    wall = setup = ended = None
     total = 0
     damaged = False
     with path.open("rb") as source:
@@ -55,7 +60,14 @@ def read_run(path):
                     if not isinstance(backend, str) or not isinstance(choice, str):
                         raise ValueError("invalid model")
                     provider, model = backend, choice
+                    scope = event.get("backend_scope")
                     total = int(event.get("total", 0))
+                elif kind == "machine":
+                    runner = event.get("runner")
+                elif kind == "artifact":
+                    artifact = event.get("id")
+                elif kind == "ready":
+                    setup = duration(event.get("setup_seconds"))
                 elif kind == "selection" and isinstance(event.get("model"), str):
                     model = event["model"]
                 elif kind == "identity":
@@ -71,7 +83,12 @@ def read_run(path):
                     if n in answers and answers[n] != verdict:
                         damaged = True
                     answers[n] = verdict
+                    seconds = duration(event.get("seconds"))
+                    if seconds is not None:
+                        latencies[n] = seconds
                 elif kind in ("end", "stopped", "error"):
+                    wall, ended = duration(event.get("wall_seconds")), event.get("ended_at")
+                    usage = event.get("runner_usage")
                     status = {"end": "Complete", "stopped": "Stopped", "error": "Failed"}[kind]
             except (KeyError, TypeError, ValueError, UnicodeError):
                 damaged = True
@@ -89,11 +106,13 @@ def read_run(path):
     if len(identities) > 1:
         identity = ""
     return dict(provider=provider, model=identity, file=path.name, started=run_date(path),
-                status=status, total=total, answered=len(answers),
+                status=status, total=total, answered=len(answers), runner=runner, backend_scope=scope,
+                runner_usage=usage, artifact_id=artifact,
+                timing=timing_summary(latencies.values(), wall, setup, ended, len(answers)),
                 correct=sum(verdict == "correct" for verdict in answers.values()))
 
 
-def archived_runs(previous):
+def archived_runs(previous, *, restoring=True):
     # A restored rankings file can contain scores whose question journals were
     # archived separately. Merge by the original run filename on every refresh.
     runs = {}
@@ -104,7 +123,10 @@ def archived_runs(previous):
         if not isinstance(provider, str) or not isinstance(model, str):
             raise ValueError("Invalid model identity")
         for entry in group["history"]:
-            run = dict(entry, provider=provider, model=model, journal_available=False)
+            selected = entry.get("model_path") if provider == "llama.cpp" else None
+            run = dict(entry, provider=provider, model=selected if isinstance(selected, str) and selected else model)
+            if restoring:
+                run["journal_available"] = False
             name = run["file"]
             if Path(name).name != name or not name.endswith(".jsonl") or name in runs:
                 raise ValueError("Invalid run filename")
@@ -117,7 +139,7 @@ def archived_runs(previous):
                 raise ValueError("Inconsistent score")
             if run["started"] is not None and not isinstance(run["started"], str):
                 raise ValueError("Invalid start date")
-            if run["status"] == "Running":
+            if restoring and run["status"] == "Running":
                 run["status"] = "Interrupted"
             runs[name] = run
     if len(runs) != previous["total_runs"]:
@@ -140,39 +162,76 @@ def rankings_document(folder, runs=None):
                        status="Unreadable", total=0, answered=0, correct=0)
         if run is None:
             continue
-        if run["status"] != "Complete" and path.name in runs and runs[path.name]["status"] == "Complete":
-            continue
+        saved = runs.get(path.name)
+        if saved and saved["status"] == "Complete":
+            if run["status"] != "Complete":
+                continue
+            if all(run[key] == saved[key] for key in ("provider", "model", "total", "correct")):
+                for key in ("runner", "runner_usage", "backend_scope", "artifact_id"):
+                    if run.get(key) is None:
+                        run[key] = saved.get(key)
+                old_timing = saved.get("timing") or {}
+                if isinstance(old_timing, dict):
+                    for key in ("ended_at", "wall_seconds", "setup_seconds"):
+                        if run["timing"].get(key) is None:
+                            run["timing"][key] = old_timing.get(key)
+                    if type(old_timing.get("timed_answers")) is int and old_timing["timed_answers"] > run["timing"]["timed_answers"]:
+                        for key in ("timed_answers", "answer_seconds", "mean_answer_seconds", "p95_answer_seconds"):
+                            run["timing"][key] = old_timing.get(key)
         runs[path.name] = dict(run, journal_available=run["status"] not in ("Damaged", "Unreadable"))
+    return summarize_runs(runs)
+
+
+def summarize_runs(runs):
+    # Keep the original path in each journal. A measured content digest also
+    # recognizes an identical GGUF installed under different paths.
+    artifacts = defaultdict(set)
+    for run in runs.values():
+        normalize_measurements(run)
+        if run["provider"] == "llama.cpp" and run.get("artifact_id"):
+            artifacts[run["model"]].add(run["artifact_id"])
     by_model = defaultdict(list)
     for name in sorted(runs, reverse=True):
-        run = runs[name]
-        by_model[run.pop("provider"), run.pop("model")].append(run)
+        run = dict(runs[name])
+        provider, model = run.pop("provider"), run.pop("model")
+        group_id = model
+        if provider == "llama.cpp":
+            run["model_path"] = model
+            if run.get("artifact_id"):
+                group_id = run["artifact_id"]
+            elif len(artifacts[model]) == 1:
+                group_id = next(iter(artifacts[model]))
+        by_model[provider, group_id].append(run)
     groups = []
-    for (provider, model), attempts in by_model.items():
+    for (provider, group_id), attempts in by_model.items():
+        model = min(r["model_path"] for r in attempts) if provider == "llama.cpp" else group_id
         complete = [r for r in attempts if r["status"] == "Complete"]
         count = len(complete)
         mean = Fraction(sum(r["correct"] for r in complete), count) if count else None
         accuracy = sum((Fraction(r["correct"], r["total"]) for r in complete), Fraction()) / count if count else None
-        groups.append((provider, model, attempts, count, mean, accuracy))
-    groups.sort(key=lambda g: (not (g[1] and g[3]), -(g[5] or 0), g[0].casefold(), g[1].casefold(), g[1]))
+        groups.append((provider, model, attempts, count, mean, accuracy, group_id))
+    groups.sort(key=lambda g: (not (g[1] and g[3]), -(g[5] or 0), g[0].casefold(), g[1].casefold(), g[1], g[6]))
     previous_accuracy = None
     rank = 0
     models = []
-    for position, (provider, model, attempts, count, mean, accuracy) in enumerate(groups, 1):
+    for position, (provider, model, attempts, count, mean, accuracy, group_id) in enumerate(groups, 1):
         ranked = bool(model and count)
         if ranked and accuracy != previous_accuracy:
             rank, previous_accuracy = position, accuracy
         models.append(dict(provider=provider or None, model=model or None, rank=rank if ranked else None,
                            runs=len(attempts), finished=count,
                            avg_correct=float(mean) if count else None,
-                           avg_percent=float(accuracy * 100) if count else None, history=attempts))
-    return dict(schema_version=1, benchmark="OneBit", split="dev", total_runs=len(runs), models=models)
+                           avg_percent=float(accuracy * 100) if count else None, history=attempts,
+                           artifact_id=group_id if group_id != model else None,
+                           machine_comparisons=machine_comparisons(attempts)))
+    return dict(schema_version=2, benchmark="OneBit", split="dev", total_runs=len(runs), models=models)
 
 
 def ranking_events(document):
     for group in document["models"]:
         fields = dict(group)
         history = fields.pop("history")
+        machines = fields.pop("machine_comparisons")
         fields.update(provider=fields["provider"] or "", model=fields["model"] or "", rank=fields["rank"] or 0)
         yield dict(event="standing", **fields)
         for run in history:
@@ -181,8 +240,42 @@ def ranking_events(document):
             status = run["status"]
             if status == "Complete" and not run["journal_available"]:
                 status = "Complete (summary only)"
-            yield {**run, "event": "saved_run", "provider": fields["provider"], "model": fields["model"],
-                   "started": date, "status": status}
+            timing = run["timing"]
+            yield dict(event="saved_run", provider=fields["provider"], model=fields["model"], file=run["file"],
+                       started=date, status=status, correct=run["correct"], answered=run["answered"], total=run["total"],
+                       wall_seconds=timing.get("wall_seconds"), mean_answer_seconds=timing.get("mean_answer_seconds"),
+                       backend_scope=run.get("backend_scope"), usage_label=usage_label(run.get("runner_usage")),
+                       **runner_labels(run))
+        for row in machines:
+            yield dict(event="machine_result", runs=row["runs"], finished=row["finished"], avg_percent=row["avg_percent"],
+                       mean_wall_seconds=row["mean_wall_seconds"], mean_answer_seconds=row["mean_answer_seconds"],
+                       wall_timed_runs=row["wall_timed_runs"], timed_answers=row["timed_answers"],
+                       backend_scope=row["backend_scope"], **runner_labels(row))
+
+
+def compare_files(paths):
+    def evidence(row):
+        return (row["status"] == "Complete", row["answered"], row["status"] != "Running",
+                bool(row.get("runner")), row["timing"]["timed_answers"])
+
+    runs = {}
+    for path in paths:
+        document = json.loads(path.read_bytes())
+        if not isinstance(document, dict) or document.get("schema_version") not in (1, 2):
+            raise ValueError(f"Unrecognized rankings format in {path.name}.")
+        for name, run in archived_runs(document, restoring=False).items():
+            normalize_measurements(run)
+            old = runs.get(name)
+            if old and old["status"] == run["status"] == "Complete":
+                for key in ("provider", "model", "correct", "total"):
+                    if old[key] != run[key]:
+                        raise ValueError(f"Conflicting completed scores for {name}.")
+                old_id, new_id = (old.get("runner") or {}).get("id"), (run.get("runner") or {}).get("id")
+                if old_id and new_id and old_id != new_id:
+                    raise ValueError(f"Conflicting machines for {name}.")
+            if old is None or evidence(run) > evidence(old):
+                runs[name] = run
+    return summarize_runs(runs)
 
 
 def save_rankings(folder):
@@ -203,7 +296,7 @@ def save_rankings(folder):
             except (UnicodeError, ValueError):
                 damaged = True
             else:
-                if not isinstance(previous, dict) or previous.get("schema_version") != 1:
+                if not isinstance(previous, dict) or previous.get("schema_version") not in (1, 2):
                     raise ValueError("Unrecognized rankings.json format. Its original contents have been preserved.")
                 try:
                     runs = archived_runs(previous)

@@ -159,6 +159,39 @@ replaces the JSON file. Copy the entire `bench/yesno/` directory to back
 up both the standings and the individual answers. Restoring just the
 rankings file keeps the recorded scores and run summaries.
 
+**Machine comparisons.** In **Rankings**, select a model and press **C**
+for **Machines**. Each row shows the runner, backend, run counts, accuracy,
+mean elapsed seconds per finished run and mean seconds per timed answer
+in those runs. Highlight a machine to see its CPU, GPUs, VRAM and system
+RAM. **C** returns to the individual runs and their measured resource use.
+Set `PUZZLLM_BENCH_MACHINE` before launching the game to give the runner a
+readable label. The saved machine ID is specific to the benchmark.
+
+Version 2 of `rankings.json` stores these comparisons and the measurements
+for each run. Wall time includes setup, model loading, questions and backend
+cleanup. Each run also records setup seconds, its UTC finish time, throughput,
+and mean and 95th-percentile answer latency. Byte counts use bytes and
+durations use seconds. The worker samples whole-machine CPU load, RAM use,
+GPU utilization and VRAM where the operating system exposes them. For
+hosted CLIs and remote Ollama, the hardware measurements describe the
+game's client and the timings include the request round trip. Remote
+Ollama endpoints have distinct tags in the comparison. Older
+journals contribute the answer timings they recorded. Their missing
+hardware and wall times appear as unknown.
+
+To compare exported rankings from two machines, run this from the game
+directory. It prints a tab-separated table and deduplicates shared runs.
+
+```sh
+bin/puzzllm --yesno-compare first/rankings.json second/rankings.json
+```
+
+To see both machines in the game, copy their completed `.jsonl` journals
+into the same `bench/yesno/` directory with their original filenames, then
+press **U** in Rankings. Completed GGUF runs record a content digest so
+identical weights installed at different paths can be compared. Computing
+the digest happens after timing and is cached for unchanged files.
+
 The bench uses the OneBit data from the installed `kilix-bench` package
 or the checkout named by `PUZZLLM_YESNO_BENCH`. Ollama uses `OLLAMA_HOST`.
 GGUF discovery uses `KILIX_LLM_MODELS_DIR` and `PUZZLLM_MODEL`. A selected

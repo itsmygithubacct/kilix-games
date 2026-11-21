@@ -63,6 +63,7 @@ void yesno_close(yesno_bench *b)
     free(b->answers);
     free(b->standings);
     free(b->runs);
+    free(b->machines);
 }
 
 static bool launch(game *g, bench_stream *stream, char *mode, char *arg, char *provider, char *model)
@@ -104,6 +105,12 @@ static double number(const json_doc *doc, int root, const char *key)
 {
     int i = json_get(doc, root, key);
     return i >= 0 && doc->nodes[i].type == JSON_NUMBER ? doc->nodes[i].num : 0;
+}
+
+static double optional_number(const json_doc *doc, int root, const char *key)
+{
+    int i = json_get(doc, root, key);
+    return i >= 0 && doc->nodes[i].type == JSON_NUMBER ? doc->nodes[i].num : -1;
 }
 
 static bool matches(const yesno_bench *b, int i)
@@ -196,6 +203,15 @@ static void worker_event(yesno_bench *b, const json_doc *doc, int root)
     }
 }
 
+static void read_runner(bench_runner *r, const json_doc *doc, int root)
+{
+    copy_field(r->label, sizeof r->label, field(doc, root, "machine_label"));
+    copy_field(r->cpu, sizeof r->cpu, field(doc, root, "cpu_label"));
+    copy_field(r->gpu, sizeof r->gpu, field(doc, root, "gpu_label"));
+    copy_field(r->ram, sizeof r->ram, field(doc, root, "ram_label"));
+    copy_field(r->backend, sizeof r->backend, field(doc, root, "backend_scope"));
+}
+
 static void catalog_event(yesno_bench *b, const json_doc *doc, int root)
 {
     if (b->catalog_notice[0]) return;
@@ -219,6 +235,28 @@ static void catalog_event(yesno_bench *b, const json_doc *doc, int root)
         s->avg_percent = number(doc, root, "avg_percent");
         s->first_run = b->run_count;
         s->loaded = 0;
+        s->first_machine = b->machine_count;
+        s->machine_count = 0;
+        return;
+    }
+    if (!strcmp(event, "machine_result") && b->standing_count) {
+        if (b->machine_count == b->machine_capacity) {
+            int capacity = b->machine_capacity ? 2*b->machine_capacity : 16;
+            bench_machine_result *list = realloc(b->machines, (size_t)capacity * sizeof *list);
+            if (!list) goto full;
+            b->machines = list;
+            b->machine_capacity = capacity;
+        }
+        bench_machine_result *m = &b->machines[b->machine_count++];
+        read_runner(&m->runner, doc, root);
+        m->runs = (int)number(doc, root, "runs");
+        m->finished = (int)number(doc, root, "finished");
+        m->wall_timed_runs = (int)number(doc, root, "wall_timed_runs");
+        m->timed_answers = (int)number(doc, root, "timed_answers");
+        m->avg_percent = optional_number(doc, root, "avg_percent");
+        m->mean_wall_seconds = optional_number(doc, root, "mean_wall_seconds");
+        m->mean_answer_seconds = optional_number(doc, root, "mean_answer_seconds");
+        b->standings[b->standing_count-1].machine_count++;
         return;
     }
     if (!strcmp(event, "saved_run") && b->standing_count) {
@@ -233,6 +271,10 @@ static void catalog_event(yesno_bench *b, const json_doc *doc, int root)
         copy_field(r->file, sizeof r->file, field(doc, root, "file"));
         copy_field(r->started, sizeof r->started, field(doc, root, "started"));
         copy_field(r->status, sizeof r->status, field(doc, root, "status"));
+        read_runner(&r->runner, doc, root);
+        copy_field(r->usage, sizeof r->usage, field(doc, root, "usage_label"));
+        r->wall_seconds = optional_number(doc, root, "wall_seconds");
+        r->mean_answer_seconds = optional_number(doc, root, "mean_answer_seconds");
         r->correct = (int)number(doc, root, "correct");
         r->answered = (int)number(doc, root, "answered");
         r->total = (int)number(doc, root, "total");
@@ -296,7 +338,7 @@ static void rankings(game *g)
 {
     yesno_bench *b = &g->bench;
     clear_models(b);
-    b->standing_count = b->run_count = b->cursor = 0;
+    b->standing_count = b->run_count = b->machine_count = b->cursor = 0;
     b->refresh_rankings = false;
     b->page = BENCH_RANKS;
     if (g->spawn && !launch(g, &b->catalog, "records", g->state, NULL, NULL))
@@ -330,6 +372,7 @@ int yesno_options(const yesno_bench *b)
     if (b->page == BENCH_PROVIDERS) return PROVIDERS;
     if (b->page == BENCH_RANKS) return b->standing_count;
     if (b->page == BENCH_RUNS) return b->standings[b->standing_index].loaded;
+    if (b->page == BENCH_MACHINES) return b->standings[b->standing_index].machine_count;
     return b->model_count + (b->picking < 2 ? 1 : 2);
 }
 
@@ -392,6 +435,7 @@ static void back(yesno_bench *b)
         b->page = BENCH_RUNS;
         break;
     case BENCH_RUNS: b->cursor = b->standing_index; b->page = BENCH_RANKS; break;
+    case BENCH_MACHINES: b->cursor = b->history_cursor; b->page = BENCH_RUNS; break;
     case BENCH_RANKS: clear_models(b); b->page = BENCH_WATCH; break;
     case BENCH_WATCH: b->open = false; break;
     }
@@ -401,7 +445,14 @@ static void button(game *g, int id)
 {
     yesno_bench *b = &g->bench;
     switch (id) {
-    case BENCH_RANKINGS: rankings(g); break;
+    case BENCH_RANKINGS:
+        if (b->page == BENCH_MACHINES) back(b);
+        else if (b->page == BENCH_RUNS) {
+            b->history_cursor = b->cursor;
+            b->cursor = 0;
+            b->page = BENCH_MACHINES;
+        } else rankings(g);
+        break;
     case BENCH_MODEL:
         b->page = BENCH_PROVIDERS;
         b->cursor = b->provider >= 0 ? b->provider : 0;
@@ -440,7 +491,7 @@ void yesno_scroll(yesno_bench *b, int rows)
     b->redraw = true;
     if (b->archive) b = b->archive;
     if (b->page == BENCH_PROVIDERS || b->page == BENCH_MODELS ||
-        b->page == BENCH_RANKS || b->page == BENCH_RUNS) {
+        b->page == BENCH_RANKS || b->page == BENCH_RUNS || b->page == BENCH_MACHINES) {
         int n = yesno_options(b);
         if (!n) return;
         b->cursor += rows;
@@ -496,6 +547,10 @@ void yesno_key(game *g, const key_event *ev)
     }
     if (ev->action != 1) return;
     if (b->page != BENCH_WATCH && b->page != BENCH_REPORT) {
+        if ((b->page == BENCH_RUNS || b->page == BENCH_MACHINES) && (ev->key == 'c' || ev->key == 'C')) {
+            button(g, BENCH_RANKINGS);
+            return;
+        }
         if (ev->key == KEY_ENTER) accept(g);
         if (b->page == BENCH_RANKS && (ev->key == 'u' || ev->key == 'U')) rankings(g);
         return;
@@ -548,7 +603,8 @@ void yesno_click(game *g, int x, int y)
         if (inside(yesno_button_rect(L.w, L.h, i), x, y)) {
             if (b->page == BENCH_WATCH || i == BENCH_BACK ||
                 (b->page == BENCH_REPORT && (i == BENCH_FILTER || i == BENCH_LATEST)) ||
-                (b->page == BENCH_RANKS && i == BENCH_RANKINGS)) button(g, i);
+                ((b->page == BENCH_RANKS || b->page == BENCH_RUNS || b->page == BENCH_MACHINES) &&
+                 i == BENCH_RANKINGS)) button(g, i);
             else if (i == BENCH_START && b->page != BENCH_REPORT) accept(g);
             return;
         }
@@ -556,6 +612,7 @@ void yesno_click(game *g, int x, int y)
     bool watch = b->page == BENCH_WATCH || b->page == BENCH_REPORT;
     if (b->archive) b = b->archive;
     rect area = watch ? yesno_history_rect(L.w, L.h) : yesno_picker_rect(L.w, L.h);
+    if (b->page == BENCH_RUNS || b->page == BENCH_MACHINES) area = yesno_runs_rect(L.w, L.h);
     if (!inside(area, x, y) || b->page == BENCH_ENTRY) return;
     int row = (y - area.y) / BENCH_ROW_H, rows = area.h / BENCH_ROW_H;
     if (row >= rows) return;

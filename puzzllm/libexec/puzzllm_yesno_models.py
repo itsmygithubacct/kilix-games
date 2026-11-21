@@ -1,5 +1,6 @@
 """Discover the model IDs accepted by the installed headless CLIs."""
 from contextlib import suppress
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -190,3 +191,46 @@ def hosted_catalog(provider, need_default=False):
     cache.mkdir(parents=True, exist_ok=True, mode=0o700)
     with tempfile.TemporaryDirectory(dir=cache) as directory:
         return sources[provider](directory, need_default)
+
+
+def gguf_snapshot(model):
+    """Capture the actual file set before loading the model."""
+    path = Path(model).expanduser().resolve(strict=True)
+    parts = [path]
+    split = re.fullmatch(r"(.+)-\d{5}-of-(\d{5})\.gguf", path.name, re.I)
+    if split and int(split[2]) > 1:
+        parts = [path.with_name(f"{split[1]}-{i:05}-of-{split[2]}{path.suffix}") for i in range(1, int(split[2])+1)]
+    return parts, gguf_stamps(parts)
+
+
+def gguf_stamps(parts):
+    return [(s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns) for s in (p.stat() for p in parts)]
+
+
+def gguf_artifact(snapshot, cache, runner_id):
+    """Hash the weights outside the timed interval and cache by file identity."""
+    parts, initial = snapshot
+    if gguf_stamps(parts) != initial:
+        return None
+    key = hashlib.sha256(json.dumps([runner_id, str(parts[0]), initial]).encode()).hexdigest()
+    entry = cache / key
+    try:
+        known = entry.read_text().strip()
+        if re.fullmatch(r"sha256:[0-9a-f]{64}", known):
+            return known
+    except OSError:
+        pass
+    hashes = []
+    for p in parts:
+        with p.open("rb") as source:
+            hashes.append(hashlib.file_digest(source, "sha256").digest())
+    if gguf_stamps(parts) != initial:
+        return None
+    digest = hashes[0] if len(parts) == 1 else hashlib.sha256(b"GGUF shards\0" + b"".join(hashes)).digest()
+    result = "sha256:" + digest.hex()
+    try:
+        cache.mkdir(exist_ok=True, mode=0o700)
+        entry.write_text(result + "\n")
+    except OSError:
+        pass
+    return result

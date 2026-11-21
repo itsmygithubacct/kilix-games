@@ -74,6 +74,14 @@ grep -q 'Hello, World' "$PUZZLLM_STATE/workspace/GOAL.md" &&
     pass "rendering a different room keeps the active guides" || fail "render replaced a guide"
 
 # the frame timer: a busy frame at the size given, and which renderer drew it
+printf '%s\n' '{"schema_version":1,"benchmark":"OneBit","split":"dev","total_runs":0,"models":[]}' > "$scratch/saved rankings.json"
+if "$bin" --yesno-compare "$scratch/saved rankings.json" > "$scratch/machine-table" &&
+   grep -q 'Mean s/answer' "$scratch/machine-table"; then
+    pass "--yesno-compare reads an exported ranking with a space in its path"
+else
+    fail "--yesno-compare did not export the timing columns"
+fi
+
 "$bin" --bench 1366x768 > "$scratch/bench"; rc=$?
 [ $rc -eq 0 ] && grep -q '^renderer: ' "$scratch/bench" &&
     grep -q '^frame 1366x768: .* ms/frame average' "$scratch/bench" &&

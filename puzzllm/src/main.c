@@ -414,6 +414,15 @@ int main(int argc, char **argv)
     char root[2048], state[2048];
     default_paths(root, sizeof root, state, sizeof state);
 
+    if (argc >= 2 && !strcmp(argv[1], "--yesno-compare")) {
+        char helper[4096];
+        snprintf(helper, sizeof helper, "%s/libexec/puzzllm-yesno", root);
+        argv[0] = helper;
+        argv[1] = "compare";
+        execv(helper, argv);
+        perror("puzzllm-yesno");
+        return 1;
+    }
     if (argc == 2 && !strcmp(argv[1], "--yesno")) return play(root, state, true);
     if (argc == 2 && !strcmp(argv[1], "--goal-status")) return current_goal_status(root, state);
     if (argc == 2 && strcmp(argv[1], "--reset-progress") == 0) {
@@ -440,11 +449,11 @@ int main(int argc, char **argv)
     if (argc == 3 && strcmp(argv[1], "--check-level") == 0)
         return check_level(root, state, argv[2]);
     if (argc == 2 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0)) {
-        printf("usage: puzzllm [--version | --yesno | --render DIR | --check-level N | --goal-status | --reset-progress | --bench [WxH] | --renderer]\n");
+        printf("usage: puzzllm [--version | --yesno | --yesno-compare RANKINGS... | --render DIR | --check-level N | --goal-status | --reset-progress | --bench [WxH] | --renderer]\n");
         return 0;
     }
     if (argc != 1) {
-        fprintf(stderr, "usage: puzzllm [--version | --yesno | --render DIR | --check-level N | --goal-status | --reset-progress | --bench [WxH] | --renderer]\n");
+        fprintf(stderr, "usage: puzzllm [--version | --yesno | --yesno-compare RANKINGS... | --render DIR | --check-level N | --goal-status | --reset-progress | --bench [WxH] | --renderer]\n");
         return 2;
     }
     return play(root, state, false);

@@ -20,8 +20,10 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 import uuid
 
-from puzzllm_yesno_models import executable, hosted_catalog, stop_child
-from puzzllm_yesno_records import model_id, ranking_events, rankings_document, save_rankings
+from puzzllm_yesno_comparison import write_comparison
+from puzzllm_yesno_machine import RunnerMonitor, backend_scope
+from puzzllm_yesno_models import executable, gguf_artifact, gguf_snapshot, hosted_catalog, stop_child
+from puzzllm_yesno_records import compare_files, model_id, ranking_events, rankings_document, save_rankings
 
 INSTRUCTION = "Respond with only YES or NO."
 PROVIDERS = ("ollama", "llama.cpp", "codex", "grok", "claude")
@@ -256,11 +258,22 @@ def perform(provider, model, output, path):
                 os.kill(os.getpid(), signal.SIGTERM)
                 return
 
-    record("begin", provider=provider, model=model, total=0,
+    start = time.monotonic()
+    scope = backend_scope(provider, os.environ.get("OLLAMA_HOST"))
+    meter = None
+    model_files = None
+    outcome, detail = "end", {}
+    record("begin", provider=provider, model=model, total=0, backend_scope=scope,
            file=path.name, instruction=INSTRUCTION, split="dev")
     monitor = threading.Thread(target=check_stop, daemon=True)
     monitor.start()
     try:
+        try:
+            meter = RunnerMonitor()
+        except (OSError, ValueError, RuntimeError):
+            pass
+        if meter:
+            record("machine", runner=meter.profile)
         checkpoint()
         requested_id = model_id(provider, model)
         identity = None
@@ -286,8 +299,14 @@ def perform(provider, model, output, path):
             raise RuntimeError("OneBit contains no development questions.")
         def status(text):
             record("status", text=text)
+        if provider == "llama.cpp":
+            try:
+                model_files = gguf_snapshot(model)
+            except (OSError, RuntimeError, ValueError):
+                pass
         with tempfile.TemporaryDirectory(dir=path.parent) as temporary, \
                 answerer(provider, model, Path(temporary), chat_backend, status, identify) as ask:
+            record("ready", setup_seconds=round(time.monotonic() - start, 6))
             for n, item in enumerate(questions, 1):
                 info = dict(n=n, band=item["band"], question=item["prompt"])
                 record("question", **info)
@@ -300,16 +319,30 @@ def perform(provider, model, output, path):
                     verdict = "correct" if reply == expected else "wrong"
                 record("answer", **info, id=item["id"], context=item.get("context", ""),
                        rationale=item["rationale"], reply=reply, expected=expected,
-                       verdict=verdict, seconds=round(time.monotonic() - started, 3))
-        record("end")
+                       verdict=verdict, seconds=round(time.monotonic() - started, 6))
     except KeyboardInterrupt:
-        record("stopped", text="Stopped. Answered questions are saved.")
+        outcome, detail = "stopped", {"text": "Stopped. Answered questions are saved."}
     except Exception as error:
-        record("error", text=str(error))
+        outcome, detail = "error", {"text": str(error)}
     finally:
+        elapsed = round(time.monotonic() - start, 6)
+        ended_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         finished.set()
+        try:
+            usage = meter.finish() if meter else None
+        except (OSError, ValueError, RuntimeError):
+            usage = None
+        record(outcome, **detail, wall_seconds=elapsed, ended_at=ended_at, runner_usage=usage)
         monitor.join()
         checkpoint()
+        if model_files and outcome == "end":
+            try:
+                artifact = gguf_artifact(model_files, path.parent / ".gguf-digests", meter.profile["id"] if meter else None)
+                if artifact:
+                    record("artifact", id=artifact)
+                    checkpoint()
+            except (OSError, RuntimeError, ValueError):
+                pass
         stop_file.unlink(missing_ok=True)
 
 
@@ -336,8 +369,9 @@ def follow(path):
                 pending = lines.pop()
                 for line in lines:
                     row = json.loads(line)
-                    display(row)
-                    if row["event"] != "storage_warning":
+                    if row["event"] != "artifact":
+                        display(row)
+                    if row["event"] not in ("storage_warning", "artifact"):
                         last = row["event"]
                 continue
             if not live:
@@ -409,6 +443,7 @@ def main():
     sub = parser.add_subparsers(dest="action", required=True)
     sub.add_parser("models").add_argument("provider", choices=PROVIDERS)
     sub.add_parser("latest").add_argument("state", type=Path)
+    sub.add_parser("compare").add_argument("files", type=Path, nargs="+")
     sub.add_parser("records").add_argument("state", type=Path)
     report = sub.add_parser("report")
     report.add_argument("state", type=Path)
@@ -422,7 +457,9 @@ def main():
     signal.signal(signal.SIGTERM, interrupt)
     signal.signal(signal.SIGHUP, interrupt)
     try:
-        if args.action == "models":
+        if args.action == "compare":
+            write_comparison(compare_files(args.files), sys.stdout)
+        elif args.action == "models":
             models = local_models(args.provider) if args.provider in PROVIDERS[:2] else hosted_catalog(args.provider)[0]
             if not models and args.provider in PROVIDERS[2:]:
                 emit("status", text="The CLI reported no model IDs. Enter a model ID or use the configured default.")
@@ -457,7 +494,10 @@ def main():
     except KeyboardInterrupt:
         return 130
     except Exception as error:
-        emit("error", text=str(error))
+        if args.action == "compare":
+            print(f"Could not compare rankings ({error})", file=sys.stderr)
+        else:
+            emit("error", text=str(error))
         return 1
     return 0
 

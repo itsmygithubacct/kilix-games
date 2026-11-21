@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Exercise native provider commands, durable runs and exact reply scoring offline."""
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import csv
 import fcntl
+import hashlib
+import io
 import importlib.machinery
 import importlib.util
 import json
@@ -20,6 +23,8 @@ sys.path.insert(0, str(WORKER.parent))
 loader = importlib.machinery.SourceFileLoader("yesno_worker", str(WORKER))
 worker = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
 loader.exec_module(worker)
+import puzzllm_yesno_machine as machine
+from puzzllm_yesno_models import gguf_artifact, gguf_snapshot
 
 QUESTIONS = [
     dict(id="first", band="maths", prompt="Is two even?", answer=0, rationale="Two is even."),
@@ -252,13 +257,20 @@ else:
         original = path.read_bytes()
         board = json.loads(original)
         self.assertEqual((board["schema_version"], board["benchmark"], board["split"], board["total_runs"]),
-                         (1, "OneBit", "dev", 1))
+                         (2, "OneBit", "dev", 1))
         self.assertEqual(path.stat().st_mode & 0o777, 0o600)
         self.assertIn(b'\n  "models": [\n', original)
         group, = board["models"]
         self.assertEqual((group["provider"], group["model"], group["rank"], group["finished"], group["avg_percent"]),
                          ("codex", "chosen-model", 1, 1, 50.0))
         run, = group["history"]
+        self.assertEqual(run["backend_scope"], "provider CLI")
+        self.assertIsInstance(run["runner"]["cpu"], dict)
+        self.assertIsInstance(run["runner"]["gpus"], list)
+        self.assertIn("peak_ram_used_bytes", run["runner_usage"])
+        self.assertEqual(run["timing"]["timed_answers"], 4)
+        self.assertGreaterEqual(run["timing"]["wall_seconds"], run["timing"]["setup_seconds"])
+        self.assertTrue(run["timing"]["ended_at"].endswith("Z"))
         self.assertEqual(run["file"], self.reports()[0].name)
         self.assertRegex(run["started"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$")
         self.assertTrue(run["journal_available"])
@@ -272,7 +284,138 @@ else:
         previous = next(r for r in group["history"] if r["file"] == run["file"])
         self.assertFalse(previous["journal_available"])
         self.assertEqual(previous["status"], "Complete")
+        self.assertEqual((previous["runner"], previous["timing"]), (run["runner"], run["timing"]))
         self.assertIn("Complete (summary only)", [r.get("status") for r in self.result("records", restored)])
+        # A restored legacy copy of the same journal can have fewer measurements.
+        legacy = [r for r in rows(self.reports()[0]) if r["event"] not in ("machine", "ready")]
+        for event in legacy:
+            for key in ("wall_seconds", "ended_at", "runner_usage", "seconds", "backend_scope"):
+                event.pop(key, None)
+        (recovered.parent/run["file"]).write_text("".join(json.dumps(r)+"\n" for r in legacy))
+        self.result("records", restored)
+        history = json.loads(recovered.read_bytes())["models"][0]["history"]
+        kept = next(r for r in history if r["file"] == run["file"])
+        self.assertEqual((kept["runner"], kept["timing"], kept["runner_usage"]),
+                         (run["runner"], run["timing"], run["runner_usage"]))
+
+    def test_inventory_and_system_wide_samples_on_mixed_graphics(self):
+        proc, sysroot = self.root/"proc", self.root/"sys"
+        proc.mkdir()
+        (proc/"cpuinfo").write_text("model name: Test CPU\nphysical id: 0\ncore id: 0\n\n"
+                                   "model name: Test CPU\nphysical id: 0\ncore id: 1\n")
+        (proc/"stat").write_text("cpu 10 0 10 80 0 0 0 0\n")
+        (proc/"meminfo").write_text("MemTotal: 1024 kB\nMemAvailable: 768 kB\n")
+        slot = "0000:02:00.0"
+        device = sysroot/"bus/pci/devices"/slot
+        device.mkdir(parents=True)
+        for name, value in (("class", "0x030000"), ("product_name", "Fixture GPU"), ("vendor", "0x1002"),
+                            ("device", "0xabcd"), ("gpu_busy_percent", "20"), ("mem_info_vram_total", "4096"),
+                            ("mem_info_vram_used", "256")):
+            (device/name).write_text(value)
+        drm = sysroot/"class/drm/card0"
+        drm.mkdir(parents=True)
+        (drm/"device").symlink_to(device)
+        def probe(argv):
+            if argv[0] == "nvidia-smi":
+                return '00000000:01:00.0, NVIDIA Fixture, 8192, 25, 512\n'
+            return ""
+        with patch.object(machine, "command", side_effect=probe), patch.object(machine.os, "cpu_count", return_value=4):
+            monitor = machine.RunnerMonitor(proc, sysroot)
+            try:
+                (proc/"stat").write_text("cpu 30 0 20 150 0 0 0 0\n")
+                (proc/"meminfo").write_text("MemTotal: 1024 kB\nMemAvailable: 128 kB\n")
+                (device/"gpu_busy_percent").write_text("60")
+                (device/"mem_info_vram_used").write_text("1024")
+            finally:
+                usage = monitor.finish()
+        profile = monitor.profile
+        self.assertEqual((profile["cpu"]["model"], profile["cpu"]["physical_cores"], profile["cpu"]["logical_cpus"]),
+                         ("Test CPU", 2, 4))
+        self.assertEqual(profile["ram_bytes"], 1024**2)
+        self.assertEqual([(g["model"], g["vram_bytes"]) for g in profile["gpus"]],
+                         [("NVIDIA Fixture", 8192*1024**2), ("Fixture GPU", 4096)])
+        self.assertEqual((usage["cpu_busy_percent"], usage["peak_ram_used_bytes"]), (30, 896*1024))
+        self.assertEqual([(g["mean_busy_percent"], g["peak_vram_used_bytes"]) for g in usage["gpus"]],
+                         [(25, 512*1024**2), (40, 1024)])
+        with patch.object(machine, "command", return_value=""):
+            empty = machine.RunnerMonitor(self.root/"missing-proc", self.root/"missing-sys")
+            self.assertEqual(empty.profile["gpus"], [])
+            self.assertIsNone(empty.finish()["cpu_busy_percent"])
+        self.assertEqual(machine.backend_scope("ollama", "127.0.0.1:11434"), "loopback Ollama")
+        remote = machine.backend_scope("ollama", "http://remote.example")
+        self.assertTrue(remote.startswith("remote Ollama ["))
+        self.assertEqual(remote, machine.backend_scope("ollama", "http://person@remote.example:11434/"))
+        self.assertNotEqual(remote, machine.backend_scope("ollama", "http://second.example"))
+
+    def test_cross_machine_comparison_uses_content_and_deduplicates_archives(self):
+        def report(state, ordinal, runner, selected, latency, artifact):
+            folder = state/"bench/yesno"
+            folder.mkdir(parents=True, exist_ok=True)
+            path = folder/f"20260901T02000{ordinal}.000000Z-12341234.jsonl"
+            profile = dict(id=runner, label=runner, cpu={"model": "CPU "+runner, "logical_cpus": 8},
+                           ram_bytes=8*1024**3, gpus=[dict(slot="card0", model="GPU "+runner, vram_bytes=1024**3)])
+            events = [dict(event="begin", provider="llama.cpp", model=selected, total=2, backend_scope="local llama.cpp"),
+                      dict(event="machine", runner=profile), dict(event="ready", setup_seconds=1.5),
+                      dict(event="answer", n=1, verdict="correct", seconds=latency),
+                      dict(event="answer", n=2, verdict="wrong", seconds=2*latency),
+                      dict(event="end", wall_seconds=3*latency+2, ended_at="2026-09-01T02:02:00Z"),
+                      dict(event="artifact", id=artifact)]
+            path.write_text("".join(json.dumps(e)+"\n" for e in events))
+            return path
+        a, b = self.root/"a", self.root/"b"
+        cache = self.root/"digests"
+        weight = self.root/"weights.gguf"
+        weight.write_bytes(b"example weights")
+        snapshot = gguf_snapshot(weight)
+        digest = gguf_artifact(snapshot, cache, "machine-a")
+        self.assertEqual(digest, "sha256:"+hashlib.sha256(weight.read_bytes()).hexdigest())
+        weight.write_bytes(b"different contents")
+        self.assertIsNone(gguf_artifact(snapshot, cache, "machine-a"))
+        for n in (1, 2):
+            report(a, n, "alpha", "/first/location/model.gguf", n, digest)
+        other = report(b, 3, "bravo", "/other/place/model.gguf", 4, digest)
+        self.result("records", a)
+        self.result("records", b)
+        files = [d/"bench/yesno/rankings.json" for d in (a,b,a)]
+        before = [f.read_bytes() for f in files]
+        result = subprocess.run([WORKER,"compare",*files], env=self.env, text=True, capture_output=True, check=True)
+        table = list(csv.DictReader(io.StringIO(result.stdout), delimiter="\t"))
+        by_runner = {r["Machine ID"]: r for r in table}
+        self.assertEqual(len(table), 2)
+        for name, runs, wall, seconds in (("alpha", "2", 6.5, 2.25), ("bravo", "1", 14, 6)):
+            row = by_runner[name]
+            self.assertEqual((row["Runs"], row["Finished"], float(row["Mean wall s"]), float(row["Mean s/answer"])),
+                             (runs, runs, wall, seconds))
+            self.assertIn("GPU "+name, row["GPU"])
+        self.assertEqual([f.read_bytes() for f in files], before)
+        (a/"bench/yesno"/other.name).write_bytes(other.read_bytes())
+        self.result("records", a)
+        group, = json.loads(files[0].read_bytes())["models"]
+        self.assertEqual((group["runs"], group["avg_percent"], group["artifact_id"]), (3, 50, digest))
+        self.assertEqual(len(group["machine_comparisons"]), 2)
+        self.assertEqual({r["model_path"] for r in group["history"]}, {"/first/location/model.gguf","/other/place/model.gguf"})
+
+    def test_legacy_timing_migrates_without_assigning_the_readers_hardware(self):
+        folder = self.state/"bench/yesno"
+        folder.mkdir(parents=True)
+        path = folder/"old.jsonl"
+        events = [dict(event="begin",provider="codex",model="fixture",total=3),
+                  dict(event="answer",n=1,verdict="correct",seconds=0),
+                  dict(event="answer",n=1,verdict="correct",seconds=0),
+                  dict(event="answer",n=2,verdict="wrong",seconds=2),
+                  dict(event="answer",n=3,verdict="correct"), dict(event="end")]
+        path.write_text("".join(json.dumps(e)+"\n" for e in events))
+        board = folder/"rankings.json"
+        board.write_text(json.dumps(dict(schema_version=1,benchmark="OneBit",split="dev",total_runs=0,models=[])))
+        self.result("records",self.state)
+        document = json.loads(board.read_bytes())
+        r, = document["models"][0]["history"]
+        self.assertEqual(document["schema_version"], 2)
+        self.assertIsNone(r["runner"])
+        self.assertIsNone(r["runner_usage"])
+        self.assertIsNone(r["timing"]["wall_seconds"])
+        self.assertEqual((r["timing"]["timed_answers"], r["timing"]["answer_seconds"], r["timing"]["mean_answer_seconds"],
+                          r["timing"]["p95_answer_seconds"], r["correct"]), (2, 2, 1, 2, 2))
 
     def test_snapshot_repair_and_failed_atomic_replace_preserve_previous_data(self):
         self.result("run", self.state, "codex", "one")
