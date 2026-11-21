@@ -126,10 +126,12 @@ is running. The bench has its own selection, independent of the coding session
 and campaign.
 
 **Kilix models** offers the installed Needle2, Needle3 and Kilix LFM2. Needle
-gets a single answer tool whose value is `YES` or `NO`. Each native reply is
-saved for inspection. Ollama decision models, including AutoTrust Jev, use
-the native binary decision API and record its probability. At or above 0.5
-the answer is YES.
+chooses between two answer tools, `answer_yes()` and `answer_no()`. Empty or
+ambiguous calls count as invalid. The answers view and saved journals retain
+those attempts. Needle2 uses a fresh process for each question. Needle3
+resets its cached runtime between questions. Ollama decision models, including
+AutoTrust Jev, use the native binary decision API and record its probability.
+At or above 0.5 the answer is YES.
 
 For a hosted model, press **E** or click **Effort** to choose a reasoning
 level for the next run. Each provider, model and effort has its own ranking,
