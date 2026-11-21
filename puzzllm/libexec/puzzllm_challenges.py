@@ -237,19 +237,25 @@ BATCH = {
 def check_batch(name, run):
     generate, validate, noun = BATCH[name]
     cases = list(generate())
-    stdin = "".join(line + "\n" for line, _ in cases).encode("ascii")
-    output = run(stdin).decode("ascii").split("\n")
-    if output[-1] == "":
-        output.pop()
-    for i, (line, expected) in enumerate(cases):
-        try:
-            if i == len(output):
-                raise Incorrect("Missing output line.")
-            validate(expected, output[i].removesuffix("\r"))
-        except Incorrect as error:
-            raise Incorrect(f"Case {i + 1}, input {line or '(empty)'}: {error}") from None
-    if len(output) != len(cases):
-        raise Incorrect(f"Expected {len(cases)} output lines, received {len(output)}.")
+    # Each case is independent. A fixed transcript must not solve the room.
+    order = list(range(len(cases)))
+    random.SystemRandom().shuffle(order)
+    middle = len(order) // 2
+    for batch in (order[:middle], order[middle:]):
+        stdin = "".join(cases[index][0] + "\n" for index in batch).encode("ascii")
+        output = run(stdin).decode("ascii").split("\n")
+        if output[-1] == "":
+            output.pop()
+        if len(output) > len(batch):
+            raise Incorrect(f"Expected {len(batch)} output lines in this batch, received {len(output)}.")
+        for position, index in enumerate(batch):
+            line, expected = cases[index]
+            try:
+                if position == len(output):
+                    raise Incorrect("Missing output line.")
+                validate(expected, output[position].removesuffix("\r"))
+            except Incorrect as error:
+                raise Incorrect(f"Case {index + 1}, input {line or '(empty)'}: {error}") from None
     return f"Passed all {len(cases)} {noun}."
 
 
@@ -261,7 +267,10 @@ def rename_carousel(run, scratch):
         contents = {label: b"\x00" + os.urandom(16 + i) + b"\n" for i, label in enumerate(labels)}
         for label, content in contents.items():
             (directory / label).write_bytes(content)
-        manifest = "".join(f"{a} {b}\n" for a, b in zip(labels, destinations))
+        pairs = list(zip(labels, destinations))
+        # Rotate the manifest so the source column matters, including in swaps.
+        offset = (case - 1) % len(labels)
+        manifest = "".join(f"{a} {b}\n" for a, b in pairs[offset:] + pairs[:offset])
         try:
             run(manifest.encode("ascii"), directory)
             if {item.name for item in directory.iterdir()} != set(labels):

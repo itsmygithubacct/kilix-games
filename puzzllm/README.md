@@ -430,7 +430,7 @@ code; further rooms that use them are blocks. The full format is in
 
 Room 19 marks the end of the playable campaign. Each advanced room names its submission file and its guide under `~/docs/challenges/`. These guides include sample inputs, accepted outputs and the exact rules. The door and `~/check_goal_status.sh` use the same verifier. An unsuccessful submission reports the first failing input, mapping or event trace.
 
-The `check: challenge NAME` entry selects the verifier by submission filename. Python and Bash submissions run in Bubblewrap with standard input and a private filesystem. Rename scripts get a fresh directory for each permutation. The host grader checks the submitted results independently. The two declarative tables are read as data.
+The `check: challenge NAME` entry selects the verifier by submission filename. Python and Bash submissions run in Bubblewrap with standard input and a private filesystem. Each line-oriented solver receives shuffled cases in separate batches. Rename scripts get a fresh directory for each permutation. The host grader checks the submitted results independently. The two declarative tables are read as data.
 
 The generated pixel art in `assets/` includes blue stone and red brick walls,
 slate floor tiles, and a sliding wooden door. The sliding leaf reveals a black opening.

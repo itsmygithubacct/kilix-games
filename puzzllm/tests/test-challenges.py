@@ -218,15 +218,18 @@ class Campaign(unittest.TestCase):
 
     def test_rename_checks_all_permutations_and_leftovers(self):
         calls = []
+        row_orders = set()
         def reference(manifest, directory):
             pairs = [line.split() for line in manifest.decode().splitlines()]
-            calls.append(tuple(b for a,b in pairs))
+            row_orders.add("".join(a for a, _ in pairs))
+            calls.append(tuple(b for _, b in sorted(pairs)))
             payload = {old:(directory/old).read_bytes() for old,_ in pairs}
             for old,new in pairs:
                 (directory/new).write_bytes(payload[old])
         puzzles.rename_carousel(reference, self.state)
         self.assertEqual(set(calls), set(permutations("ABCD")))
         self.assertEqual(len(calls), 24)
+        self.assertGreater(len(row_orders), 1)
         for script, message in [("true", "original bytes"), (SOLUTIONS["rename.sh"] + "touch .temp", "exactly"),
                                 (SOLUTIONS["rename.sh"] + 'for f in A B C D; do head -c "$(wc -c < "$f")" /dev/zero > ".$f"; mv ".$f" "$f"; done', "original bytes"),
                                 ("rm D; ln -s A D", "original bytes")]:
@@ -234,6 +237,12 @@ class Campaign(unittest.TestCase):
                 code, result = self.grade("rename.sh", script)
                 self.assertEqual(code, 1, result)
                 self.assertIn(message, result)
+
+    def test_fixed_transcript_cannot_solve_a_batch(self):
+        transcript = "\n".join(answer for _, answer in puzzles.lift_cases())
+        code, result = self.grade("lift.py", f"print({transcript!r})")
+        self.assertEqual(code, 1, result)
+        self.assertIn("output lines", result)
 
     def test_unfinished_programs_fail(self):
         for source, message in [("import time; time.sleep(30)", "too long"),

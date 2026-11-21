@@ -1,6 +1,6 @@
 # The Rename Carousel
 
-Write `~/rename.sh`. The grader runs it with Bash in a fresh directory containing exactly four regular files named A, B, C and D. Its standard input is a four-line manifest. Each line contains a source and a destination separated by one space. Each name occurs once in each column.
+Write `~/rename.sh`. The grader runs it with Bash in a fresh directory containing exactly four regular files named A, B, C and D. Its standard input is a four-line manifest. Each line contains a source and a destination separated by one space. Each name occurs once in each column. The rows can appear in any order.
 
 For example, this manifest swaps A and B and leaves C and D in place.
 
