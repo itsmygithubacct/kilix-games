@@ -181,8 +181,9 @@ static void records(sr_canvas *c, const yesno_bench *b)
     draw_text(c, PAD, 54, ranks ? "Model rankings" : machines ? "Machine comparison" : "Run history", AQUA, 1);
     char text[4500];
     if (ranks) {
-        snprintf(text, sizeof text, "%d entries   /   %d runs     Ranked by mean accuracy.     !  Invalid YES/NO reply",
-                 b->standing_count, b->run_count);
+        snprintf(text, sizeof text, "%d %s   /   %d %s     Ranked by mean accuracy.     !  Invalid YES/NO reply",
+                 b->standing_count, b->standing_count == 1 ? "entry" : "entries",
+                 b->run_count, b->run_count == 1 ? "run" : "runs");
     } else {
         snprintf(text, sizeof text, "%s / %s%s%s", group->provider, *group->model ? group->model : "Unrecorded default",
                  !strcmp(group->effort, "-") ? "" : "    Effort  ", !strcmp(group->effort, "-") ? "" : group->effort);

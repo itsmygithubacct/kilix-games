@@ -1817,6 +1817,7 @@ static void menu_key(game *g, const key_event *ev)
             menu->page = MENU_PAGE_DOWNLOAD;
             menu->name_edit = false;
             menu_move(g, 0);
+            break;
         }
         if (menu->selected == MENU_DL_NAME) {
             menu->name_edit = true;

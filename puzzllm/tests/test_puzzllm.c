@@ -2412,6 +2412,7 @@ static void test_downloads(void)
     setenv("PUZZLLM_FETCH_LOG", log, 1);
 
     menu_to(MENU_DL_GGUF_08);
+    CHECK(!G.menu.fetching && access(log, F_OK) != 0, "browsing downloads leaves every model uninstalled");
     CHECK(G.menu.open && G.menu.page == MENU_PAGE_DOWNLOAD && G.menu.selected == MENU_DL_GGUF_08,
           "the model menu opens the download list");
     menu_press(KEY_ENTER);
