@@ -368,7 +368,17 @@ printf 'level 2\n' > "$goal_state/progress"
 report shell; rc=$?
 [ "$rc" = 1 ] && grep -q '^Level 2 ' "$scratch/status.out" && grep -q 'strawberry.txt' "$scratch/status.out" &&
     pass "goal checks follow a room change" || fail "wrong room after advancing"
-printf 'level 11\n' > "$goal_state/progress"
+printf 'level 12\n' > "$goal_state/progress"
+if PUZZLLM_STATE="$goal_state" "$sandbox" shell-exec -- sh -c \
+        'test -r ~/docs/challenges/sort4.md && printf "1 2\n3 4\n1 3\n2 4\n2 3\n" > ~/sort4.net && ~/check_goal_status.sh' > "$scratch/status.out" &&
+        grep -q 'All 16 binary inputs sort' "$scratch/status.out"; then
+    pass "the sandbox guide and live checker reach the sorting network grader"
+else fail "the sorting network guide or live goal check failed"; fi
+printf '1 2\n' > "$goal_state/workspace/sort4.net"
+report agent; rc=$?
+[ "$rc" = 1 ] && grep -Eq 'Input [01]{4} leaves' "$scratch/status.out" &&
+    pass "the agent sees the failing network input" || fail "missing sorting counterexample"
+printf 'level 19\n' > "$goal_state/progress"
 report shell; rc=$?
 [ "$rc" = 2 ] && grep -q 'no playable goal' "$scratch/status.out" &&
     pass "a placeholder room reports that it has no goal" || fail "placeholder room graded"

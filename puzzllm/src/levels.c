@@ -68,7 +68,7 @@ static bool finish(level *lv, int line, char *err, size_t cap)
 {
     if (lv->title[0] == '\0') { set_err(err, cap, line, "level has no title"); return false; }
     if (lv->goal[0] == '\0') { set_err(err, cap, line, "level has no goal"); return false; }
-    if ((lv->check == CHECK_FILE || lv->check == CHECK_SCRIPT) && lv->file[0] == '\0') {
+    if ((lv->check == CHECK_FILE || lv->check == CHECK_SCRIPT || lv->check == CHECK_CHALLENGE) && lv->file[0] == '\0') {
         set_err(err, cap, line, "level has no check");
         return false;
     }
@@ -153,6 +153,13 @@ bool levels_parse(level_list *out, const char *text, char *err, size_t errcap)
                     return false;
                 }
                 cur->check = CHECK_SCRIPT;
+            } else if (strncmp(val, "challenge ", 10) == 0) {
+                char *name = trim(val + 10);
+                if (!safe_name(name) || strchr(name, ' ') || !copy_field(cur->file, sizeof cur->file, name)) {
+                    set_err(err, errcap, line_no, "challenge needs a plain submission name");
+                    return false;
+                }
+                cur->check = CHECK_CHALLENGE;
             } else if (strncmp(val, "file ", 5) == 0) {
                 char *name = trim(val + 5);
                 if (!safe_name(name) || !copy_field(cur->file, sizeof cur->file, name)) {
@@ -419,6 +426,10 @@ goal_result levels_check(const level *lv, const char *workspace)
         return (goal_result){false, "repair count_files.sh"};
     if (lv->check == CHECK_FOLLOW_LOG) return check_log_report(workspace, false);
     if (lv->check == CHECK_STAMPED_LOG) return check_log_report(workspace, true);
+    if (lv->check == CHECK_CHALLENGE) {
+        snprintf(r.why, sizeof r.why, "submit %.200s in the workspace", lv->file);
+        return r;
+    }
     if (lv->check == CHECK_SCRIPT)
         return (goal_result){false, "the script must be a regular file in the workspace"};
     snprintf(path, sizeof path, "%s/%s", workspace, lv->file);

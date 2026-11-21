@@ -1,0 +1,113 @@
+#!/usr/bin/python3 -IB
+"""Grade one submission. Player code runs in a separate Bubblewrap namespace."""
+import os
+from pathlib import Path
+import resource
+import signal
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+
+# Isolated Python omits the script directory. Import only from the installed game.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from puzzllm_challenges import BATCH, Incorrect, airlock, check_batch, rename_carousel, sort_four
+
+
+TABLES = {"sort4.net": sort_four, "airlock.tbl": airlock}
+LIMIT = 65536
+
+
+def read_submission(path):
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, "rb", buffering=0) as source:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise Incorrect(f"Write ~/{path.name} as a regular file.")
+            data = source.read(LIMIT + 1)
+    except OSError as error:
+        raise Incorrect(f"Cannot read ~/{path.name} as a regular file.") from error
+    if len(data) > LIMIT:
+        raise Incorrect(f"Keep ~/{path.name} within 64 KiB.")
+    return data
+
+
+def limits():
+    for limit, amount in [(resource.RLIMIT_CPU, 4), (resource.RLIMIT_FSIZE, 128 * 1024),
+                          (resource.RLIMIT_AS, 256 * 1024 * 1024), (resource.RLIMIT_CORE, 0)]:
+        resource.setrlimit(limit, (amount, amount))
+
+
+class Sandbox:
+    def __init__(self, name, source, scratch):
+        entry = scratch / name
+        entry.write_bytes(source)
+        self.scratch = scratch
+        self.deadline = time.monotonic() + 6
+        self.program = (["/bin/bash", "--noprofile", "--norc"] if name.endswith(".sh")
+                        else ["/usr/bin/python3", "-IB"])
+        self.program.append("/entry")
+        self.args = [
+            "bwrap", "--unshare-all", "--new-session", "--die-with-parent", "--cap-drop", "ALL",
+            "--clearenv", "--setenv", "PATH", "/usr/bin:/bin", "--setenv", "HOME", "/work",
+            "--setenv", "LC_ALL", "C", "--ro-bind", "/usr", "/usr", "--proc", "/proc",
+            "--dev", "/dev", "--size", str(8 * 1024 * 1024), "--tmpfs", "/tmp",
+            "--ro-bind", str(entry), "/entry",
+        ]
+        for name in ("bin", "lib", "lib64", "lib32", "libx32", "sbin"):
+            path = Path("/") / name
+            if path.is_symlink():
+                self.args += ["--symlink", os.readlink(path), str(path)]
+            elif path.is_dir():
+                self.args += ["--ro-bind", str(path), str(path)]
+
+    def run(self, data, directory=None):
+        mount = ["--bind", str(directory), "/work"] if directory else ["--dir", "/work"]
+        command = self.args + mount + ["--chdir", "/work", "--remount-ro", "/", "--"] + self.program
+        with tempfile.TemporaryFile(dir=self.scratch) as output, tempfile.TemporaryFile(dir=self.scratch) as errors:
+            try:
+                result = subprocess.run(command, input=data, stdout=output, stderr=errors,
+                                        timeout=min(4, max(0, self.deadline - time.monotonic())),
+                                        preexec_fn=limits)
+            except subprocess.TimeoutExpired:
+                raise Incorrect("The submission took too long.") from None
+            if result.returncode:
+                errors.seek(0)
+                lines = errors.read(2048).decode("ascii", errors="replace").splitlines()
+                detail = f" ({ascii(lines[-1])[:96]})" if lines else ""
+                raise Incorrect(f"The sandboxed program exited with status {result.returncode}{detail}.")
+            output.seek(0)
+            return output.read(128 * 1024)
+
+
+def grade(state, name):
+    if name not in TABLES and name not in BATCH and name != "rename.sh":
+        raise Incorrect("Unknown campaign submission.")
+    source = read_submission(state / "workspace" / name)
+    if name in TABLES:
+        return TABLES[name](source.decode("ascii"))
+    with tempfile.TemporaryDirectory(prefix=".grade-", dir=state) as private:
+        scratch = Path(private)
+        run = Sandbox(name, source, scratch).run
+        if name == "rename.sh":
+            return rename_carousel(run, scratch)
+        return check_batch(name, run)
+
+
+def stop(signum, frame):
+    raise SystemExit(128 + signum)
+
+
+if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, stop)
+    try:
+        message = grade(Path(sys.argv[1]).absolute(), sys.argv[2])
+    except UnicodeError:
+        print("Use ASCII for the table or program output.")
+        sys.exit(1)
+    except (Incorrect, OSError) as error:
+        # The game reads one small diagnostic after the child exits.
+        print(str(error).replace("\n", " ")[:249])
+        sys.exit(1)
+    print(message)

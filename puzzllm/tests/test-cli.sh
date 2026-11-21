@@ -106,13 +106,13 @@ if grep -q '^neuronte' "$here/build/render.ident" 2>/dev/null; then
 fi
 
 # Resume the chest room, then solve it through a real encrypted archive.
-printf 'level 5\n' > "$PUZZLLM_STATE/progress"
+printf 'level 9\n' > "$PUZZLLM_STATE/progress"
 workspace=$PUZZLLM_STATE/workspace
-"$bin" --check-level 5 > "$scratch/out"; rc=$?
+"$bin" --check-level 9 > "$scratch/out"; rc=$?
 [ "$rc" -eq 1 ] && [ -f "$workspace/chest.zip" ] &&
     pass "chest room creates a ZIP and awaits the key" || fail "chest setup rc=$rc"
 printf '%032d\n' 0 > "$workspace/key.txt"
-"$bin" --check-level 5 > "$scratch/out"; rc=$?
+"$bin" --check-level 9 > "$scratch/out"; rc=$?
 [ "$rc" -eq 1 ] && pass "wrong key leaves the door shut" || fail "wrong key rc=$rc"
 unzip -t -P wrong "$workspace/chest.zip" >/dev/null 2>&1; rc=$?
 [ "$rc" -ne 0 ] && pass "chest rejects a wrong password" || fail "chest is unencrypted"
@@ -123,7 +123,7 @@ for candidate in zell qwen puzl kilx pleb; do
         hits=$((hits + 1))
     fi
 done
-"$bin" --check-level 5 > "$scratch/out"; rc=$?
+"$bin" --check-level 9 > "$scratch/out"; rc=$?
 [ "$hits" -eq 1 ] && [ "$rc" -eq 0 ] &&
     pass "exactly one candidate extracts a working key" || fail "chest matches=$hits goal=$rc"
 "$bin" --reset-progress > "$scratch/out" &&
@@ -147,54 +147,54 @@ printf 'shell transcript\n' > "$workspace/shell.log"
     pass "interrupted transition resumes without overwriting archived files" ||
     fail "transition recovery rc=$rc"
 
-# Room 4 ships the actual broken Bash script and a folder with tricky names.
-printf 'level 4\n' > "$PUZZLLM_STATE/progress"
-"$bin" --check-level 4 > "$scratch/out"; rc=$?
+# Room 8 ships the actual broken Bash script and a folder with tricky names.
+printf 'level 8\n' > "$PUZZLLM_STATE/progress"
+"$bin" --check-level 8 > "$scratch/out"; rc=$?
 [ "$rc" -eq 1 ] && grep -q 'did not print the correct count for sample files' "$scratch/out" &&
     [ -f "$workspace/sample files/beta notes.txt" ] &&
     [ -f "$workspace/sample files/.hidden" ] && [ -f "$workspace/sample files/archive/old.txt" ] &&
-    pass "room 4 ships the folder and rejects the broken script" || fail "room 4 setup rc=$rc"
+    pass "room 8 ships the folder and rejects the broken script" || fail "room 8 setup rc=$rc"
 printf 'echo 3\n' > "$workspace/count_files.sh"
-"$bin" --check-level 4 > "$scratch/out"; rc=$?
+"$bin" --check-level 8 > "$scratch/out"; rc=$?
 [ "$rc" -eq 1 ] && grep -q 'must also work with other folder paths' "$scratch/out" &&
-    pass "a hard-coded count fails the extra folder checks" || fail "room 4 constant rc=$rc"
+    pass "a hard-coded count fails the extra folder checks" || fail "room 8 constant rc=$rc"
 cat > "$workspace/count_files.sh" <<'EOF'
 folder=${1:-sample files}
 find "$folder" -maxdepth 1 -mindepth 1 -type f -printf . | wc -c
 EOF
-"$bin" --check-level 4 > "$scratch/out"; rc=$?
-[ "$rc" -eq 0 ] && grep -q 'level 4: met' "$scratch/out" &&
+"$bin" --check-level 8 > "$scratch/out"; rc=$?
+[ "$rc" -eq 0 ] && grep -q 'level 8: met' "$scratch/out" &&
     grep -q '^find ' "$workspace/count_files.sh" &&
-    pass "a general fix opens room 4 and survives reopening the save" || fail "room 4 fix rc=$rc"
+    pass "a general fix opens room 8 and survives reopening the save" || fail "room 8 fix rc=$rc"
 printf 'An extra file for the same script.\n' > "$workspace/sample files/new file.txt"
-"$bin" --check-level 4 > "$scratch/out"; rc=$?
+"$bin" --check-level 8 > "$scratch/out"; rc=$?
 [ "$rc" -eq 0 ] && [ -f "$workspace/sample files/new file.txt" ] &&
-    pass "the grader uses the actual shipped directory in the workspace" || fail "room 4 changed folder rc=$rc"
+    pass "the grader uses the actual shipped directory in the workspace" || fail "room 8 changed folder rc=$rc"
 
-# The completed script room leads to the final playable room.
+# The repaired script is archived when the player enters the chest room.
 printf 'Keep this instruction across rooms.\n' > "$workspace/.system/llama-prompt.txt"
-printf 'level 4\n' > "$PUZZLLM_STATE/transition"
-"$bin" --check-level 5 > "$scratch/out"; rc=$?
-[ "$rc" -eq 1 ] && grep -qx 'level 5' "$PUZZLLM_STATE/progress" &&
-    [ -f "$workspace/prior_levels/level_4/count_files.sh" ] && [ -f "$workspace/chest.zip" ] &&
-    pass "room 4 leads to the password-protected archive in room 5" ||
-    fail "room 4 to room 5 transition rc=$rc"
+printf 'level 8\n' > "$PUZZLLM_STATE/transition"
+"$bin" --check-level 9 > "$scratch/out"; rc=$?
+[ "$rc" -eq 1 ] && grep -qx 'level 9' "$PUZZLLM_STATE/progress" &&
+    [ -f "$workspace/prior_levels/level_8/count_files.sh" ] && [ -f "$workspace/chest.zip" ] &&
+    pass "room 8 leads to the password-protected archive in room 9" ||
+    fail "room 8 to room 9 transition rc=$rc"
 grep -qx 'Keep this instruction across rooms.' "$workspace/.system/llama-prompt.txt" &&
     pass "prompt settings stay in the sandbox home across rooms" || fail "prompt settings were archived"
 
 # A crash after archiving the departing room resumes the restore phase.
-mkdir -p "$workspace/level_5"
-mv "$workspace/chest.zip" "$workspace/level_5/chest.zip"
-chest_sum=$(sha256sum < "$workspace/level_5/chest.zip")
-printf 'restore-back 5\n' > "$PUZZLLM_STATE/transition"
-"$bin" --check-level 4 > "$scratch/out"; rc=$?
-[ "$rc" -eq 0 ] && grep -qx 'level 4' "$PUZZLLM_STATE/progress" &&
+mkdir -p "$workspace/level_9"
+mv "$workspace/chest.zip" "$workspace/level_9/chest.zip"
+chest_sum=$(sha256sum < "$workspace/level_9/chest.zip")
+printf 'restore-back 9\n' > "$PUZZLLM_STATE/transition"
+"$bin" --check-level 8 > "$scratch/out"; rc=$?
+[ "$rc" -eq 0 ] && grep -qx 'level 8' "$PUZZLLM_STATE/progress" &&
     [ -f "$workspace/count_files.sh" ] && [ ! -e "$PUZZLLM_STATE/transition" ] &&
-    pass "interrupted backtrack restores room 4 work and progress" || fail "backtrack recovery rc=$rc"
-printf 'level 4\n' > "$PUZZLLM_STATE/transition"
-"$bin" --check-level 5 > "$scratch/out"; rc=$?
+    pass "interrupted backtrack restores room 8 work and progress" || fail "backtrack recovery rc=$rc"
+printf 'level 8\n' > "$PUZZLLM_STATE/transition"
+"$bin" --check-level 9 > "$scratch/out"; rc=$?
 [ "$rc" -eq 1 ] && [ "$(sha256sum < "$workspace/chest.zip")" = "$chest_sum" ] &&
-    pass "returning to room 5 restores the original encrypted archive" || fail "room 5 restore rc=$rc"
+    pass "returning to room 9 restores the original encrypted archive" || fail "room 9 restore rc=$rc"
 
 # Room 6 uses the latest complete failure in the player shell transcript.
 printf 'level 6\n' > "$PUZZLLM_STATE/progress"
@@ -217,33 +217,33 @@ printf '%s\n' "$second" > "$workspace/report.txt"
 "$bin" --check-level 6 > "$scratch/out"; rc=$?
 [ "$rc" -eq 0 ] && pass "room 6 accepts the updated report" || fail "room 6 updated report rc=$rc"
 
-# A save at the former closing room opens the keeper and its new goal.
-printf 'level 9\n' > "$PUZZLLM_STATE/progress"
-printf '%s\n' "printf '4\\n9\\n'" > "$workspace/keep.sh"
-"$bin" --check-level 9 > "$scratch/out"; rc=$?
-[ "$rc" -eq 1 ] && grep -q 'keep.sh' "$workspace/GOAL.md" &&
-    pass "room 9 rejects a script that only prints the example" || fail "room 9 sample rc=$rc"
-cat > "$workspace/keep.sh" <<'EOF'
-awk '{for (i=1; i<=NF; i++) { if (seen && $i+0 > previous) print $i; previous=$i+0; seen=1 }}'
-EOF
-"$bin" --check-level 9 > "$scratch/out"; rc=$?
-[ "$rc" -eq 0 ] && pass "a working keeper opens room 9" || fail "room 9 keeper rc=$rc"
-
-printf 'level 9\n' > "$PUZZLLM_STATE/transition"
-"$bin" --check-level 10 > "$scratch/out"; rc=$?
-[ "$rc" -eq 1 ] && grep -qx 'level 10' "$PUZZLLM_STATE/progress" &&
-    [ -f "$workspace/prior_levels/level_9/keep.sh" ] && [ -x "$workspace/run_check.sh" ] &&
-    pass "room 10 saves the keeper and installs the shell check" || fail "room 10 setup rc=$rc"
+printf 'level 6\n' > "$PUZZLLM_STATE/transition"
+"$bin" --check-level 7 > "$scratch/out"; rc=$?
+[ "$rc" -eq 1 ] && grep -qx 'level 7' "$PUZZLLM_STATE/progress" &&
+    [ -f "$workspace/prior_levels/level_6/report.txt" ] && [ -x "$workspace/run_check.sh" ] &&
+    pass "room 7 archives the previous report and installs the shell check" || fail "room 7 setup rc=$rc"
 latest=$(run_report)
 filename=${latest#* }
 stamp=$(printf %s "$filename" | tr -cd cfilorux | wc -c)
 printf '%s %d\n' "$latest" "$stamp" > "$workspace/report.txt"
-"$bin" --check-level 10 > "$scratch/out"; rc=$?
-[ "$rc" -eq 0 ] && pass "room 10 accepts the stamped shell report" || fail "room 10 stamp rc=$rc"
+"$bin" --check-level 7 > "$scratch/out"; rc=$?
+[ "$rc" -eq 0 ] && pass "room 7 accepts the stamped shell report" || fail "room 7 stamp rc=$rc"
 newest=$(run_report)
-"$bin" --check-level 10 > "$scratch/out"; rc=$?
+"$bin" --check-level 7 > "$scratch/out"; rc=$?
 [ "$rc" -eq 1 ] && [ "$latest" != "$newest" ] &&
-    pass "room 10 closes the door when the report goes stale" || fail "room 10 stale rc=$rc"
+    pass "room 7 closes the door when the report goes stale" || fail "room 7 stale rc=$rc"
+
+# The keeper grades the script against hidden inputs.
+printf 'level 10\n' > "$PUZZLLM_STATE/progress"
+printf '%s\n' "printf '4\\n9\\n'" > "$workspace/keep.sh"
+"$bin" --check-level 10 > "$scratch/out"; rc=$?
+[ "$rc" -eq 1 ] && grep -q 'keep.sh' "$workspace/GOAL.md" &&
+    pass "room 10 rejects a script that only prints the example" || fail "room 10 sample rc=$rc"
+cat > "$workspace/keep.sh" <<'EOF'
+awk '{for (i=1; i<=NF; i++) { if (seen && $i+0 > previous) print $i; previous=$i+0; seen=1 }}'
+EOF
+"$bin" --check-level 10 > "$scratch/out"; rc=$?
+[ "$rc" -eq 0 ] && pass "a working keeper opens room 10" || fail "room 10 keeper rc=$rc"
 
 # A journal remembers whether the outgoing work was to be kept, even if the preference changes.
 (

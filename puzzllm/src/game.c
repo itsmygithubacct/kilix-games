@@ -354,8 +354,8 @@ goal_result game_check_level(const game *g, int index)
     const level *lv = &g->levels.items[index];
     if (lv->check == CHECK_COUNT_FILES)
         return count_puzzle_check(g->root, g->state, g->workspace);
-    if (lv->check == CHECK_SCRIPT)
-        return script_puzzle_check(g->root, g->state, g->workspace, lv->file);
+    if (lv->check == CHECK_SCRIPT || lv->check == CHECK_CHALLENGE)
+        return script_puzzle_check(g->root, g->state, g->workspace, lv);
     if (lv->check != CHECK_CHEST) return levels_check(lv, g->workspace);
 
     goal_result result = {false, "extract key.txt from chest.zip"};
@@ -1909,7 +1909,7 @@ static void enter_level(game *g, int level, bool keep_session)
         g->state_lock >= 0 && !puzzle_prepare(g->root, g->state, "log-setup"))
         activity_add(&g->act, ACT_ERROR, "Could not install run_check.sh.");
     activity_add(&g->act, ACT_GOAL, "Room %d: %s", level + 1, cur_level(g)->title);
-    if (!g->spawn && cur_level(g)->check == CHECK_COUNT_FILES)
+    if (!g->spawn && (cur_level(g)->check == CHECK_COUNT_FILES || cur_level(g)->check == CHECK_CHALLENGE))
         g->goal = levels_check(cur_level(g), g->workspace);
     else
         game_poll_goal(g);
@@ -2053,9 +2053,9 @@ void game_poll_goal(game *g)
 {
     if (cur_level(g)->check == CHECK_COUNT_FILES)
         g->goal = count_puzzle_poll(&g->count_check, g->root, g->state, g->workspace);
-    else if (cur_level(g)->check == CHECK_SCRIPT)
+    else if (cur_level(g)->check == CHECK_SCRIPT || cur_level(g)->check == CHECK_CHALLENGE)
         g->goal = script_puzzle_poll(&g->script_check, g->root, g->state, g->workspace,
-                                     cur_level(g)->file);
+                                     cur_level(g));
     else
         g->goal = game_check_level(g, g->sc.level);
     g->sc.goal_met = g->goal.met;

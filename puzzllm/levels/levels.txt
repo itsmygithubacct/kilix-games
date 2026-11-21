@@ -44,35 +44,6 @@ require: bytes 1000000
 require: only 1
 
 level: 4
-title: Count the files
-room: archive
-goal: Fix ~/count_files.sh. From ~, running it with Bash should print the number of regular files directly inside "sample files". It should also accept a folder path as its first argument.
-hint: Run bash count_files.sh in ~, then compare its output with ls -la "sample files".
-hint: A hidden regular file counts. Folders, their contents, and symlinks do not count.
-hint: Look at what happens when the file test receives a path containing spaces.
-hint: Try bash count_files.sh "/tmp/empty folder" after making that directory in the shell. An empty directory should print 0.
-check: count-files
-
-level: 5
-title: The treasure chest
-room: vault
-goal: Open the password-protected chest.zip and extract key.txt to unlock the door.
-hint: The password is lowercase.
-hint: The password is four letters long.
-hint: In the shell, run unzip chest.zip and enter a candidate when prompted.
-hint: Run man unzip in the shell to see the command options.
-check: chest
-
-level: 6
-title: Follow the log
-room: dock
-goal: Run ./run_check.sh in the player shell. Ask the agent to read the latest failure and write its run ID and failing filename to ~/report.txt, separated by one space.
-hint: Use the Shell log button to give the agent the path to the shell transcript.
-hint: The agent can also read the player shell with tmux capture-pane -p -S - -t shell.
-hint: Every run creates a new ID. Copy the ID and filename from the same failure line.
-check: follow-log
-
-level: 7
 title: The seal
 room: stone
 goal: Write ~/seal.txt by repeating the lowercase letters whose alphabet positions are multiples of 3, in order, to exactly 32 bytes, with no line ending and no other bytes.
@@ -87,11 +58,11 @@ require: bytes 32
 require: only cfilorux
 require: equals cfiloruxcfiloruxcfiloruxcfilorux
 
-level: 8
+level: 5
 title: The mirror
 room: brick
-goal: Write ~/mirror.txt as the 32-byte seal from room 7, then one comma, then those same 32 bytes reversed. Exactly 65 bytes, with no line ending and no other bytes.
-hint: Build the room 7 seal first: eight letters, repeated to 32 bytes, no line ending.
+goal: Write ~/mirror.txt as the 32-byte seal from the seal room, then one comma, then those same 32 bytes reversed. Exactly 65 bytes, with no line ending and no other bytes.
+hint: Build the seal first: eight letters, repeated to 32 bytes, no line ending.
 hint: The file is the seal, one comma, then the seal reversed. The comma is the only byte that is not a letter.
 hint: Reversing by words or by cycles is wrong. Reverse the 32 characters one by one.
 hint: 32 plus 32 is 64. The comma makes 65. A line ending makes 66.
@@ -102,7 +73,46 @@ require: bytes 65
 require: only cfilorux,
 require: equals cfiloruxcfiloruxcfiloruxcfilorux,xurolifcxurolifcxurolifcxurolifc
 
+level: 6
+title: Follow the log
+room: dock
+goal: Run ./run_check.sh in the player shell. Ask the agent to read the latest failure and write its run ID and failing filename to ~/report.txt, separated by one space.
+hint: Use the Shell log button to give the agent the path to the shell transcript.
+hint: The agent can also read the player shell with tmux capture-pane -p -S - -t shell.
+hint: Every run creates a new ID. Copy the ID and filename from the same failure line.
+check: follow-log
+
+level: 7
+title: The stamp
+room: dock
+goal: Run ./run_check.sh in the player shell. Write the latest run ID, failing filename and stamp to ~/report.txt, separated by single spaces. The stamp counts letters in the filename whose alphabet positions are multiples of 3. Ignore digits and punctuation.
+hint: Find the latest failure in ~/shell.log or use the Shell log button.
+hint: Start with the run ID and filename from the log room. Calculate the third field from the filename on that line.
+hint: Use the same alphabet positions as the seal. The letter a is at position 1. Count each qualifying occurrence.
+hint: A new run gets a fresh ID. After another run, update your report to match.
+check: stamped-log
+
+level: 8
+title: Count the files
+room: archive
+goal: Fix ~/count_files.sh. From ~, running it with Bash should print the number of regular files directly inside "sample files". It should also accept a folder path as its first argument.
+hint: Run bash count_files.sh in ~, then compare its output with ls -la "sample files".
+hint: A hidden regular file counts. Folders, their contents, and symlinks do not count.
+hint: Look at what happens when the file test receives a path containing spaces.
+hint: Try bash count_files.sh "/tmp/empty folder" after making that directory in the shell. An empty directory should print 0.
+check: count-files
+
 level: 9
+title: The treasure chest
+room: vault
+goal: Open the password-protected chest.zip and extract key.txt to unlock the door.
+hint: The password is lowercase.
+hint: The password is four letters long.
+hint: In the shell, run unzip chest.zip and enter a candidate when prompted.
+hint: Run man unzip in the shell to see the command options.
+check: chest
+
+level: 10
 title: The keeper
 room: archive
 goal: Write ~/keep.sh. Read whitespace-separated integers from stdin. Print each integer greater than its immediate predecessor, one per line. Skip the first integer and ties. For 1 4 4 2 9, print 4 and 9 on separate lines.
@@ -113,17 +123,71 @@ hint: Empty input and a single number both produce empty output.
 hint: Try printf '1 4 4 2 9\n' | bash keep.sh in the player shell.
 check: script keep.sh
 
-level: 10
-title: The stamp
-room: dock
-goal: Run ./run_check.sh in the player shell. Write the latest run ID, failing filename and stamp to ~/report.txt, separated by single spaces. The stamp counts letters in the filename whose alphabet positions are multiples of 3. Ignore digits and punctuation.
-hint: Find the latest failure in ~/shell.log or use the Shell log button.
-hint: Start with the same two fields as room 6. Calculate the third field from the filename on that line.
-hint: Count letters as in room 7. The letter a is at position 1. Count each qualifying occurrence.
-hint: A new run gets a fresh ID. After another run, update your report to match.
-check: stamped-log
-
 level: 11
+title: The Freight Lift
+room: dock
+goal: Write ~/lift.py to report the first step below floor zero for every journey of up to eight U/D moves, or OK. Read ~/docs/challenges/lift.md for the input format.
+hint: Each line begins a new journey at floor zero. Count steps from one.
+hint: The empty line is a valid journey. Track the first crossing even if the lift later returns above ground.
+check: challenge lift.py
+
+level: 12
+title: The Four-Lane Sorter
+room: press
+goal: Design ~/sort4.net to sort four lanes with at most five fixed compare-exchanges. Each row is a pair of lane numbers. See ~/docs/challenges/sort4.md.
+hint: Start by sorting two independent pairs. Think about where the smallest and largest items can move next.
+hint: Replay the counterexample from ~/check_goal_status.sh, marking the lanes after each comparison.
+check: challenge sort4.net
+
+level: 13
+title: The Damaged Radio
+room: dock
+goal: Decode each seven-bit transmission into four data bits in ~/radio.py. Every word has at most one flipped bit. Read the encoding table in ~/docs/challenges/radio.md.
+hint: Compare a received word to each row of the table and count how many positions differ.
+hint: Alternatively, parity checks at positions 1, 2 and 4 identify the damaged bit. Preserve leading zeros.
+check: challenge radio.py
+
+level: 14
+title: The Rename Carousel
+room: archive
+goal: Write ~/rename.sh to apply a four-file rename manifest. Preserve every byte through swaps and cycles, and leave exactly four files. Read ~/docs/challenges/rename.md.
+hint: Renaming directly onto a destination can overwrite a source you still need.
+hint: Save the mapping. Move all four originals to temporary names, then move each one into place.
+check: challenge rename.sh
+
+level: 15
+title: The Cargo Bay
+room: dock
+goal: Pack every labeled crate exactly once into the fewest carts of capacity six. Write ~/cargo.py and read ~/docs/challenges/cargo.md for the JSON input and output.
+hint: Each manifest was made by filling whole carts. Divide its total weight by six to find the number you need.
+hint: Try the heavy crates first. When a crate fits nowhere, undo an earlier choice and try another cart.
+check: challenge cargo.py
+
+level: 16
+title: The Dispatch Board
+room: archive
+goal: Write ~/dispatch.py to return a valid order for every job, or a closed directed cycle that proves the schedule impossible. Read ~/docs/challenges/dispatch.md.
+hint: An edge [A,B] means A must come before B. Include jobs with no edges in the schedule.
+hint: Track which jobs are on your current search path. An edge back to one of those jobs closes a cycle.
+check: challenge dispatch.py
+
+level: 17
+title: The Emergency Exit
+room: vault
+goal: Find a shortest route across each 4-by-3 grid or report BLOCKED. Write ~/escape.py and read ~/docs/challenges/escape.md for the map and move formats.
+hint: Cells are numbered left to right in each row. The start and exit are always open.
+hint: Breadth-first search visits cells in order of distance. Record the move that first reached each cell.
+check: challenge escape.py
+
+level: 18
+title: The Airlock
+room: vault
+goal: Design ~/airlock.tbl so the two doors never open together and every request works from a sealed state. Follow the event table in ~/docs/challenges/airlock.md.
+hint: The columns after the door output are target states for L, R and C in exactly that order.
+hint: An opposite-door request first seals both doors. Replay a failing event trace from the start state.
+check: challenge airlock.tbl
+
+level: 19
 title: Next challenge coming
 room: soon
 goal: This room is still being built. Come back for the next challenge.

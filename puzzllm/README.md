@@ -405,46 +405,32 @@ shell failure plus a stamp counted from the filename. Those two checks are
 code; further rooms that use them are blocks. The full format is in
 [`src/levels.h`](src/levels.h).
 
-The levels so far:
+### Campaign order
 
-1. **Hello, world:** `hello_world.txt` saying Hello, World!
-2. **Strawberry:** count the r's in strawberry and write the number by itself
-   to `~/strawberry.txt`. Surrounding whitespace is optional.
-3. **A million ones:** `1.txt` holding exactly 1,000,000 ones and nothing
-   else, so no spaces and no line ending:
-   ```
-   check: file 1.txt
-   require: bytes 1000000
-   require: only 1
-   ```
-   A small model cannot type this. The player has to get it to use a
-   command or a short program, and to leave off the line ending that
-   `echo` and `print` add. When the check fails it says why, for example
-   `1.txt has 1,000,001 bytes, one too many: often a line ending at the end`.
-4. Count the files. Fix `~/count_files.sh` so it counts regular
-   files directly inside the supplied `sample files` folder. The script
-   also takes a folder path as its first argument. The grader checks the
-   supplied folder and additional cases in a read-only sandbox.
-5. The treasure chest. Extract `key.txt` from the password-protected
-   `chest.zip` to open the door. The game uses `zip` to create the chest,
-   and you can open it with `unzip` in the shell. Run `man unzip` in the
-   sandbox to see the command reference. Resuming keeps the same chest.
-6. **Follow the log.** Run `./run_check.sh` in the shell. Ask the agent to
-   find the latest run ID and failing filename in tmux or `~/shell.log`
-   and write them to `~/report.txt`, separated by one space. Rerunning
-   the check makes earlier reports stale.
-7. **The seal.** Write `~/seal.txt` by repeating the lowercase letters whose
-   alphabet positions are multiples of 3 until the file is exactly 32 bytes,
-   with no line ending.
-8. **The mirror.** Write `~/mirror.txt` as that 32-byte seal, one comma, then
-   the seal reversed. The file is exactly 65 bytes, with no line ending.
-9. **The keeper.** Write `~/keep.sh` to read integers from stdin and print
-   each one that exceeds its immediate predecessor. The grader supplies
-   several inputs, including ties and negative numbers.
-10. **The stamp.** Run `./run_check.sh` and report the latest run ID and
-    failing filename. Append the number of letters in that filename whose
-    alphabet positions are multiples of three.
-11. A stub room for the next challenge.
+| Room | Challenge | What opens the door |
+| ---: | --- | --- |
+| 1 | Hello, world | Write a greeting to `hello_world.txt`. |
+| 2 | Strawberry | Count the r’s and write the number alone. |
+| 3 | A million ones | Generate exactly one million ASCII ones. |
+| 4 | The seal | Repeat the alphabet pattern to exactly 32 bytes. |
+| 5 | The mirror | Append a comma and the reversed seal. |
+| 6 | Follow the log | Report the latest run ID and failing filename. |
+| 7 | The stamp | Add a stamp computed from that filename. |
+| 8 | Count the files | Repair the Bash script across folders with hidden files, spaces and symlinks. |
+| 9 | The treasure chest | Recover the key from a password-protected ZIP. |
+| 10 | The keeper | Filter integers using the previous input value. |
+| 11 | The Freight Lift | Find the first crossing below zero on all 511 journeys. |
+| 12 | The Four-Lane Sorter | Sort four lanes in five compare-exchanges or fewer on all 16 binary inputs. |
+| 13 | The Damaged Radio | Recover the four data bits from all 128 Hamming(7,4) words. |
+| 14 | The Rename Carousel | Rename four binary files correctly through all 24 permutations. |
+| 15 | The Cargo Bay | Find a minimum packing on 30 shuffled manifests with a provable lower bound. |
+| 16 | The Dispatch Board | Produce a legal schedule or a directed cycle on 514 boards. |
+| 17 | The Emergency Exit | Give a shortest legal route or prove the exit blocked on all 1,024 layouts. |
+| 18 | The Airlock | Keep the doors safe and responsive for every reachable state and event. |
+
+Room 19 marks the end of the playable campaign. Each advanced room names its submission file and its guide under `~/docs/challenges/`. These guides include sample inputs, accepted outputs and the exact rules. The door and `~/check_goal_status.sh` use the same verifier. An unsuccessful submission reports the first failing input, mapping or event trace.
+
+The `check: challenge NAME` entry selects the verifier by submission filename. Python and Bash submissions run in Bubblewrap with standard input and a private filesystem. Rename scripts get a fresh directory for each permutation. The host grader checks the submitted results independently. The two declarative tables are read as data.
 
 The generated pixel art in `assets/` includes blue stone and red brick walls,
 slate floor tiles, and a sliding wooden door. The sliding leaf reveals a black opening.
@@ -523,6 +509,7 @@ lets the model think, which is off by default because 0.8B tends to loop.
 - `test-cli` covers `--version`, `--check-level`, `--render`, `--bench`,
   `--renderer`, the raster fallback when the weights are missing, and bad
   input.
+- `test-challenges` grades working and faulty submissions, checks domain coverage and exercises the campaign through the CLI.
 - `test-sandbox` covers confinement, persistence, the agent chain, and the
   goal met by hand from the shell.
 - `test-kilix-display` checks window placement before capture and goal

@@ -98,7 +98,7 @@ TEST_BIN := $(B)/test-puzzllm
 # Test scratch stays inside the build directory, never in /tmp (a RAM disk).
 SCRATCH  := $(CURDIR)/$(B)/test-scratch
 
-.PHONY: all test test-unit test-cli test-sandbox test-defects test-live test-kilix-display test-yesno \
+.PHONY: all test test-unit test-cli test-sandbox test-defects test-live test-kilix-display test-yesno test-challenges \
 	render bench renderer clean
 
 all: $(BIN)
@@ -160,7 +160,11 @@ test-yesno:
 	@TMPDIR=$(SCRATCH)/yesno PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover \
 		-s third_party/kilix-bench/tests -p 'test_yesno*.py'
 
-test: test-unit test-cli test-sandbox test-kilix-display test-yesno test-defects
+test-challenges: $(BIN)
+	@mkdir -p $(SCRATCH)/challenges
+	@TMPDIR=$(SCRATCH)/challenges python3 -B tests/test-challenges.py
+
+test: test-unit test-cli test-sandbox test-kilix-display test-yesno test-challenges test-defects
 
 # Not part of `make test`: needs omp, a llama-server and the Qwen 3.5
 # weights on this machine, and runs the real model.

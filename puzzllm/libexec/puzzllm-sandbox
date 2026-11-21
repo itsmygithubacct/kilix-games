@@ -10,6 +10,7 @@
 #   puzzllm-sandbox shell-exec -- CMD...    CMD with exactly the shell's mounts
 #   puzzllm-sandbox count-setup|count-check  install or check the Bash puzzle
 #   puzzllm-sandbox log-setup                install the shell-log puzzle
+#   puzzllm-sandbox challenge-check NAME     grade one campaign submission
 #   puzzllm-sandbox script-check NAME        grade one workspace Bash file
 #   puzzllm-sandbox paths                   print the resolved paths and exit
 #
@@ -47,6 +48,9 @@ set -u
 
 here=$(dirname "$(readlink -f "$0")")
 state=${PUZZLLM_STATE:-${XDG_DATA_HOME:-$HOME/.local/share}/puzzllm}
+if [[ ${1:-} == challenge-check ]]; then
+    exec /usr/bin/python3 -IB "$here/puzzllm-challenge" "$state" "${2:-}"
+fi
 model_id=${PUZZLLM_MODEL_ID:-qwen3.5-0.8b}
 ctx=${PUZZLLM_CTX:-32768}
 reasoning=false

@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "count_puzzle.h"
 
 #include <errno.h>
@@ -9,16 +10,25 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-static pid_t launch(const char *root, const char *state, const char *action, const char *extra)
+static pid_t launch(const char *root, const char *state, const char *action, const char *extra, int *feedback)
 {
     char sandbox[4096];
     snprintf(sandbox, sizeof sandbox, "%s/libexec/puzzllm-sandbox", root);
+    int pipefd[2] = {-1, -1};
+    if (feedback && pipe2(pipefd, O_CLOEXEC) != 0) return -1;
     pid_t pid = fork();
-    if (pid != 0) return pid;
+    if (pid != 0) {
+        if (feedback) {
+            close(pipefd[1]);
+            if (pid < 0) close(pipefd[0]);
+            else *feedback = pipefd[0];
+        }
+        return pid;
+    }
 
     int quiet = open("/dev/null", O_RDWR | O_CLOEXEC);
     if (quiet < 0 || dup2(quiet, STDIN_FILENO) < 0 ||
-        dup2(quiet, STDOUT_FILENO) < 0 || dup2(quiet, STDERR_FILENO) < 0)
+        dup2(feedback ? pipefd[1] : quiet, STDOUT_FILENO) < 0 || dup2(quiet, STDERR_FILENO) < 0)
         _exit(127);
     if (quiet > STDERR_FILENO) close(quiet);
     if (setenv("PUZZLLM_STATE", state, 1) != 0) _exit(127);
@@ -40,7 +50,7 @@ static pid_t reap(pid_t pid, int *status, int flags)
 bool puzzle_prepare(const char *root, const char *state, const char *action)
 {
     int status;
-    return reap(launch(root, state, action, NULL), &status, 0) > 0 &&
+    return reap(launch(root, state, action, NULL, NULL), &status, 0) > 0 &&
            WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
@@ -78,7 +88,7 @@ goal_result count_puzzle_check(const char *root, const char *state, const char *
     struct stat script, folder;
     if (!inputs(workspace, &script, &folder)) return outcome(11);
     int status;
-    if (reap(launch(root, state, "count-check", NULL), &status, 0) <= 0)
+    if (reap(launch(root, state, "count-check", NULL, NULL), &status, 0) <= 0)
         return (goal_result){false, "could not start the Bash check"};
     return outcome(WIFEXITED(status) ? WEXITSTATUS(status) : -1);
 }
@@ -103,7 +113,7 @@ goal_result count_puzzle_poll(count_puzzle *puzzle, const char *root, const char
         return outcome(11);
     }
     if (changed) {
-        puzzle->grader = launch(root, state, "count-check", NULL);
+        puzzle->grader = launch(root, state, "count-check", NULL, NULL);
         if (puzzle->grader <= 0) {
             puzzle->checked = false;
             return (goal_result){false, "could not start the Bash check"};
@@ -167,44 +177,74 @@ static goal_result script_checking(const char *name)
     return r;
 }
 
+static goal_result missing_submission(const level *lv)
+{
+    if (lv->check == CHECK_SCRIPT) return script_outcome(11);
+    goal_result r = {false, ""};
+    snprintf(r.why, sizeof r.why, "write ~/%.160s as a regular file of at most 64 KiB", lv->file);
+    return r;
+}
+
+static pid_t launch_submission(const char *root, const char *state, const level *lv, int *feedback)
+{
+    *feedback = -1;
+    if (lv->check == CHECK_SCRIPT) return launch(root, state, "script-check", lv->file, NULL);
+    return launch(root, state, "challenge-check", lv->file, feedback);
+}
+
+static goal_result submission_result(int code, int feedback)
+{
+    if (feedback < 0) return script_outcome(code);
+    goal_result result = {false, ""};
+    ssize_t n;
+    do { n = read(feedback, result.why, sizeof result.why - 1); } while (n < 0 && errno == EINTR);
+    close(feedback);
+    if (n <= 0) return (goal_result){false, "could not run the campaign grader"};
+    result.why[strcspn(result.why, "\r\n")] = 0;
+    result.met = code == 0;
+    return result;
+}
+
 goal_result script_puzzle_check(const char *root, const char *state, const char *workspace,
-                                const char *name)
+                                const level *lv)
 {
     struct stat script;
-    if (!script_file(workspace, name, &script)) return script_outcome(11);
-    int status;
-    if (reap(launch(root, state, "script-check", name), &status, 0) <= 0)
-        return (goal_result){false, "could not start the script check"};
-    return script_outcome(WIFEXITED(status) ? WEXITSTATUS(status) : -1);
+    int status, feedback;
+    if (!script_file(workspace, lv->file, &script)) return missing_submission(lv);
+    pid_t pid = launch_submission(root, state, lv, &feedback);
+    if (pid <= 0) return (goal_result){false, "could not start the grader"};
+    pid_t done = reap(pid, &status, 0);
+    return submission_result(done > 0 && WIFEXITED(status) ? WEXITSTATUS(status) : -1, feedback);
 }
 
 goal_result script_puzzle_poll(script_puzzle *puzzle, const char *root, const char *state,
-                               const char *workspace, const char *name)
+                               const char *workspace, const level *lv)
 {
     struct stat script;
-    bool ready = script_file(workspace, name, &script);
+    bool ready = script_file(workspace, lv->file, &script);
     bool changed = !ready || !puzzle->checked || !same(&script, &puzzle->script);
     if (puzzle->grader > 0) {
         int status;
         pid_t done = reap(puzzle->grader, &status, WNOHANG);
         if (done == 0)
-            return ready ? script_checking(name) : script_outcome(11);
+            return ready ? script_checking(lv->file) : missing_submission(lv);
         puzzle->grader = 0;
-        puzzle->result = script_outcome(done > 0 && WIFEXITED(status) ? WEXITSTATUS(status) : -1);
+        puzzle->result = submission_result(done > 0 && WIFEXITED(status) ? WEXITSTATUS(status) : -1,
+                                          puzzle->feedback);
     }
     if (!ready) {
         puzzle->checked = false;
-        return script_outcome(11);
+        return missing_submission(lv);
     }
     if (changed) {
-        puzzle->grader = launch(root, state, "script-check", name);
+        puzzle->grader = launch_submission(root, state, lv, &puzzle->feedback);
         if (puzzle->grader <= 0) {
             puzzle->checked = false;
-            return (goal_result){false, "could not start the script check"};
+            return (goal_result){false, "could not start the grader"};
         }
         puzzle->checked = true;
         puzzle->script = script;
-        puzzle->result = script_checking(name);
+        puzzle->result = script_checking(lv->file);
     }
     return puzzle->result;
 }
@@ -215,6 +255,7 @@ void script_puzzle_stop(script_puzzle *puzzle)
         int status;
         kill(puzzle->grader, SIGTERM);
         reap(puzzle->grader, &status, 0);
+        if (puzzle->feedback >= 0) close(puzzle->feedback);
     }
     *puzzle = (script_puzzle){0};
 }

@@ -448,12 +448,12 @@ static void test_script_and_stamp(void)
     sub(ws, sizeof ws, "script-ws");
     mkdir(ws, 0700);
     snprintf(path, sizeof path, "%s/keep.sh", ws);
-    r = script_puzzle_check(".", ".", ws, "keep.sh");
+    r = script_puzzle_check(".", ".", ws, &L.items[0]);
     CHECK(!r.met && strstr(r.why, "regular file") != NULL, "missing script: %s", r.why);
-    r = script_puzzle_check(".", ".", ws, "../keep.sh");
+    r = script_puzzle_check(".", ".", ws, &(level){.check = CHECK_SCRIPT, .file = "../keep.sh"});
     CHECK(!r.met, "a script path is not launched: %s", r.why);
     memset(&sp, 0, sizeof sp);
-    r = script_puzzle_poll(&sp, ".", ".", ws, "keep.sh");
+    r = script_puzzle_poll(&sp, ".", ".", ws, &L.items[0]);
     CHECK(!r.met && sp.grader == 0, "a missing script does not fork: %s", r.why);
     script_puzzle_stop(&sp);
 
@@ -1958,6 +1958,43 @@ static void test_agent_focus_note(void)
     game_shutdown(&G);
 }
 
+static void wait_for_campaign_grade(game *g)
+{
+    const struct timespec nap = {.tv_nsec = 10000000L};
+    for (int i = 0; i < 300 && g->script_check.grader > 0; i++) {
+        nanosleep(&nap, NULL);
+        game_poll_goal(g);
+    }
+}
+
+static void test_campaign_door(void)
+{
+    char state[2048], path[2300], err[256];
+    sub(state, sizeof state, "campaign-door");
+    CHECK(game_init(&G, ".", state, false, err, sizeof err), "campaign door: %s", err);
+    game_enter_level(&G, 11);
+    CHECK(G.levels.count == 19 && !strcmp(G.levels.items[11].file, "sort4.net"),
+          "the sorting room is twelfth of eighteen playable rooms");
+    snprintf(path, sizeof path, "%s/workspace/sort4.net", state);
+    const char *network = "1 2\n3 4\n1 3\n2 4\n2 3\n";
+    write_file(path, network, strlen(network));
+    game_poll_goal(&G);
+    CHECK(G.script_check.grader > 0 && !G.sc.goal_met, "the grader starts without blocking the door");
+    wait_for_campaign_grade(&G);
+    CHECK(G.sc.goal_met && strstr(G.goal.why, "16 binary inputs"), "valid network opens the door: %s", G.goal.why);
+    game_poll_goal(&G);
+    CHECK(G.script_check.grader == 0 && G.sc.goal_met, "unchanged submission uses the cached result");
+    write_file(path, network, strlen(network) - 4);
+    game_poll_goal(&G);
+    CHECK(!G.sc.goal_met, "editing a submission closes the door while it is checked");
+    wait_for_campaign_grade(&G);
+    CHECK(!G.sc.goal_met && strstr(G.goal.why, "Input "), "the door shows the failing input: %s", G.goal.why);
+    unlink(path);
+    game_poll_goal(&G);
+    CHECK(!G.sc.goal_met && !G.script_check.checked, "removing the submission invalidates its result");
+    game_shutdown(&G);
+}
+
 static void test_auto_play(void)
 {
     char err[256], state[2300], hello[2500];
@@ -3107,6 +3144,7 @@ int main(void)
     test_between_levels();
     test_agent_focus_note();
     test_auto_play();
+    test_campaign_door();
     test_pane_focus();
     test_goal_and_action_panes();
     test_pane_scroll();
