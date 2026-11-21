@@ -6,7 +6,8 @@
 #include <string.h>
 
 enum { BG=0x101821, PANEL=0x192530, LINE=0x344753, INK=0xebf1ef,
-       MUTED=0xa4b8be, AQUA=0x70dfd3, GOLD=0xf6d388, RED=0xffa692, PAD=26 };
+       MUTED=0xa4b8be, AQUA=0x70dfd3, GOLD=0xf6d388, RED=0xffa692, PAD=26,
+       FLAG=0xff9ca8, FLAG_BG=0x42232e, FLAG_SELECTED=0x65303e };
 
 rect yesno_button_rect(int w, int h, int button)
 {
@@ -30,6 +31,19 @@ rect yesno_runs_rect(int w, int h)
     rect r = yesno_picker_rect(w, h);
     r.h -= 96;
     return r;
+}
+
+rect yesno_invalid_rect(const yesno_bench *b)
+{
+    char scores[80], label[48];
+    snprintf(scores, sizeof scores, "Correct %d       Wrong %d", b->correct, b->wrong);
+    snprintf(label, sizeof label, "I  Invalid %d", b->invalid);
+    return (rect){PAD+draw_text_width(scores)+28, 96, draw_text_width(label)+22, 30};
+}
+
+rect yesno_effort_rect(int w)
+{
+    return (rect){w/2+8, 47, 174, 30};
 }
 
 /* One UTF-8 line, measured in cells as in the room renderer. */
@@ -93,7 +107,8 @@ static void dock(sr_canvas *c, const yesno_bench *b)
 static void picker(sr_canvas *c, const yesno_bench *b)
 {
     rect r = yesno_picker_rect(c->w, c->h);
-    const char *title = b->page == BENCH_PROVIDERS ? "Choose a provider" : yesno_provider(b->picking);
+    const char *title = b->page == BENCH_PROVIDERS ? "Choose a provider" :
+                        b->page == BENCH_EFFORT ? "Choose reasoning effort" : yesno_provider(b->picking);
     draw_text(c, PAD, 56, title, AQUA, 1);
     if (b->page == BENCH_ENTRY) {
         const char *caption = b->picking == 0 ? "Ollama model tag (missing models are pulled on Start)" :
@@ -112,7 +127,8 @@ static void picker(sr_canvas *c, const yesno_bench *b)
     }
     const char *hint = "Select a row or use the arrow keys and Enter.";
     if (b->page == BENCH_MODELS && b->catalog.process.pid > 0) hint = "Loading available models...";
-    if (b->page == BENCH_MODELS && b->catalog_notice[0]) hint = b->catalog_notice;
+    if (b->page == BENCH_EFFORT) hint = b->catalog.process.pid > 0 ? "Reading effort levels..." : "Each effort level has its own ranking.";
+    if (b->catalog_notice[0]) hint = b->catalog_notice;
     line(c, PAD, 91, r.w, hint, MUTED, false);
     int rows = r.h / BENCH_ROW_H, first = yesno_picker_first(b, rows);
     for (int row=0; row<rows && first+row<yesno_options(b); row++) {
@@ -149,6 +165,13 @@ static void metric(sr_canvas *c, int x, int y, double value, int precision)
     draw_text(c, x, y, value >= 0 ? text : "-", GOLD, 1);
 }
 
+static void invalid_count(sr_canvas *c, int x, int y, int count, bool partial)
+{
+    char text[32];
+    snprintf(text, sizeof text, "%d%s", count, partial ? "+" : "");
+    draw_text(c, x, y, count < 0 ? "-" : text, count > 0 ? FLAG : MUTED, 1);
+}
+
 static void records(sr_canvas *c, const yesno_bench *b)
 {
     bool ranks = b->page == BENCH_RANKS;
@@ -158,24 +181,26 @@ static void records(sr_canvas *c, const yesno_bench *b)
     draw_text(c, PAD, 54, ranks ? "Model rankings" : machines ? "Machine comparison" : "Run history", AQUA, 1);
     char text[4500];
     if (ranks) {
-        snprintf(text, sizeof text, "%d model%s   /   %d run%s     Ranked by mean accuracy across finished runs.",
-                 b->standing_count, b->standing_count == 1 ? "" : "s", b->run_count, b->run_count == 1 ? "" : "s");
+        snprintf(text, sizeof text, "%d entries   /   %d runs     Ranked by mean accuracy.     !  Invalid YES/NO reply",
+                 b->standing_count, b->run_count);
     } else {
-        snprintf(text, sizeof text, "%s / %s", group->provider, *group->model ? group->model : "Unrecorded default");
+        snprintf(text, sizeof text, "%s / %s%s%s", group->provider, *group->model ? group->model : "Unrecorded default",
+                 !strcmp(group->effort, "-") ? "" : "    Effort  ", !strcmp(group->effort, "-") ? "" : group->effort);
     }
     line(c, PAD, 81, r.w, b->catalog_notice[0] ? b->catalog_notice : text,
          b->catalog_notice[0] ? RED : MUTED, false);
-    int cols[] = {r.x+10, r.x+76, r.x+r.w-365, r.x+r.w-294, r.x+r.w-207, r.x+r.w-89, r.x+r.w};
-    int run_cols[] = {r.x+10, r.x+187, r.x+r.w-510, r.x+r.w-357,
-                      r.x+r.w-260, r.x+r.w-174, r.x+r.w-84, r.x+r.w};
-    const char *headings[] = {"Rank", "Model", "Runs", "Finished", "Avg correct", "Avg %"};
-    const char *run_headings[] = {"Started (UTC)", "Runner", "Status", "Answered", "Correct", "Wall s", "s/answer"};
-    int machine_cols[] = {r.x+10, r.x+r.w/3, r.x+r.w-462, r.x+r.w-397,
-                          r.x+r.w-298, r.x+r.w-191, r.x+r.w-85};
-    const char *machine_headings[] = {"Runner", "Backend", "Runs", "Finished", "Avg %", "Avg wall s", "s/answer"};
+    int cols[] = {r.x+10, r.x+72, r.x+r.w-550, r.x+r.w-445, r.x+r.w-380,
+                  r.x+r.w-290, r.x+r.w-202, r.x+r.w-82};
+    int run_cols[] = {r.x+10, r.x+182, r.x+r.w-541, r.x+r.w-414,
+                      r.x+r.w-315, r.x+r.w-239, r.x+r.w-162, r.x+r.w-82};
+    const char *headings[] = {"Rank", "Model", "Effort", "Runs", "Finished", "Invalid", "Avg correct", "Avg %"};
+    const char *run_headings[] = {"Started (UTC)", "Runner", "Status", "Answered", "Correct", "Invalid", "Wall s", "s/answer"};
+    int machine_cols[] = {r.x+10, r.x+r.w*27/100, r.x+r.w-520, r.x+r.w-465,
+                          r.x+r.w-373, r.x+r.w-290, r.x+r.w-196, r.x+r.w-85};
+    const char *machine_headings[] = {"Runner", "Backend", "Runs", "Finished", "Invalid", "Avg %", "Avg wall s", "s/answer"};
     const int *columns = ranks ? cols : machines ? machine_cols : run_cols;
     const char *const *titles = ranks ? headings : machines ? machine_headings : run_headings;
-    for (int i=0; i<(ranks ? 6 : 7); i++)
+    for (int i=0; i<8; i++)
         draw_text(c, columns[i], r.y-23, titles[i], MUTED, 1);
     int rows = r.h / BENCH_ROW_H, first = yesno_picker_first(b, rows);
     int count = yesno_options(b);
@@ -187,26 +212,31 @@ static void records(sr_canvas *c, const yesno_bench *b)
     for (int row=0; row<rows && first+row<count; row++) {
         int i = first+row, y = r.y+row*BENCH_ROW_H;
         bool selected = i == b->cursor;
-        draw_fill(c, r.x, y, r.w, BENCH_ROW_H-1, selected ? 0x304853 : PANEL, 1);
-        if (selected) draw_fill(c, r.x, y, 3, BENCH_ROW_H-1, AQUA, 1);
+        bool flagged = ranks && b->standings[i].invalid > 0;
+        unsigned bg = flagged ? (selected ? FLAG_SELECTED : FLAG_BG) : (selected ? 0x304853 : PANEL);
+        draw_fill(c, r.x, y, r.w, BENCH_ROW_H-1, bg, 1);
+        if (selected) draw_fill(c, r.x, y, 3, BENCH_ROW_H-1, flagged ? FLAG : AQUA, 1);
         y += 4;
         if (ranks) {
             const bench_standing *s = &b->standings[i];
-            if (s->rank) snprintf(text, sizeof text, "%d", s->rank);
-            draw_text(c, cols[0], y, s->rank ? text : "-", GOLD, 1);
+            if (s->rank) snprintf(text, sizeof text, "%d%s", s->rank, flagged ? " !" : "");
+            else snprintf(text, sizeof text, "%s", flagged ? "- !" : "-");
+            draw_text(c, cols[0], y, text, flagged ? FLAG : GOLD, 1);
             const char *model = s->model;
             const char *leaf = !strcmp(s->provider, "llama.cpp") ? strrchr(model, '/') : NULL;
             snprintf(text, sizeof text, "%s / %s", *s->provider ? s->provider : "Unknown",
                      leaf ? leaf+1 : *model ? model : "Unrecorded default");
-            line(c, cols[1], y, cols[2]-cols[1]-8, text, INK, false);
+            line(c, cols[1], y, cols[2]-cols[1]-8, text, flagged ? FLAG : INK, false);
+            line(c, cols[2], y, cols[3]-cols[2]-8, s->effort, flagged ? FLAG : INK, false);
             snprintf(text, sizeof text, "%d", s->runs);
-            draw_text(c, cols[2], y, text, INK, 1);
+            draw_text(c, cols[3], y, text, INK, 1);
             snprintf(text, sizeof text, "%d", s->finished);
-            draw_text(c, cols[3], y, text, MUTED, 1);
+            draw_text(c, cols[4], y, text, MUTED, 1);
+            invalid_count(c, cols[5], y, s->invalid, s->invalid_counted_runs < s->runs);
             snprintf(text, sizeof text, "%.1f", s->avg_correct);
-            draw_text(c, cols[4], y, s->finished ? text : "-", INK, 1);
+            draw_text(c, cols[6], y, s->finished ? text : "-", INK, 1);
             snprintf(text, sizeof text, "%.1f%%", s->avg_percent);
-            draw_text(c, cols[5], y, s->finished ? text : "-", AQUA, 1);
+            draw_text(c, cols[7], y, s->finished ? text : "-", flagged ? FLAG : AQUA, 1);
         } else if (machines) {
             const bench_machine_result *m = &b->machines[group->first_machine+i];
             line(c, columns[0], y, columns[1]-columns[0]-8, m->runner.label, INK, false);
@@ -215,9 +245,10 @@ static void records(sr_canvas *c, const yesno_bench *b)
             draw_text(c, columns[2], y, text, INK, 1);
             snprintf(text, sizeof text, "%d", m->finished);
             draw_text(c, columns[3], y, text, INK, 1);
-            metric(c, columns[4], y, m->avg_percent, 1);
-            metric(c, columns[5], y, m->mean_wall_seconds, 1);
-            metric(c, columns[6], y, m->mean_answer_seconds, 3);
+            invalid_count(c, columns[4], y, m->invalid, m->invalid_counted_runs < m->runs);
+            metric(c, columns[5], y, m->avg_percent, 1);
+            metric(c, columns[6], y, m->mean_wall_seconds, 1);
+            metric(c, columns[7], y, m->mean_answer_seconds, 3);
         } else {
             const bench_saved_run *run = &b->runs[group->first_run+i];
             line(c, run_cols[0], y, run_cols[1]-run_cols[0]-8, run->started, INK, false);
@@ -227,8 +258,9 @@ static void records(sr_canvas *c, const yesno_bench *b)
             draw_text(c, run_cols[3], y, text, MUTED, 1);
             snprintf(text, sizeof text, "%d", run->correct);
             draw_text(c, run_cols[4], y, text, INK, 1);
-            metric(c, run_cols[5], y, run->wall_seconds, 1);
-            metric(c, run_cols[6], y, run->mean_answer_seconds, 3);
+            invalid_count(c, run_cols[5], y, run->invalid, false);
+            metric(c, run_cols[6], y, run->wall_seconds, 1);
+            metric(c, run_cols[7], y, run->mean_answer_seconds, 3);
         }
     }
     if (machines && b->cursor >= 0 && b->cursor < count) {
@@ -250,7 +282,7 @@ static void detail(sr_canvas *c, const yesno_bench *b, rect r)
     x += 15;
     width -= 30;
     if (b->selected < 0) {
-        draw_text(c, x, y, b->misses ? "No misses to inspect" : "Answer detail", MUTED, 1);
+        draw_text(c, x, y, b->invalid_only ? "No invalid replies" : b->misses ? "No misses to inspect" : "Answer detail", MUTED, 1);
         return;
     }
     const bench_answer *a = &b->answers[b->selected];
@@ -324,16 +356,28 @@ void yesno_draw(sr_canvas *c, const yesno_bench *b)
     char text[1100], choice[512];
     const char *model = b->provider == 1 ? strrchr(b->model, '/') : NULL;
     model = model ? model+1 : b->model;
-    snprintf(choice, sizeof choice, "%s%s%.480s", yesno_provider(b->provider), *model ? " / " : "", model);
+    snprintf(choice, sizeof choice, "%s%s%.420s%s%s", yesno_provider(b->provider), *model ? " / " : "", model,
+             b->effort[0] ? " / " : "", b->effort);
     bool current = b->page == BENCH_REPORT || b->status == BENCH_RUNNING;
-    line(c, PAD, 54, c->w/2 - PAD, current && *b->run_label ? b->run_label : choice, INK, false);
+    snprintf(text, sizeof text, "%s%s%s", b->run_label, *b->run_effort ? " / " : "", b->run_effort);
+    line(c, PAD, 54, c->w/2 - PAD, current && *b->run_label ? text : choice, INK, false);
+    if (yesno_has_effort(b->provider) && b->page == BENCH_WATCH) {
+        rect e = yesno_effort_rect(c->w);
+        draw_fill(c, e.x, e.y, e.w, e.h, PANEL, 1);
+        snprintf(text, sizeof text, "E  Effort  %s", *b->effort ? b->effort : "default");
+        line(c, e.x+9, e.y+7, e.w-16, text, INK, false);
+    }
     snprintf(text, sizeof text, "%d / %d answered", b->count, b->total);
     draw_text(c, c->w-PAD-draw_text_width(text), 54, text, INK, 1);
     int available = c->w - 2*PAD;
     draw_fill(c, PAD, 81, available, 6, LINE, 1);
     if (b->total > 0 && b->count) draw_fill(c, PAD, 81, available*(double)b->count/b->total, 6, AQUA, 1);
-    snprintf(text, sizeof text, "Correct %d       Wrong %d       Invalid %d", b->correct, b->wrong, b->invalid);
+    snprintf(text, sizeof text, "Correct %d       Wrong %d", b->correct, b->wrong);
     draw_text(c, PAD, 103, text, INK, 1);
+    rect invalid = yesno_invalid_rect(b);
+    draw_fill(c, invalid.x, invalid.y, invalid.w, invalid.h, b->invalid_only ? FLAG_SELECTED : PANEL, 1);
+    snprintf(text, sizeof text, "I  Invalid %d", b->invalid);
+    draw_text(c, invalid.x+11, invalid.y+7, text, b->invalid || b->invalid_only ? FLAG : INK, 1);
     if (b->count) {
         snprintf(text, sizeof text, "%.1f%% accuracy", 100.0*b->correct/b->count);
         draw_text(c, c->w-PAD-draw_text_width(text), 103, text, AQUA, 1);

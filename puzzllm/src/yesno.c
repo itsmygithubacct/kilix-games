@@ -6,9 +6,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-static const char *const providers[] = {"Ollama", "llama.cpp", "Codex", "Grok", "Claude"};
-static const char *const commands[] = {"ollama", "llama.cpp", "codex", "grok", "claude"};
+static const char *const providers[] = {"Ollama", "llama.cpp", "Codex", "Grok", "Claude", "Kilix models"};
+static const char *const commands[] = {"ollama", "llama.cpp", "codex", "grok", "claude", "kilix"};
 enum { PROVIDERS = sizeof providers / sizeof providers[0] };
+
+bool yesno_has_effort(int provider) { return provider >= 2 && provider <= 4; }
 
 const char *yesno_provider(int index)
 {
@@ -70,7 +72,7 @@ static bool launch(game *g, bench_stream *stream, char *mode, char *arg, char *p
 {
     char helper[4096];
     snprintf(helper, sizeof helper, "%s/libexec/puzzllm-yesno", g->root);
-    char *argv[] = {helper, mode, arg, provider, model, NULL};
+    char *argv[] = {helper, mode, arg, provider, model, !strcmp(mode, "run") ? g->bench.effort : NULL, NULL};
     return g->spawn && pty_spawn(&stream->process, argv, NULL, 120, 24);
 }
 
@@ -115,6 +117,7 @@ static double optional_number(const json_doc *doc, int root, const char *key)
 
 static bool matches(const yesno_bench *b, int i)
 {
+    if (b->invalid_only) return b->answers[i].verdict == BENCH_INVALID;
     return !b->misses || b->answers[i].verdict != BENCH_CORRECT;
 }
 
@@ -149,7 +152,10 @@ static void answer_event(yesno_bench *b, const json_doc *doc, int root)
     const char *result = field(doc, root, "verdict");
     if (!strcmp(result, "correct")) { a->verdict = BENCH_CORRECT; b->correct++; }
     else if (!strcmp(result, "wrong")) { a->verdict = BENCH_WRONG; b->wrong++; }
-    else { a->verdict = BENCH_INVALID; b->invalid++; }
+    else {
+        a->verdict = BENCH_INVALID;
+        if (++b->invalid == 1 && b->page == BENCH_RANKS) b->refresh_rankings = true;
+    }
     if (b->follow && matches(b, b->count - 1)) b->selected = b->count - 1;
 }
 
@@ -166,6 +172,7 @@ static void worker_event(yesno_bench *b, const json_doc *doc, int root)
         b->total = (int)number(doc, root, "total");
         b->question[0] = b->band[0] = b->notice[0] = 0;
         b->run_provider = -1;
+        copy_field(b->run_effort, sizeof b->run_effort, field(doc, root, "effort"));
         copy_field(b->report, sizeof b->report, field(doc, root, "file"));
         for (int i = 0; i < PROVIDERS; i++) {
             if (!strcmp(commands[i], field(doc, root, "provider"))) {
@@ -175,6 +182,7 @@ static void worker_event(yesno_bench *b, const json_doc *doc, int root)
                 if (b->provider < 0) {
                     b->provider = i;
                     copy_field(b->model, sizeof b->model, model);
+                    if (strcmp(b->run_effort, "default")) copy_field(b->effort, sizeof b->effort, b->run_effort);
                 }
                 break;
             }
@@ -228,9 +236,14 @@ static void catalog_event(yesno_bench *b, const json_doc *doc, int root)
         bench_standing *s = &b->standings[b->standing_count++];
         copy_field(s->provider, sizeof s->provider, field(doc, root, "provider"));
         copy_field(s->model, sizeof s->model, model);
+        const char *effort = field(doc, root, "effort");
+        bool hosted = !strcmp(s->provider, "codex") || !strcmp(s->provider, "grok") || !strcmp(s->provider, "claude");
+        copy_field(s->effort, sizeof s->effort, *effort ? effort : hosted ? "Unrecorded" : "-");
         s->rank = (int)number(doc, root, "rank");
         s->runs = (int)number(doc, root, "runs");
         s->finished = (int)number(doc, root, "finished");
+        s->invalid = (int)optional_number(doc, root, "invalid_answers");
+        s->invalid_counted_runs = (int)number(doc, root, "invalid_counted_runs");
         s->avg_correct = number(doc, root, "avg_correct");
         s->avg_percent = number(doc, root, "avg_percent");
         s->first_run = b->run_count;
@@ -251,6 +264,8 @@ static void catalog_event(yesno_bench *b, const json_doc *doc, int root)
         read_runner(&m->runner, doc, root);
         m->runs = (int)number(doc, root, "runs");
         m->finished = (int)number(doc, root, "finished");
+        m->invalid = (int)optional_number(doc, root, "invalid_answers");
+        m->invalid_counted_runs = (int)number(doc, root, "invalid_counted_runs");
         m->wall_timed_runs = (int)number(doc, root, "wall_timed_runs");
         m->timed_answers = (int)number(doc, root, "timed_answers");
         m->avg_percent = optional_number(doc, root, "avg_percent");
@@ -276,6 +291,7 @@ static void catalog_event(yesno_bench *b, const json_doc *doc, int root)
         r->wall_seconds = optional_number(doc, root, "wall_seconds");
         r->mean_answer_seconds = optional_number(doc, root, "mean_answer_seconds");
         r->correct = (int)number(doc, root, "correct");
+        r->invalid = (int)optional_number(doc, root, "invalid");
         r->answered = (int)number(doc, root, "answered");
         r->total = (int)number(doc, root, "total");
         b->standings[b->standing_count-1].loaded++;
@@ -361,6 +377,7 @@ void yesno_poll(game *g)
 
 static void choose(yesno_bench *b, const char *model)
 {
+    if (b->provider != b->picking || strcmp(b->model, model)) b->effort[0] = 0;
     b->provider = b->picking;
     copy_field(b->model, sizeof b->model, model);
     clear_models(b);
@@ -370,15 +387,19 @@ static void choose(yesno_bench *b, const char *model)
 int yesno_options(const yesno_bench *b)
 {
     if (b->page == BENCH_PROVIDERS) return PROVIDERS;
+    if (b->page == BENCH_EFFORT) return b->model_count + 1;
     if (b->page == BENCH_RANKS) return b->standing_count;
     if (b->page == BENCH_RUNS) return b->standings[b->standing_index].loaded;
     if (b->page == BENCH_MACHINES) return b->standings[b->standing_index].machine_count;
+    if (b->picking == 5) return b->model_count;
     return b->model_count + (b->picking < 2 ? 1 : 2);
 }
 
 const char *yesno_option(const yesno_bench *b, int row)
 {
     if (b->page == BENCH_PROVIDERS) return yesno_provider(row);
+    if (b->page == BENCH_EFFORT) return row ? b->models[row-1] : "Use configured default";
+    if (b->picking == 5) return b->models[row];
     if (b->picking >= 2) {
         if (row < 2) return row ? "Enter model ID..." : "Use configured default";
         return b->models[row-2];
@@ -397,12 +418,18 @@ static void accept(game *g)
         clear_models(b);
         launch(g, &b->catalog, "models", (char *)commands[b->picking], NULL, NULL);
     } else if (b->page == BENCH_MODELS) {
-        if (b->picking >= 2 && !b->cursor) choose(b, "");
+        if (b->picking == 5) {
+            if (b->cursor < b->model_count) choose(b, b->models[b->cursor]);
+        } else if (b->picking >= 2 && !b->cursor) choose(b, "");
         else if (b->cursor >= (b->picking < 2 ? 1 : 2)) choose(b, yesno_option(b, b->cursor));
         else {
             b->entry[0] = 0;
             b->page = BENCH_ENTRY;
         }
+    } else if (b->page == BENCH_EFFORT && b->cursor < yesno_options(b)) {
+        copy_field(b->effort, sizeof b->effort, b->cursor ? yesno_option(b, b->cursor) : "");
+        clear_models(b);
+        b->page = BENCH_WATCH;
     } else if (b->page == BENCH_ENTRY && b->entry[0]) {
         choose(b, b->entry);
     } else if (b->page == BENCH_RANKS && b->cursor < b->standing_count) {
@@ -425,6 +452,7 @@ static void accept(game *g)
 static void back(yesno_bench *b)
 {
     switch (b->page) {
+    case BENCH_EFFORT: clear_models(b); b->page = BENCH_WATCH; break;
     case BENCH_ENTRY: b->page = BENCH_MODELS; break;
     case BENCH_MODELS: clear_models(b); b->cursor = b->picking; b->page = BENCH_PROVIDERS; break;
     case BENCH_PROVIDERS: b->page = BENCH_WATCH; break;
@@ -475,6 +503,7 @@ static void button(game *g, int id)
         break;
     case BENCH_FILTER:
         if (b->archive) b = b->archive;
+        b->invalid_only = false;
         b->misses = !b->misses;
         latest_answer(b);
         break;
@@ -486,11 +515,28 @@ static void button(game *g, int id)
     }
 }
 
+static void toggle_invalid(yesno_bench *b)
+{
+    b->invalid_only = !b->invalid_only;
+    b->misses = false;
+    latest_answer(b);
+}
+
+static void choose_effort(game *g)
+{
+    yesno_bench *b = &g->bench;
+    if (b->page != BENCH_WATCH || !yesno_has_effort(b->provider)) return;
+    clear_models(b);
+    b->cursor = 0;
+    b->page = BENCH_EFFORT;
+    launch(g, &b->catalog, "efforts", (char *)commands[b->provider], b->model, NULL);
+}
+
 void yesno_scroll(yesno_bench *b, int rows)
 {
     b->redraw = true;
     if (b->archive) b = b->archive;
-    if (b->page == BENCH_PROVIDERS || b->page == BENCH_MODELS ||
+    if (b->page == BENCH_PROVIDERS || b->page == BENCH_MODELS || b->page == BENCH_EFFORT ||
         b->page == BENCH_RANKS || b->page == BENCH_RUNS || b->page == BENCH_MACHINES) {
         int n = yesno_options(b);
         if (!n) return;
@@ -560,6 +606,8 @@ void yesno_key(game *g, const key_event *ev)
     case 'r': case 'R': if (!b->archive) button(g, BENCH_START); break;
     case 'b': case 'B': if (!b->archive) button(g, BENCH_RANKINGS); break;
     case 'f': case 'F': button(g, BENCH_FILTER); break;
+    case 'i': case 'I': toggle_invalid(b->archive ? b->archive : b); break;
+    case 'e': case 'E': choose_effort(g); break;
     case 'l': case 'L': button(g, BENCH_LATEST); break;
     }
 }
@@ -611,6 +659,11 @@ void yesno_click(game *g, int x, int y)
     }
     bool watch = b->page == BENCH_WATCH || b->page == BENCH_REPORT;
     if (b->archive) b = b->archive;
+    if (watch && inside(yesno_invalid_rect(b), x, y)) { toggle_invalid(b); return; }
+    if (watch && b->page == BENCH_WATCH && yesno_has_effort(b->provider) && inside(yesno_effort_rect(L.w), x, y)) {
+        choose_effort(g);
+        return;
+    }
     rect area = watch ? yesno_history_rect(L.w, L.h) : yesno_picker_rect(L.w, L.h);
     if (b->page == BENCH_RUNS || b->page == BENCH_MACHINES) area = yesno_runs_rect(L.w, L.h);
     if (!inside(area, x, y) || b->page == BENCH_ENTRY) return;

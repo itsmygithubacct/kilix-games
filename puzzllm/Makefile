@@ -157,7 +157,8 @@ test-kilix-display:
 
 test-yesno:
 	@mkdir -p $(SCRATCH)/yesno
-	@TMPDIR=$(SCRATCH)/yesno python3 -B tests/test_yesno.py
+	@TMPDIR=$(SCRATCH)/yesno PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover \
+		-s third_party/kilix-bench/tests -p 'test_yesno*.py'
 
 test: test-unit test-cli test-sandbox test-kilix-display test-yesno test-defects
 

@@ -333,7 +333,7 @@ int menu_page_rows(int page, bool neuronte, int *out, int cap)
     };
     static const int reset_rows[] = { MENU_RESET_LEVEL, MENU_RESET };
     static const int download_rows[] = {
-        MENU_DL_GGUF_08, MENU_DL_GGUF_4B, MENU_DL_OLLAMA_06, MENU_DL_OLLAMA_4B, MENU_DL_NAME
+        MENU_DL_GGUF_08, MENU_DL_GGUF_4B, MENU_DL_GEMMA_E2B, MENU_DL_OLLAMA_06, MENU_DL_OLLAMA_4B, MENU_DL_NAME
     };
     static const int between_rows[] = { MENU_LEVEL_SESSION, MENU_LEVEL_CLEANUP, MENU_CLEAN_DISK };
     const int *rows = main_rows;
@@ -384,6 +384,7 @@ void render_menu(sr_canvas *c, int selected, const char *active_model,
         [MENU_DOWNLOADS] = "Downloads >",
         [MENU_DL_GGUF_08] = "Download Qwen3.5-0.8B Q8_0",
         [MENU_DL_GGUF_4B] = "Download Qwen3.5-4B Q4_K_M",
+        [MENU_DL_GEMMA_E2B] = "Download Gemma 4 E2B Q4_K_M",
         [MENU_DL_OLLAMA_06] = "Download Ollama qwen3:0.6b",
         [MENU_DL_OLLAMA_4B] = "Download Ollama qwen3:4b-instruct-2507",
         [MENU_DL_NAME] = "Pull another Ollama model",

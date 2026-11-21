@@ -125,6 +125,17 @@ default, or enter a model ID. You can choose the next model while a benchmark
 is running. The bench has its own selection, independent of the coding session
 and campaign.
 
+**Kilix models** offers the installed Needle2, Needle3 and Kilix LFM2. Needle
+gets a single answer tool whose value is `YES` or `NO`. Each native reply is
+saved for inspection. Ollama decision models, including AutoTrust Jev, use
+the native binary decision API and record its probability. At or above 0.5
+the answer is YES.
+
+For a hosted model, press **E** or click **Effort** to choose a reasoning
+level for the next run. Each provider, model and effort has its own ranking,
+run history and machine comparison. A known configured default is applied
+explicitly. Older hosted runs without an effort measurement show **Unrecorded**.
+
 Press **R** or click **Start** to run the OneBit development questions. Each
 question is a fresh request with the instruction `Respond with only YES or NO.`
 After trimming surrounding whitespace, only uppercase `YES` and `NO` count
@@ -133,14 +144,20 @@ Accuracy counts every answered question. A provider failure ends the run
 and preserves its partial results.
 
 The player stays beside the controls at the bottom. Click an answer or use
-the arrow keys or wheel to inspect it, **F** to filter misses, and **L** to
+the arrow keys or wheel to inspect it, **F** to filter misses, **I** or the
+**Invalid** counter to show only invalid replies, and **L** to
 follow the latest answer again. **Esc** returns to the game. The benchmark
 continues even if you close the tab. Reopen **Yes/No Bench**, or launch
 `bin/puzzllm --yesno` in a separate terminal, to watch the same run. Use
 **Stop** to end it. Each run saves its questions, replies, keys, timings,
 and outcomes in `bench/yesno/*.jsonl` under the game state directory.
 
-Press **B** or click **Rankings** to see one row per provider and model.
+Press **B** or click **Rankings** to see the results. A single invalid reply
+in any recorded attempt colors its ranking row red and adds **!**. The
+**Invalid** column counts format failures separately from valid wrong answers.
+A plus means the count covers only some historical runs. A dash means the
+breakdown is unavailable. New invalid text replies preserve the original
+whitespace in the journal's `raw_reply` field.
 **Runs** counts every attempt. **Avg correct** is the mean number of correct
 answers per finished run. **Avg %** is the mean accuracy of those runs and
 determines rank. Tied models share a rank. Select a model to see every run,
@@ -167,7 +184,7 @@ RAM. **C** returns to the individual runs and their measured resource use.
 Set `PUZZLLM_BENCH_MACHINE` before launching the game to give the runner a
 readable label. The saved machine ID is specific to the benchmark.
 
-Version 2 of `rankings.json` stores these comparisons and the measurements
+Version 3 of `rankings.json` stores these comparisons and the measurements
 for each run. Wall time includes setup, model loading, questions and backend
 cleanup. Each run also records setup seconds, its UTC finish time, throughput,
 and mean and 95th-percentile answer latency. Byte counts use bytes and
@@ -192,8 +209,12 @@ press **U** in Rankings. Completed GGUF runs record a content digest so
 identical weights installed at different paths can be compared. Computing
 the digest happens after timing and is cached for unchanged files.
 
-The bench uses the OneBit data from the installed `kilix-bench` package
-or the checkout named by `PUZZLLM_YESNO_BENCH`. Ollama uses `OLLAMA_HOST`.
+The game uses the pinned `kilix-bench` runner and its OneBit data. Run
+`git submodule update --init --recursive` after updating a checkout.
+`third_party/kilix-bench/bin/kilix-yesno` opens the CLI with `--help`,
+and `third_party/kilix-bench/bin/kilix-yesno-tui` opens the terminal
+monitor. They share the same run lock, results and rankings with the game.
+An alternate OneBit checkout can be named by `PUZZLLM_YESNO_BENCH`. Ollama uses `OLLAMA_HOST`.
 GGUF discovery uses `KILIX_LLM_MODELS_DIR` and `PUZZLLM_MODEL`. A selected
 GGUF runs on a private llama-server for the duration of the benchmark.
 
@@ -294,7 +315,12 @@ Codex keeps its game permission profile, Grok keeps its strict sandbox
 with access to the player tmux server,
 Claude and OMP ask, and Pi asks instead of skipping approval.
 
-**Downloads** is the last row on the Model page. It downloads on this computer, not inside the sandbox. Suggested llama.cpp files are saved in the Kilix LLM models folder (`KILIX_LLM_MODELS_DIR`, or `GPU_TERMINAL_HOME/kilix-llm/models`, or `~/.local/gpu_terminal/kilix-llm/models`), which is the folder the game already searches for `Qwen3.5-0.8B-Q8_0.gguf`. Suggested Ollama models, and any other Ollama name you type, are pulled with `ollama pull`. A GGUF is not imported into Ollama. llama.cpp stays selectable beside Ollama. The sandbox bind-mounts the chosen GGUF read-only.
+**Model → Downloads** offers Gemma 4 E2B Instruct Q4_K_M (3.11 GB) alongside
+the Qwen GGUFs. Selecting a download fetches it on the host and verifies
+its size and SHA-256. The files go into `KILIX_LLM_MODELS_DIR`, which defaults
+to `GPU_TERMINAL_HOME/kilix-llm/models` or `~/.local/gpu_terminal/kilix-llm/models`.
+The game and bench discover installed GGUFs there. Ollama selections are
+pulled by tag. The sandbox mounts the chosen GGUF read-only.
 
 PuzzLLM requests **32,768 context tokens** from Ollama for every turn.
 `PUZZLLM_CTX` changes the requested limit. The game checks the model's

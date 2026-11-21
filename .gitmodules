@@ -4,3 +4,7 @@
 [submodule "puzzllm/third_party/neuroterm"]
 	path = puzzllm/third_party/neuroterm
 	url = https://github.com/itsmygithubacct/neuroterm.git
+[submodule "puzzllm/third_party/kilix-bench"]
+	path = puzzllm/third_party/kilix-bench
+	url = https://github.com/itsmygithubacct/kilix-bench.git
+	branch = work/0.2.4-yesno

@@ -1266,6 +1266,7 @@ static const struct {
 } download_catalog[] = {
     {MENU_DL_GGUF_08, "gguf", "qwen3.5-0.8b"},
     {MENU_DL_GGUF_4B, "gguf", "qwen3.5-4b-q4"},
+    {MENU_DL_GEMMA_E2B, "gguf", "gemma4-e2b-q4-k-m"},
     {MENU_DL_OLLAMA_06, "ollama", "qwen3:0.6b"},
     {MENU_DL_OLLAMA_4B, "ollama", "qwen3:4b-instruct-2507"},
 };

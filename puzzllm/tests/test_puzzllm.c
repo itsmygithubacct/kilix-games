@@ -1590,8 +1590,8 @@ static void test_bench_menu(void)
           "Bench opens a standalone monitor before starting a run");
     rect pick = yesno_button_rect(L.w, L.h, BENCH_MODEL);
     game_pointer(&G, pick.x + 3, pick.y + 3, POINTER_DOWN);
-    CHECK(G.bench.page == BENCH_PROVIDERS && yesno_options(&G.bench) == 5,
-          "mouse opens all five providers");
+    CHECK(G.bench.page == BENCH_PROVIDERS && yesno_options(&G.bench) == 6,
+          "mouse opens six providers including the local Kilix models");
     for (int i = 0; i < 5; i++) {
         menu_press(KEY_HOME);
         for (int j = 0; j < i; j++) menu_press(KEY_DOWN);
@@ -1631,6 +1631,14 @@ static void test_bench_menu(void)
     menu_press(KEY_ENTER);
     CHECK(G.bench.page == BENCH_WATCH && !strcmp(G.bench.model, "custom-version"),
           "a hosted model ID can also be entered directly");
+    menu_press('e');
+    char *levels[] = {"printf", "%s\n", "{\"event\":\"model\",\"model\":\"low\"}",
+                      "{\"event\":\"model\",\"model\":\"high\"}", NULL};
+    CHECK(pty_spawn(&G.bench.catalog.process, levels, NULL, 80, 24), "load effort choices");
+    drain_bench_stream(&G.bench.catalog);
+    menu_press(KEY_END);
+    menu_press(KEY_ENTER);
+    CHECK(G.bench.page == BENCH_WATCH && !strcmp(G.bench.effort, "high"), "effort picker saves the selected level");
     menu_press('m');
     menu_press(KEY_ESCAPE);
     sr_canvas canvas;
@@ -1676,6 +1684,12 @@ static void test_bench_menu(void)
     CHECK(G.bench.selected == 2 && G.bench.follow, "Latest follows incoming answers");
     menu_press('f');
     rect history = yesno_history_rect(L.w, L.h);
+    menu_press('i');
+    CHECK(G.bench.invalid_only && yesno_history_first(&G.bench, 10) == 2 &&
+          yesno_history_row(&G.bench, 0, 1) == -1, "invalid filter excludes valid wrong answers");
+    rect invalid = yesno_invalid_rect(&G.bench);
+    game_pointer(&G, invalid.x+4, invalid.y+4, POINTER_DOWN);
+    CHECK(!G.bench.invalid_only, "the invalid count button toggles the filtered view");
     game_pointer(&G, history.x+8, history.y+2, POINTER_DOWN);
     CHECK(G.bench.selected == 0 && !strcmp(G.bench.answers[0].question, "Is two even?"),
           "clicking a result inspects that question");
@@ -1693,16 +1707,29 @@ static void test_bench_menu(void)
     CHECK(G.bench.page == BENCH_RANKS && G.bench.standing_count == 1 && G.bench.run_count == 1 &&
           G.bench.standings[0].rank == 1 && G.bench.standings[0].avg_correct == 1.0,
           "rankings load saved results from disk");
+    CHECK(G.bench.standings[0].invalid == 1 && G.bench.standings[0].invalid_counted_runs == 1,
+          "rankings count format failures separately from wrong answers");
+    if (sr_canvas_init(&canvas, L.w, L.h)) {
+        rect rows = yesno_picker_rect(L.w, L.h);
+        int pixel = (rows.y+2)*canvas.w + rows.x+rows.w-5;
+        game_render(&G, &canvas);
+        CHECK(canvas.px[pixel] == 0xff65303e, "a single invalid reply flags the whole selected row red");
+        G.bench.standings[0].invalid = 0;
+        game_render(&G, &canvas);
+        CHECK(canvas.px[pixel] == 0xff304853, "a valid wrong reply leaves the ranking row unflagged");
+        G.bench.standings[0].invalid = 1;
+        sr_canvas_free(&canvas);
+    }
     menu_press('u');
     drain_bench_stream(&G.bench.catalog);
     menu_press(KEY_ENTER);
     CHECK(G.bench.page == BENCH_RUNS && G.bench.run_count == 1 && yesno_options(&G.bench) == 1,
           "refresh keeps one slot and a model opens its saved runs");
-    CHECK(G.bench.runs[0].wall_seconds == 4.5 && G.bench.runs[0].mean_answer_seconds == 0.75 &&
+    CHECK(G.bench.runs[0].invalid == 1 && G.bench.runs[0].wall_seconds == 4.5 && G.bench.runs[0].mean_answer_seconds == 0.75 &&
           !strcmp(G.bench.runs[0].runner.cpu, "Fixture CPU"), "history loads runner hardware and measured seconds");
     menu_press('c');
     CHECK(G.bench.page == BENCH_MACHINES && yesno_options(&G.bench) == 1 && G.bench.machine_count == 1 &&
-          G.bench.machines[0].mean_wall_seconds == 4.5 && G.bench.machines[0].timed_answers == 1,
+          G.bench.machines[0].invalid == 1 && G.bench.machines[0].mean_wall_seconds == 4.5 && G.bench.machines[0].timed_answers == 1,
           "model history opens the per-machine averages");
     rect toggle = yesno_button_rect(L.w, L.h, BENCH_RANKINGS);
     game_pointer(&G, toggle.x+2, toggle.y+2, POINTER_DOWN);
@@ -1712,6 +1739,8 @@ static void test_bench_menu(void)
     if (G.bench.archive) drain_bench_stream(&G.bench.archive->worker);
     CHECK(G.bench.page == BENCH_REPORT && G.bench.archive && G.bench.archive->count == 3 &&
           G.bench.archive->status == BENCH_COMPLETE, "a saved run opens its original answers");
+    menu_press('i');
+    CHECK(G.bench.archive && G.bench.archive->invalid_only && !G.bench.invalid_only, "filter saved invalid replies independently");
     menu_press('f');
     menu_press('r');
     CHECK(G.bench.archive && G.bench.archive->misses && !G.bench.misses && !G.bench.worker.process.pid,
@@ -2347,6 +2376,10 @@ static void test_downloads(void)
         "printf '%s\\n' \"$@\" >> \"$PUZZLLM_FETCH_LOG\"\n"
         "if [ \"$1\" = gguf ]; then\n"
         "  mkdir -p -- \"$KILIX_LLM_MODELS_DIR\"\n"
+        "  if [ \"$2\" = gemma4-e2b-q4-k-m ]; then\n"
+        "    printf x > \"$KILIX_LLM_MODELS_DIR/gemma-4-E2B-it-Q4_K_M.gguf\"\n"
+        "    printf 'saved gemma-4-E2B-it-Q4_K_M.gguf\\n'; exit 0\n"
+        "  fi\n"
         "  printf x > \"$KILIX_LLM_MODELS_DIR/Qwen3.5-0.8B-Q8_0.gguf\"\n"
         "  printf 'saved Qwen3.5-0.8B-Q8_0.gguf\\n'\n"
         "  exit 0\n"
@@ -2363,6 +2396,7 @@ static void test_downloads(void)
           "download ids are appended and Downloads is the last model row");
     page = menu_item_page(MENU_DL_GGUF_08);
     CHECK(page == MENU_PAGE_DOWNLOAD, "suggested downloads live on their own page");
+    CHECK(menu_item_page(MENU_DL_GEMMA_E2B) == MENU_PAGE_DOWNLOAD, "Gemma 4 E2B Q4_K_M is an optional download");
 
     sub(state, sizeof state, "downloads");
     CHECK(game_init(&G, ".", state, false, err, sizeof err), "download menu: %s", err);
@@ -2422,6 +2456,14 @@ static void test_downloads(void)
     menu_press(KEY_ENTER);
     CHECK(!G.use_codex && !G.ollama_model[0] && strstr(G.llama_model, "/Qwen3.5-0.8B-Q8_0.gguf"),
           "choosing the downloaded GGUF keeps llama.cpp on that file");
+
+    menu_to(MENU_DL_GEMMA_E2B);
+    menu_press(KEY_ENTER);
+    wait_fetch();
+    menu_to(MENU_LOCAL);
+    menu_press(KEY_ENTER);
+    CHECK(G.menu.gguf_count == 2 && !strcmp(G.menu.gguf[1].name, "gemma-4-E2B-it-Q4_K_M.gguf"),
+          "choosing the lazy Gemma download makes the verified GGUF selectable");
 
     unsetenv("KILIX_LLM_MODELS_DIR");
     unsetenv("PUZZLLM_FETCH");
