@@ -144,7 +144,10 @@ pip install 'lm_eval[ifeval] @ https://github.com/EleutherAI/lm-evaluation-harne
 ```
 
 The evaluator downloads task data on first use. Set `PUZZLLM_FREE_TEXT_LIMIT=1`
-for a smoke test. With the variable unset, the upstream task runs in full.
+for a smoke test. On a slow CPU, `PUZZLLM_FREE_TEXT_MAX_TOKENS=16` also caps
+each generated reply. The run saves these overrides in `run.json`. Leave both
+unset for the full task and its standard generation budget. Each request
+allows up to an hour for inference.
 
 The first BoolQ run downloads the validation data from SuperGLUE and caches
 the verified file. A true label means YES and a false label means NO. Always

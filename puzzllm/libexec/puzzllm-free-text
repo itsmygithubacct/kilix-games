@@ -40,6 +40,9 @@ def run(task, state, model):
     limit = os.environ.get("PUZZLLM_FREE_TEXT_LIMIT")
     if limit and int(limit) < 1:
         raise ValueError("PUZZLLM_FREE_TEXT_LIMIT must be positive.")
+    budget = os.environ.get("PUZZLLM_FREE_TEXT_MAX_TOKENS")
+    if budget and int(budget) < 1:
+        raise ValueError("PUZZLLM_FREE_TEXT_MAX_TOKENS must be positive.")
     base = Path(state) / "bench" / "free-text" / task
     base.mkdir(parents=True, exist_ok=True)
     dest = Path(tempfile.mkdtemp(prefix="run-", dir=base))
@@ -57,9 +60,11 @@ def run(task, state, model):
             subject = Path(model).name
         else:
             subject = endpoint
-        (dest / "run.json").write_text(json.dumps({"task": task, "model": subject, "limit": limit}) + "\n")
-        command = [*launcher, "run", "--model", "gguf", "--model_args", "base_url=" + endpoint,
+        (dest / "run.json").write_text(json.dumps({"task": task, "model": subject, "limit": limit, "max_tokens": budget}) + "\n")
+        command = [*launcher, "run", "--model", "gguf", "--model_args", f"base_url={endpoint},timeout=3600",
                    "--tasks", task, "--output_path", str(dest), "--log_samples"]
+        if budget:
+            command.extend(["--gen_kwargs", f"max_gen_toks={int(budget)}"])
         if limit:
             command.extend(["--limit", limit])
         status(f"Running {task} on {subject}")
