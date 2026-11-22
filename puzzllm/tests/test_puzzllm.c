@@ -1587,8 +1587,10 @@ static void test_bench_menu(void)
     CHECK(game_init(&G, ".", state, false, err, sizeof err), "bench menu: %s", err);
     menu_to(MENU_BENCH);
     menu_press(KEY_ENTER);
-    CHECK(G.menu.page == MENU_PAGE_BENCH && !G.bench.open && G.menu.selected == MENU_BENCH_K12,
-          "Bench opens the suite picker with the original computer-use benchmark selected");
+    CHECK(G.menu.page == MENU_PAGE_BENCH && !G.bench.open && G.menu.selected == MENU_YESNO,
+          "Bench opens the suite picker with the Yes/No category selected");
+    menu_press(KEY_ENTER);
+    CHECK(G.menu.page == MENU_PAGE_YESNO, "Yes/No opens the binary suites");
     menu_press(KEY_ENTER);
     CHECK(G.bench.open && G.bench.page == BENCH_WATCH && G.bench.provider == -1,
           "Bench opens a standalone monitor before starting a run");
@@ -1756,15 +1758,18 @@ static void test_bench_menu(void)
     CHECK(!G.bench.archive && G.bench.page == BENCH_WATCH && G.bench.selected == 0 && G.bench.provider == 4,
           "Back restores the monitor with its previous answer and model choice");
     menu_press(KEY_ESCAPE);
-    CHECK(!G.bench.open && G.menu.open && G.menu.page == MENU_PAGE_BENCH && G.menu.selected == MENU_BENCH_K12,
+    CHECK(!G.bench.open && G.menu.open && G.menu.page == MENU_PAGE_YESNO && G.menu.selected == MENU_BENCH_K12,
           "leaving a benchmark returns to the selected suite");
+    menu_press(KEY_ESCAPE);
+    CHECK(G.menu.page == MENU_PAGE_BENCH, "Back returns to categories");
     menu_press(KEY_ESCAPE);
     CHECK(G.menu.page == MENU_PAGE_MAIN && G.menu.selected == MENU_BENCH, "Back returns to Bench");
     int bench_y = 0;
     while (bench_y < L.h && menu_choice_at(MENU_PAGE_MAIN, L.w/2, bench_y) != MENU_BENCH) bench_y++;
     game_pointer(&G, L.w/2, bench_y, POINTER_DOWN);
+    menu_press(KEY_ENTER);
     int boolq_y = 0;
-    while (boolq_y < L.h && menu_choice_at(MENU_PAGE_BENCH, L.w/2, boolq_y) != MENU_BENCH_BOOLQ) boolq_y++;
+    while (boolq_y < L.h && menu_choice_at(MENU_PAGE_YESNO, L.w/2, boolq_y) != MENU_BENCH_BOOLQ) boolq_y++;
     game_pointer(&G, L.w/2, boolq_y, POINTER_DOWN);
     CHECK(G.bench.open && G.bench.suite == BENCH_BOOLQ && G.bench.count == 0 && !G.bench.report[0],
           "clicking Bench then BoolQ opens its own monitor without stale computer-use answers");
@@ -1807,10 +1812,55 @@ static void test_bench_menu(void)
     }
     menu_press(KEY_DOWN);
     menu_press(KEY_ENTER);
+    CHECK(G.menu.page == MENU_PAGE_FREETEXT && G.menu.selected == MENU_IFEVAL, "Free Text opens IFEval");
+    menu_press(KEY_DOWN);
+    CHECK(G.menu.selected == MENU_GSM8K, "Free Text offers GSM8K");
+    snprintf(G.root, sizeof G.root, ".");
+    snprintf(G.state, sizeof G.state, "%s", state);
+    /* Exercise the real worker without requiring model weights or a download. */
+    char tools_dir[2300], fixture[2400], path_env[12000];
+    sub(tools_dir, sizeof tools_dir, "text-tools");
+    mkdir(tools_dir, 0700);
+    snprintf(fixture, sizeof fixture, "%s/lm-eval", tools_dir);
+    const char fake[] = "#!/bin/sh\nwhile [ \"$1\" != --output_path ]; do shift || exit 1; done\n"
+        "echo '{\"results\":{\"gsm8k\":{\"exact_match,strict-match\":0.5}},"
+        "\"n-samples\":{\"gsm8k\":{\"effective\":2}}}' > \"$2/results_test.json\"\n";
+    write_file(fixture, fake, sizeof fake - 1);
+    chmod(fixture, 0700);
+    char *saved_path = strdup(getenv("PATH"));
+    snprintf(path_env, sizeof path_env, "%s:%s", tools_dir, saved_path);
+    setenv("PATH", path_env, 1);
+    setenv("PUZZLLM_FREE_TEXT_ENDPOINT", "http://127.0.0.1:8080", 1);
+    menu_press(KEY_ENTER);
+    CHECK(G.menu.text_worker.pid > 0, "launch a free-text run");
+    for (int i = 0; G.menu.text_worker.pid > 0 && i < 500; i++) {
+        game_update(&G, 0.01);
+        struct timespec delay = {0, 10000000};
+        nanosleep(&delay, NULL);
+    }
+    CHECK(!strcmp(G.menu.text_status, "gsm8k score 50.0% (2 items)"), "show free-text score: %s", G.menu.text_status);
+    const char slow[] = "#!/bin/sh\nexec sleep 120\n";
+    write_file(fixture, slow, sizeof slow - 1);
+    menu_press(KEY_ENTER);
+    CHECK(G.menu.text_worker.pid > 0, "start a second free-text run");
+    menu_press(KEY_DOWN);
+    menu_press(KEY_ENTER);
+    CHECK(G.menu.text_worker.pid == 0 && !strcmp(G.menu.text_status, "Run stopped."),
+          "stop the free-text worker from its menu");
+    setenv("PATH", saved_path, 1);
+    free(saved_path);
+    unsetenv("PUZZLLM_FREE_TEXT_ENDPOINT");
+    menu_press(KEY_ESCAPE);
+    menu_press(KEY_HOME);
+    menu_press(KEY_ENTER);
+    menu_press(KEY_DOWN);
+    menu_press(KEY_ENTER);
     CHECK(G.bench.open && G.bench.suite == BENCH_BOOLQ && G.bench.mode == BENCH_MENU_ONLY,
           "the standalone selector enters BoolQ without opening the campaign");
     menu_press(KEY_ESCAPE);
     CHECK(G.menu.open && !G.bench.open && !G.quit, "Back from standalone BoolQ returns to the Bench menu");
+    menu_press(KEY_ESCAPE);
+    CHECK(!G.quit && G.menu.page == MENU_PAGE_BENCH, "Escape returns to categories");
     menu_press(KEY_ESCAPE);
     CHECK(G.quit, "Escape closes the standalone Bench menu");
     game_shutdown(&G);

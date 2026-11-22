@@ -116,7 +116,7 @@ room and that room starts again. Auto stops in the last playable room.
 An eligible campaign is ranked there as soon as the door opens and the
 agent reports token use. The setting is remembered.
 
-**Bench** opens a submenu. Click a benchmark or use the arrows and Enter.
+**Bench** offers **Yes/No** and **Free Text**. Select a category and then a suite with the mouse or the arrow keys and Enter.
 Open the same selector in a separate terminal with `bin/puzzllm --bench-menu`
 while a campaign is running. Escape returns from a benchmark to the selector.
 
@@ -125,11 +125,32 @@ while a campaign is running. Escape returns from a benchmark to the selector.
 | kilix-k12-computer use (yes/no) | 442 OneBit development questions, including historical runs | `bench/yesno/` |
 | BoolQ (YES/NO) | 3,270 validation questions, each paired with its passage | `bench/boolq/validation/strict-yesno-v1/` |
 
+**Free Text** runs IFEval (strict prompt-level instruction following) or GSM8K
+(strict final-number exact match). Selecting a suite starts it. The menu shows
+the score and item count when it finishes. Escape lets the run continue while
+you use the game. Return to Free Text to see its status or select **Stop
+free-text run**. Closing the game stops its active free-text worker. Each run
+saves the upstream report, individual responses and a worker log under
+`bench/free-text/<suite>/run-*/`.
+
+Free Text uses the selected local GGUF, or the configured default GGUF in the
+standalone selector. To use an existing llama-server, set
+`PUZZLLM_FREE_TEXT_ENDPOINT` to its base URL. Free Text uses `lm-eval` on PATH or, if available, `uv` to fetch and run the
+pinned evaluator on first use. To install it manually in a Python environment,
+run the following and launch PuzzLLM with that environment active:
+
+```sh
+pip install 'lm_eval[ifeval] @ git+https://github.com/EleutherAI/lm-evaluation-harness.git@d6de81643928d653435c431bae19945d41d32520'
+```
+
+The evaluator downloads task data on first use. Set `PUZZLLM_FREE_TEXT_LIMIT=1`
+for a smoke test. With the variable unset, the upstream task runs in full.
+
 The first BoolQ run downloads the validation data from SuperGLUE and caches
 the verified file. A true label means YES and a false label means NO. Always
 answering YES scores 2,033 correct (62.17%). [BoolQ dataset](https://github.com/google-research-datasets/boolean-questions)
 
-Each benchmark opens its own progress monitor. Press **M** or click **Model** to
+Each Yes/No benchmark opens its own progress monitor. Press **M** or click **Model** to
 choose an Ollama tag, a llama.cpp GGUF, Codex, Grok, or Claude. For a local
 model, choose from the installed list or enter a tag or file path. Ollama
 pulls a missing tag when you start. For Codex, Grok or Claude, select a

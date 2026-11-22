@@ -1640,6 +1640,55 @@ void game_open_bench_menu(game *g)
     g->bench.redraw = true;
 }
 
+static void text_run(game *g, const char *suite)
+{
+    game_menu *m = &g->menu;
+    if (m->text_worker.pid > 0) return;
+    char helper[4096];
+    if (snprintf(helper, sizeof helper, "%s/libexec/puzzllm-free-text", g->root) >= (int)sizeof helper) {
+        snprintf(m->text_status, sizeof m->text_status, "Game path too long.");
+        return;
+    }
+    char *argv[] = {helper, (char *)suite, g->state, g->llama_model, NULL};
+    m->text_len = 0;
+    snprintf(m->text_status, sizeof m->text_status, "%s", pty_spawn(&m->text_worker, argv, NULL, 100, 24) ?
+             "Starting benchmark..." : "Could not launch benchmark.");
+}
+
+static void poll_text(game *g)
+{
+    game_menu *m = &g->menu;
+    if (m->text_worker.pid <= 0) return;
+    char buf[1024];
+    long n = pty_read(&m->text_worker, buf, sizeof buf);
+    for (long i = 0; i < n; i++) {
+        if (buf[i] == '\n') {
+            m->text_line[m->text_len] = 0;
+            if (m->text_len) snprintf(m->text_status, sizeof m->text_status, "%s", m->text_line);
+            m->text_len = 0;
+            g->bench.redraw = true;
+        } else if (buf[i] != '\r' && m->text_len < sizeof m->text_line - 1) {
+            m->text_line[m->text_len++] = buf[i];
+        }
+    }
+    if (n < 0 && pty_poll_exit(&m->text_worker)) {
+        if (m->text_worker.exit_status && strncmp(m->text_status, "Failed:", 7))
+            snprintf(m->text_status, sizeof m->text_status, "Benchmark process failed.");
+        pty_stop(&m->text_worker);
+        pty_init(&m->text_worker);
+        g->bench.redraw = true;
+    }
+}
+
+static bool bench_category_back(game *g)
+{
+    int page = g->menu.page;
+    if (page != MENU_PAGE_YESNO && page != MENU_PAGE_FREETEXT) return false;
+    game_open_bench_menu(g);
+    g->menu.selected = page == MENU_PAGE_YESNO ? MENU_YESNO : MENU_FREETEXT;
+    return true;
+}
+
 static void menu_key(game *g, const key_event *ev)
 {
     game_menu *menu = &g->menu;
@@ -1821,6 +1870,20 @@ static void menu_key(game *g, const key_event *ev)
             refresh_model_details(g);
         }
         if (menu->selected == MENU_LEADERBOARD) open_leaderboard(g);
+        if (menu->selected == MENU_YESNO || menu->selected == MENU_FREETEXT) {
+            menu->page = menu->selected == MENU_YESNO ? MENU_PAGE_YESNO : MENU_PAGE_FREETEXT;
+            menu_move(g, 0);
+            break;
+        }
+        if (menu->selected == MENU_IFEVAL || menu->selected == MENU_GSM8K) {
+            text_run(g, menu->selected == MENU_IFEVAL ? "ifeval" : "gsm8k");
+            break;
+        }
+        if (menu->selected == MENU_STOP_TEXT && menu->text_worker.pid > 0) {
+            pty_stop(&menu->text_worker);
+            pty_init(&menu->text_worker);
+            snprintf(menu->text_status, sizeof menu->text_status, "Run stopped.");
+        }
         if (menu->selected == MENU_BENCH_K12) yesno_open(g, BENCH_K12);
         if (menu->selected == MENU_BENCH_BOOLQ) yesno_open(g, BENCH_BOOLQ);
         if (menu->selected == MENU_CODEX) select_model(g, true, false, NULL);
@@ -2038,6 +2101,7 @@ bool game_init(game *g, const char *root, const char *state, bool spawn,
 
 void game_shutdown(game *g)
 {
+    if (g->menu.text_worker.pid > 0) pty_stop(&g->menu.text_worker);
     if (g->bench.mode) { yesno_close(&g->bench); return; }
     stop_metrics(&g->metrics);
     count_puzzle_stop(&g->count_check);
@@ -2264,7 +2328,9 @@ void game_key(game *g, const key_event *ev)
     if (g->bench.mode == BENCH_MENU_ONLY) {
         if (press) {
             g->bench.redraw = true;
-            if (ev->key == KEY_ESCAPE) g->quit = true;
+            if (ev->key == KEY_ESCAPE) {
+                if (!bench_category_back(g)) g->quit = true;
+            }
             else menu_key(g, ev);
         }
         return;
@@ -2317,6 +2383,7 @@ void game_key(game *g, const key_event *ev)
                 g->menu.page = MENU_PAGE_MODEL;
                 g->menu.selected = MENU_DOWNLOADS;
             }
+            else if (g->menu.open && bench_category_back(g)) return;
             else if (g->menu.open && g->menu.page != MENU_PAGE_MAIN) {
                 int page = g->menu.page;
                 g->menu.page = MENU_PAGE_MAIN;
@@ -2478,7 +2545,9 @@ void game_pointer(game *g, int x, int y, pointer_action action)
         if (action == POINTER_DOWN && !g->menu.confirm_reset && !g->menu.leaderboard_open &&
             !g->menu.details_open && !g->menu.model_submenu && !g->menu.prompt_edit && !g->menu.name_edit) {
             int item = menu_choice_at(g->menu.page, x, y);
-            if (item == MENU_BENCH || item == MENU_BENCH_K12 || item == MENU_BENCH_BOOLQ) {
+            if (item == MENU_BENCH || (item >= 0 && (g->menu.page == MENU_PAGE_BENCH ||
+                g->menu.page == MENU_PAGE_YESNO || g->menu.page == MENU_PAGE_FREETEXT))) {
+                g->bench.redraw = true;
                 g->menu.selected = item;
                 menu_key(g, &(key_event){.key = KEY_ENTER, .action = 1});
             }
@@ -2766,6 +2835,7 @@ static void arrive_in_room(game *g, room_transition move)
 
 void game_update(game *g, double dt)
 {
+    poll_text(g);
     yesno_poll(g);
     if (g->bench.mode) return;
     poll_prompt_count(&g->menu);
@@ -2975,7 +3045,8 @@ void game_render(game *g, sr_canvas *c)
                           configured_gguf_label());
     } else if (g->menu.open)
         render_menu(c, g->menu.selected, v.agent_model,
-                    g->started, g->sc.level + 1, g->menu.confirm_reset, g->menu.notice,
+                    g->started, g->sc.level + 1, g->menu.confirm_reset,
+                    g->menu.page == MENU_PAGE_FREETEXT ? g->menu.text_status : g->menu.notice,
                     g->thinking_support, g->thinking_enabled, v.hosted_agent, g->use_pi,
                     g->compute, g->tooltips, g->room_buttons, g->campaign, g->campaign_model,
                     g->hints_file, g->yolo, g->menu.page, g->menu.name_edit, g->auto_play,

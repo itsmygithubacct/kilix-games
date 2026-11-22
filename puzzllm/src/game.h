@@ -66,6 +66,9 @@ typedef struct game_menu {
     model_option gguf[32];
     int gguf_count;
     bool name_edit;
+    pty_proc text_worker;
+    char text_status[320], text_line[320];
+    size_t text_len;
     bool fetching;
     pty_proc fetch;
     char fetch_helper[4096];
