@@ -29,7 +29,7 @@ def interrupted(signum, frame):
 
 
 def run(task, state, model):
-    metric = {"ifeval": "prompt_level_strict_acc,none", "gsm8k": "exact_match,strict-match"}[task]
+    metric = {"kilix_ops": "acc,none", "ifeval": "prompt_level_strict_acc,none", "gsm8k": "exact_match,strict-match"}[task]
     if runner := shutil.which("lm-eval"):
         launcher = [runner]
     elif uv := shutil.which("uv"):
@@ -63,6 +63,8 @@ def run(task, state, model):
         (dest / "run.json").write_text(json.dumps({"task": task, "model": subject, "limit": limit, "max_tokens": budget}) + "\n")
         command = [*launcher, "run", "--model", "gguf", "--model_args", f"base_url={endpoint},timeout=3600",
                    "--tasks", task, "--output_path", str(dest), "--log_samples"]
+        if task == "kilix_ops":
+            command.extend(["--include_path", str(ROOT / "libexec/tasks/kilix_ops")])
         if budget:
             command.extend(["--gen_kwargs", f"max_gen_toks={int(budget)}"])
         if limit:

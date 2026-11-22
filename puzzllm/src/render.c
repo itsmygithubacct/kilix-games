@@ -338,7 +338,7 @@ int menu_page_rows(int page, bool neuronte, int *out, int cap)
     static const int between_rows[] = { MENU_LEVEL_SESSION, MENU_LEVEL_CLEANUP, MENU_CLEAN_DISK };
     static const int bench_rows[] = { MENU_YESNO, MENU_FREETEXT };
     static const int yesno_rows[] = { MENU_BENCH_K12, MENU_BENCH_BOOLQ };
-    static const int text_rows[] = { MENU_IFEVAL, MENU_GSM8K, MENU_STOP_TEXT };
+    static const int text_rows[] = { MENU_KILIX_OPS, MENU_IFEVAL, MENU_GSM8K, MENU_STOP_TEXT };
     const int *rows = main_rows;
     int n = (int)(sizeof main_rows / sizeof main_rows[0]);
     if (page == MENU_PAGE_MODEL) {
@@ -425,6 +425,7 @@ void render_menu(sr_canvas *c, int selected, const char *active_model,
         [MENU_DL_NAME] = "Pull another Ollama model",
         [MENU_BENCH] = "Bench >",
         [MENU_YESNO] = "Yes/No >", [MENU_FREETEXT] = "Free Text >",
+        [MENU_KILIX_OPS] = "Run Kilix Operations",
         [MENU_IFEVAL] = "Run IFEval (instruction following)", [MENU_GSM8K] = "Run GSM8K (math)",
         [MENU_STOP_TEXT] = "Stop free-text run",
         [MENU_BENCH_K12] = BENCH_K12_NAME,

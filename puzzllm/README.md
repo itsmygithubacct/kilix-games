@@ -125,8 +125,25 @@ while a campaign is running. Escape returns from a benchmark to the selector.
 | kilix-k12-computer use (yes/no) | 442 OneBit development questions, including historical runs | `bench/yesno/` |
 | BoolQ (YES/NO) | 3,270 validation questions, each paired with its passage | `bench/boolq/validation/strict-yesno-v1/` |
 
-**Free Text** runs IFEval (strict prompt-level instruction following) or GSM8K
-(strict final-number exact match). Selecting a suite starts it. The menu shows
+**Free Text** offers Kilix Operations, IFEval (strict prompt-level instruction
+following) and GSM8K (strict final-number exact match).
+
+**Kilix Operations v1** has 24 original short-answer scenarios. Eight ask for
+one command, eight ask the model to interpret pane state or diagnose an
+operator mistake, and eight ask for an ordered pair of commands. Each prompt
+includes the same compact command reference. The model must use the pane IDs,
+roles, scrollback requirements and submission instructions in the scenario.
+For example, leaving a command editable and submitting it are distinct answers.
+
+Each item earns one point for a complete correct reply. Command lines are
+compared as literal arguments, accepting equivalent spacing and quoting.
+An extra command, explanation, or wrong step fails the item. Readouts match
+the requested value after trimming surrounding whitespace. The grader only
+compares text. The bundled items and keys are in
+[the Kilix Operations task](libexec/tasks/kilix_ops/items.json). The report
+records accuracy and each generated response under `bench/free-text/kilix_ops/`.
+
+Selecting a suite starts it. The menu shows
 the score and item count when it finishes. Escape lets the run continue while
 you use the game. Return to Free Text to see its status or select **Stop
 free-text run**. Closing the game stops its active free-text worker. Each run

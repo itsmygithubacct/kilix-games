@@ -1812,7 +1812,9 @@ static void test_bench_menu(void)
     }
     menu_press(KEY_DOWN);
     menu_press(KEY_ENTER);
-    CHECK(G.menu.page == MENU_PAGE_FREETEXT && G.menu.selected == MENU_IFEVAL, "Free Text opens IFEval");
+    CHECK(G.menu.page == MENU_PAGE_FREETEXT && G.menu.selected == MENU_KILIX_OPS, "Free Text opens Kilix Operations");
+    menu_press(KEY_DOWN);
+    CHECK(G.menu.selected == MENU_IFEVAL, "Free Text offers IFEval");
     menu_press(KEY_DOWN);
     CHECK(G.menu.selected == MENU_GSM8K, "Free Text offers GSM8K");
     snprintf(G.root, sizeof G.root, ".");

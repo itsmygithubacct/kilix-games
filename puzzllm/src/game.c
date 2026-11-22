@@ -1875,6 +1875,10 @@ static void menu_key(game *g, const key_event *ev)
             menu_move(g, 0);
             break;
         }
+        if (menu->selected == MENU_KILIX_OPS) {
+            text_run(g, "kilix_ops");
+            break;
+        }
         if (menu->selected == MENU_IFEVAL || menu->selected == MENU_GSM8K) {
             text_run(g, menu->selected == MENU_IFEVAL ? "ifeval" : "gsm8k");
             break;

@@ -1,0 +1,195 @@
+[
+  {
+    "id": "command-01",
+    "kind": "command",
+    "question": "You have page titles but need a machine-readable inventory of individual panes. Request JSON.",
+    "answers": [
+      "kilix pane list --json"
+    ]
+  },
+  {
+    "id": "command-02",
+    "kind": "command",
+    "question": "The earlier build error has scrolled above the visible area of pane 38. Capture its complete text.",
+    "answers": [
+      "kilix pane read pane:38 --extent all"
+    ]
+  },
+  {
+    "id": "command-03",
+    "kind": "command",
+    "question": "The player shell moved from pane 6 to pane 42. Type pwd into the new shell and leave it editable.",
+    "answers": [
+      "kilix pane send pane:42 pwd"
+    ]
+  },
+  {
+    "id": "command-04",
+    "kind": "command",
+    "question": "Pane 19 is the shell. Type the literal text echo ready and press Enter in that pane.",
+    "answers": [
+      "kilix pane send pane:19 'echo ready' --submit"
+    ]
+  },
+  {
+    "id": "command-05",
+    "kind": "command",
+    "question": "There is both a pane 14 and a page 14. Switch to the page explicitly.",
+    "answers": [
+      "kilix focus tab:14"
+    ]
+  },
+  {
+    "id": "command-06",
+    "kind": "command",
+    "question": "From the editor, create a split below it running htop immediately.",
+    "answers": [
+      "kilix new-pane down -- htop"
+    ]
+  },
+  {
+    "id": "command-07",
+    "kind": "command",
+    "question": "Create a page whose title is build notes (two words).",
+    "answers": [
+      "kilix new-tab --title 'build notes'"
+    ]
+  },
+  {
+    "id": "command-08",
+    "kind": "command",
+    "question": "Pane 81 shows the latest status line. Read only the visible text using the default extent.",
+    "answers": [
+      "kilix pane read pane:81"
+    ]
+  },
+  {
+    "id": "readout-01",
+    "kind": "readout",
+    "question": "Current inventory: page 9 contains pane 16 (editor) and pane 23 (shell). Page 23 contains pane 31 (tests). Give the explicit target for the shell.",
+    "answers": [
+      "pane:23"
+    ]
+  },
+  {
+    "id": "readout-02",
+    "kind": "readout",
+    "question": "The first inventory lists agent=4, shell=5. After a restart it lists agent=11, shell=5. Give the current target for reading the agent.",
+    "answers": [
+      "pane:11"
+    ]
+  },
+  {
+    "id": "readout-03",
+    "kind": "readout",
+    "question": "A split is requested from pane 7 while pane 29 has focus. Which pane anchors the split? Return its numeric ID.",
+    "answers": [
+      "7"
+    ]
+  },
+  {
+    "id": "readout-04",
+    "kind": "readout",
+    "question": "An operator typed into pane 18 without --submit. What additional option would press Enter? Return only the option.",
+    "answers": [
+      "--submit"
+    ]
+  },
+  {
+    "id": "readout-05",
+    "kind": "readout",
+    "question": "Page 13 contains editor and monitor panes. Page 5 contains a shell. Give the explicit target for switching to the entire editor page.",
+    "answers": [
+      "tab:13"
+    ]
+  },
+  {
+    "id": "readout-06",
+    "kind": "readout",
+    "question": "An earlier inventory showed pane 47 as editor and 52 as shell. After a restart the current inventory is '47 shell | 63 editor'. A user wants to inspect the editor after the restart. Give its explicit target.",
+    "answers": [
+      "pane:63"
+    ]
+  },
+  {
+    "id": "readout-07",
+    "kind": "readout",
+    "question": "A runbook needs to capture a build error. The current screen only shows the final success message, but the error is in the scrollback of the same pane. Which extent value should the runbook request? Return just the value.",
+    "answers": [
+      "all"
+    ]
+  },
+  {
+    "id": "readout-08",
+    "kind": "readout",
+    "question": "A support log shows two independent sends to idle shells: pane 31 received 'echo alpha' without --submit; pane 32 received 'echo beta' with --submit. Which word should appear as command output in pane 32? Return just the word.",
+    "answers": [
+      "beta"
+    ]
+  },
+  {
+    "id": "workflow-01",
+    "kind": "workflow",
+    "question": "First list individual panes in JSON. Then read the visible text of pane 22, which the operator has already identified.",
+    "answers": [
+      "kilix pane list --json\nkilix pane read pane:22"
+    ]
+  },
+  {
+    "id": "workflow-02",
+    "kind": "workflow",
+    "question": "Type pwd into shell pane 32, submit it, then read its visible output.",
+    "answers": [
+      "kilix pane send pane:32 pwd --submit\nkilix pane read pane:32"
+    ]
+  },
+  {
+    "id": "workflow-03",
+    "kind": "workflow",
+    "question": "Capture the complete scrollback of pane 45 before focusing pane 46.",
+    "answers": [
+      "kilix pane read pane:45 --extent all\nkilix pane focus pane:46",
+      "kilix pane read pane:45 --extent all\nkilix focus pane:46"
+    ]
+  },
+  {
+    "id": "workflow-04",
+    "kind": "workflow",
+    "question": "Open a page titled logs, then list the pages for the operator.",
+    "answers": [
+      "kilix new-tab --title logs\nkilix ls"
+    ]
+  },
+  {
+    "id": "workflow-05",
+    "kind": "workflow",
+    "question": "First read the visible output of old shell pane 51. Then type echo next into replacement shell pane 62 and leave it unsubmitted.",
+    "answers": [
+      "kilix pane read pane:51\nkilix pane send pane:62 'echo next'"
+    ]
+  },
+  {
+    "id": "workflow-06",
+    "kind": "workflow",
+    "question": "Focus page 24. Then create a new pane to the right of the calling pane running htop.",
+    "answers": [
+      "kilix focus tab:24\nkilix new-pane right -- htop"
+    ]
+  },
+  {
+    "id": "workflow-07",
+    "kind": "workflow",
+    "question": "Compare two panes by reading visible text from tests (pane 28) first and complete scrollback from build (pane 82) second.",
+    "answers": [
+      "kilix pane read pane:28\nkilix pane read pane:82 --extent all"
+    ]
+  },
+  {
+    "id": "workflow-08",
+    "kind": "workflow",
+    "question": "First list pages. Then request a JSON inventory of panes so the operator can distinguish a duplicated title.",
+    "answers": [
+      "kilix ls\nkilix pane list --json"
+    ]
+  }
+]

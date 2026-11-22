@@ -139,6 +139,7 @@ $(O)/test_puzzllm.o: tests/test_puzzllm.c $(RENDER_STAMP) | $(O)
 test-unit: $(TEST_BIN)
 	@rm -rf $(SCRATCH)/unit && mkdir -p $(SCRATCH)/unit
 	PUZZLLM_TEST_DIR=$(SCRATCH)/unit ./$(TEST_BIN)
+	@python3 -B tests/test-kilix-ops.py
 
 test-cli: $(BIN)
 	@sh tests/test-cli.sh ./$(BIN) $(SCRATCH)/cli
