@@ -1632,6 +1632,14 @@ static void clean_disk(game *g)
     activity_add(&g->act, ok ? ACT_INFO : ACT_ERROR, "%s", message);
 }
 
+void game_open_bench_menu(game *g)
+{
+    g->menu.open = true;
+    g->menu.page = MENU_PAGE_BENCH;
+    menu_move(g, 0);
+    g->bench.redraw = true;
+}
+
 static void menu_key(game *g, const key_event *ev)
 {
     game_menu *menu = &g->menu;
@@ -1678,13 +1686,16 @@ static void menu_key(game *g, const key_event *ev)
     case KEY_ENTER:
         if (ev->action == 2) break;
         menu->notice[0] = 0;
+        if (menu->selected == MENU_BENCH) {
+            game_open_bench_menu(g);
+            break;
+        }
         if (menu->selected == MENU_MODEL || menu->selected == MENU_SCORES ||
-            menu->selected == MENU_DISPLAY || menu->selected == MENU_BENCH ||
+            menu->selected == MENU_DISPLAY ||
             menu->selected == MENU_BETWEEN || menu->selected == MENU_RESETS) {
             menu->page = menu->selected == MENU_MODEL ? MENU_PAGE_MODEL :
                          menu->selected == MENU_SCORES ? MENU_PAGE_SCORES :
                          menu->selected == MENU_DISPLAY ? MENU_PAGE_DISPLAY :
-                         menu->selected == MENU_BENCH ? MENU_PAGE_BENCH :
                          menu->selected == MENU_BETWEEN ? MENU_PAGE_BETWEEN : MENU_PAGE_RESET;
             menu_move(g, 0);
             break;
@@ -2027,7 +2038,7 @@ bool game_init(game *g, const char *root, const char *state, bool spawn,
 
 void game_shutdown(game *g)
 {
-    if (g->bench.standalone) { yesno_close(&g->bench); return; }
+    if (g->bench.mode) { yesno_close(&g->bench); return; }
     stop_metrics(&g->metrics);
     count_puzzle_stop(&g->count_check);
     script_puzzle_stop(&g->script_check);
@@ -2250,6 +2261,14 @@ void game_key(game *g, const key_event *ev)
 {
     if (g->bench.open) { yesno_key(g, ev); return; }
     bool press = ev->action != 3;
+    if (g->bench.mode == BENCH_MENU_ONLY) {
+        if (press) {
+            g->bench.redraw = true;
+            if (ev->key == KEY_ESCAPE) g->quit = true;
+            else menu_key(g, ev);
+        }
+        return;
+    }
     const unsigned game_mod = MOD_CTRL | MOD_SHIFT;
     bool in_room = g->sc.focus == FOCUS_ROOM;
 
@@ -2748,7 +2767,7 @@ static void arrive_in_room(game *g, room_transition move)
 void game_update(game *g, double dt)
 {
     yesno_poll(g);
-    if (g->bench.standalone) return;
+    if (g->bench.mode) return;
     poll_prompt_count(&g->menu);
     poll_models(&g->menu);
     poll_fetch(&g->menu);
@@ -2867,7 +2886,7 @@ bool game_resize(game *g, int w, int h)
 {
     layout old = L;
     if (!layout_set(w, h)) return false;
-    if (g->bench.standalone) return true;
+    if (g->bench.mode) return true;
     g->selection = (pane_selection){0};
     if (neuroterm_resize(&g->omp_vt, OMP_COLS, OMP_ROWS)) pty_resize(&g->omp, OMP_COLS, OMP_ROWS);
     if (neuroterm_resize(&g->shell_vt, SHELL_COLS, SHELL_ROWS))
@@ -2932,8 +2951,12 @@ static const char *configured_gguf_label(void)
 void game_render(game *g, sr_canvas *c)
 {
     if (g->bench.open) { yesno_draw(c, &g->bench); return; }
-    view v = game_view(g);
-    render_frame(c, &v);
+    view v = {.agent_model = ""};
+    if (g->bench.mode) draw_fill(c, 0, 0, c->w, c->h, 0x0c1018, 1);
+    else {
+        v = game_view(g);
+        render_frame(c, &v);
+    }
     if (g->menu.prompt_edit)
         render_prompt_editor(c, g->menu.prompt_draft, g->menu.prompt_cursor, g->menu.notice);
     else if (g->menu.details_open)

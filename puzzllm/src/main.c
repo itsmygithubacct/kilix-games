@@ -120,7 +120,7 @@ static pid_t start_goal_service(const char *root, const char *state)
     return child;
 }
 
-static int play(const char *root, const char *state, bool bench_only, bench_suite suite)
+static int play(const char *root, const char *state, bench_mode mode, bench_suite suite)
 {
     char err[512];
     sr_canvas canvas;
@@ -138,16 +138,17 @@ static int play(const char *root, const char *state, bool bench_only, bench_suit
         fprintf(stderr, "puzzllm: run it in a terminal (Kilix or Kitty)\n");
         return 1;
     }
-    if (bench_only) {
+    if (mode != BENCH_IN_GAME) {
         snprintf(the_game.root, sizeof the_game.root, "%s", root);
         snprintf(the_game.state, sizeof the_game.state, "%s", state);
         the_game.spawn = true;
-        the_game.bench.standalone = true;
+        the_game.bench.mode = mode;
         layout_set(LAYOUT_DEFAULT_W, LAYOUT_DEFAULT_H);
         pty_init(&the_game.omp);
         pty_init(&the_game.shell);
         yesno_init(&the_game.bench);
-        yesno_open(&the_game, suite);
+        if (mode == BENCH_MENU_ONLY) game_open_bench_menu(&the_game);
+        else yesno_open(&the_game, suite);
     } else if (!game_init(&the_game, root, state, true, err, sizeof err)) {
         fprintf(stderr, "puzzllm: %s\n", err);
         return 1;
@@ -178,7 +179,7 @@ static int play(const char *root, const char *state, bool bench_only, bench_suit
     snapshot = getenv("PUZZLLM_SNAPSHOT");
     if (getenv("PUZZLLM_STATS") != NULL && getenv("PUZZLLM_STATS")[0] != '\0')
         stats = fopen(getenv("PUZZLLM_STATS"), "a");
-    pid_t goal_service = bench_only ? 0 : start_goal_service(root, state);
+    pid_t goal_service = mode == BENCH_IN_GAME ? start_goal_service(root, state) : 0;
     last = now_s();
     st_start = last;
     next_frame = last;
@@ -197,7 +198,8 @@ static int play(const char *root, const char *state, bool bench_only, bench_suit
         if (termio_read(&h) < 0) break;
         t = now_s();
         if (t < next_frame) continue;
-        double interval = 1.0 / (the_game.bench.open ? BENCH_HZ : FRAME_HZ);
+        bool bench_front = the_game.bench.open || mode == BENCH_MENU_ONLY;
+        double interval = 1.0 / (bench_front ? BENCH_HZ : FRAME_HZ);
         next_frame += interval;
         if (next_frame < t) next_frame = t + interval;
         the_game.release_events = termio_release_events();
@@ -210,7 +212,7 @@ static int play(const char *root, const char *state, bool bench_only, bench_suit
             if (!sr_canvas_init(&canvas, CANVAS_W, CANVAS_H)) { rc = 1; break; }
         }
         bool snapshot_due = snapshot && *snapshot && t >= next_snapshot;
-        if (the_game.bench.open && !the_game.bench.redraw && fw == presented_w && fh == presented_h &&
+        if (bench_front && !the_game.bench.redraw && fw == presented_w && fh == presented_h &&
             !snapshot_due && !stats) continue;
         the_game.bench.redraw = false;
         presented_w = fw;
@@ -423,11 +425,12 @@ int main(int argc, char **argv)
         perror("puzzllm-yesno");
         return 1;
     }
+    if (argc == 2 && !strcmp(argv[1], "--bench-menu")) return play(root, state, BENCH_MENU_ONLY, BENCH_K12);
     if (argc >= 2 && !strcmp(argv[1], "--yesno")) {
         if (argc == 2 || (argc == 3 && !strcmp(argv[2], yesno_suite_key(BENCH_K12))))
-            return play(root, state, true, BENCH_K12);
+            return play(root, state, BENCH_DIRECT, BENCH_K12);
         if (argc == 3 && !strcmp(argv[2], yesno_suite_key(BENCH_BOOLQ)))
-            return play(root, state, true, BENCH_BOOLQ);
+            return play(root, state, BENCH_DIRECT, BENCH_BOOLQ);
         fprintf(stderr, "Choose %s or %s.\n", yesno_suite_key(BENCH_K12), yesno_suite_key(BENCH_BOOLQ));
         return 2;
     }
@@ -456,12 +459,12 @@ int main(int argc, char **argv)
     if (argc == 3 && strcmp(argv[1], "--check-level") == 0)
         return check_level(root, state, argv[2]);
     if (argc == 2 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0)) {
-        printf("usage: puzzllm [--version | --yesno [kilix-k12-computer-use|boolq] | --yesno-compare RANKINGS... | --render DIR | --check-level N | --goal-status | --reset-progress | --bench [WxH] | --renderer]\n");
+        printf("usage: puzzllm [--version | --bench-menu | --yesno [kilix-k12-computer-use|boolq] | --yesno-compare RANKINGS... | --render DIR | --check-level N | --goal-status | --reset-progress | --bench [WxH] | --renderer]\n");
         return 0;
     }
     if (argc != 1) {
-        fprintf(stderr, "usage: puzzllm [--version | --yesno [kilix-k12-computer-use|boolq] | --yesno-compare RANKINGS... | --render DIR | --check-level N | --goal-status | --reset-progress | --bench [WxH] | --renderer]\n");
+        fprintf(stderr, "usage: puzzllm [--version | --bench-menu | --yesno [kilix-k12-computer-use|boolq] | --yesno-compare RANKINGS... | --render DIR | --check-level N | --goal-status | --reset-progress | --bench [WxH] | --renderer]\n");
         return 2;
     }
-    return play(root, state, false, BENCH_K12);
+    return play(root, state, BENCH_IN_GAME, BENCH_K12);
 }

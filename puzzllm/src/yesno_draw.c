@@ -79,7 +79,7 @@ static void dock(sr_canvas *c, const yesno_bench *b)
     bool active = b->status == BENCH_RUNNING && !b->replay;
     const char *buttons[BENCH_BUTTONS] = {active ? "M  Next model" : "M  Model", active ? "R  Stop" : "R  Start",
         b->misses ? "F  Show all" : "F  Misses only", "L  Latest", "B  Rankings",
-        b->standalone && b->page == BENCH_WATCH ? "Esc  Close" : "Esc  Back"};
+        b->mode == BENCH_DIRECT && b->page == BENCH_WATCH ? "Esc  Close" : "Esc  Back"};
     if (b->page != BENCH_WATCH) {
         buttons[BENCH_MODEL] = NULL;
         if (b->page != BENCH_REPORT) buttons[BENCH_FILTER] = buttons[BENCH_LATEST] = NULL;

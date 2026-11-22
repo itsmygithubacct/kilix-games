@@ -86,9 +86,9 @@ void yesno_open(game *g, bench_suite suite)
 {
     yesno_bench *b = &g->bench;
     if (b->suite != suite) {
-        bool standalone = b->standalone;
+        bench_mode mode = b->mode;
         yesno_close(b);
-        *b = (yesno_bench){.standalone = standalone, .suite = suite};
+        *b = (yesno_bench){.mode = mode, .suite = suite};
         yesno_init(b);
     }
     b->open = b->redraw = true;
@@ -522,7 +522,7 @@ static void button(game *g, int id)
         break;
     case BENCH_LATEST: latest_answer(b->archive ? b->archive : b); break;
     case BENCH_BACK:
-        if (b->standalone && b->page == BENCH_WATCH) g->quit = true;
+        if (b->mode == BENCH_DIRECT && b->page == BENCH_WATCH) g->quit = true;
         else back(b);
         break;
     }

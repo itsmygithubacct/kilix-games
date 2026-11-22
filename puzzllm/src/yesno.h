@@ -11,6 +11,7 @@ typedef enum { BENCH_WATCH, BENCH_PROVIDERS, BENCH_MODELS, BENCH_ENTRY,
 typedef enum { BENCH_READY, BENCH_RUNNING, BENCH_COMPLETE, BENCH_STOPPED, BENCH_FAILED } bench_status;
 typedef enum { BENCH_CORRECT, BENCH_WRONG, BENCH_INVALID } bench_verdict;
 typedef enum { BENCH_K12, BENCH_BOOLQ } bench_suite;
+typedef enum { BENCH_IN_GAME, BENCH_DIRECT, BENCH_MENU_ONLY } bench_mode;
 #define BENCH_K12_NAME "kilix-k12-computer use (yes/no)"
 #define BENCH_BOOLQ_NAME "BoolQ (YES/NO)"
 enum { BENCH_MODEL, BENCH_START, BENCH_FILTER, BENCH_LATEST, BENCH_RANKINGS, BENCH_BACK, BENCH_BUTTONS };
@@ -52,7 +53,8 @@ typedef struct bench_saved_run {
 } bench_saved_run;
 
 typedef struct yesno_bench {
-    bool open, replay, follow, misses, invalid_only, standalone, redraw;
+    bool open, replay, follow, misses, invalid_only, redraw;
+    bench_mode mode;
     bench_page page;
     bench_suite suite;
     bench_status status;

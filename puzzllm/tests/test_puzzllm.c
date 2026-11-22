@@ -1795,6 +1795,25 @@ static void test_bench_menu(void)
           !strcmp(G.bench.archive->answers[0].context, "The lamp is off."),
           "the game reopens the BoolQ journal with its original passage");
     game_shutdown(&G);
+
+    memset(&G, 0, sizeof G);
+    yesno_init(&G.bench);
+    G.bench.mode = BENCH_MENU_ONLY;
+    game_open_bench_menu(&G);
+    if (sr_canvas_init(&canvas, L.w, L.h)) {
+        game_render(&G, &canvas);
+        CHECK(canvas.px[(L.h/2)*canvas.w+L.w/2] != canvas.px[0], "a standalone Bench menu draws the selector");
+        sr_canvas_free(&canvas);
+    }
+    menu_press(KEY_DOWN);
+    menu_press(KEY_ENTER);
+    CHECK(G.bench.open && G.bench.suite == BENCH_BOOLQ && G.bench.mode == BENCH_MENU_ONLY,
+          "the standalone selector enters BoolQ without opening the campaign");
+    menu_press(KEY_ESCAPE);
+    CHECK(G.menu.open && !G.bench.open && !G.quit, "Back from standalone BoolQ returns to the Bench menu");
+    menu_press(KEY_ESCAPE);
+    CHECK(G.quit, "Escape closes the standalone Bench menu");
+    game_shutdown(&G);
 }
 
 static bool pty_has(pty_proc *p, const char *needle)

@@ -178,6 +178,7 @@ void game_update(game *g, double dt);
  * terminals and their programs to match. True when the layout changed. */
 bool game_resize(game *g, int w, int h);
 void game_render(game *g, sr_canvas *c);
+void game_open_bench_menu(game *g);
 /* Progress file: STATE/progress, one line "level N". */
 int game_load_progress(const char *state, int level_count);
 bool game_neuronte_preference(const char *state);

@@ -117,6 +117,8 @@ An eligible campaign is ranked there as soon as the door opens and the
 agent reports token use. The setting is remembered.
 
 **Bench** opens a submenu. Click a benchmark or use the arrows and Enter.
+Open the same selector in a separate terminal with `bin/puzzllm --bench-menu`
+while a campaign is running. Escape returns from a benchmark to the selector.
 
 | Benchmark | Questions | Results under the game state directory |
 |---|---|---|
