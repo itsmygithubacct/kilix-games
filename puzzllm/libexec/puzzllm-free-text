@@ -16,7 +16,7 @@ HARNESS = ("lm_eval[ifeval] @ https://github.com/EleutherAI/lm-evaluation-harnes
            "d6de81643928d653435c431bae19945d41d32520.tar.gz")
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "third_party/kilix-bench/src"))
-from kilix_bench.local_models import CODING_TASKS, task_args
+from kilix_bench.local_models import CODING_TASKS, harness_model, task_args
 from kilix_bench import terminal_bench
 from kilix_bench.yesno.worker import llama_server
 from kilix_bench.yesno.models import stop_child
@@ -80,7 +80,8 @@ def run(task, state, model):
             return
         dest = Path(tempfile.mkdtemp(prefix="run-", dir=base))
         (dest / "run.json").write_text(json.dumps({"task": task, "model": subject, "limit": limit, "max_tokens": budget}) + "\n")
-        command = [*launcher, "run", "--model", "gguf", "--model_args", f"base_url={endpoint},timeout=3600",
+        backend, env = harness_model(task, "gguf")
+        command = [*launcher, "run", *backend, "--model_args", f"base_url={endpoint},timeout=3600",
                    *task_args(task), "--output_path", str(dest), "--log_samples"]
         if task == "kilix_ops":
             command.extend(["--include_path", str(ROOT / "libexec/tasks/kilix_ops")])
@@ -91,7 +92,7 @@ def run(task, state, model):
         status(f"Running {task} on {subject}")
         with (dest / "worker.log").open("w") as log:
             proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                    text=True, errors="replace", start_new_session=True)
+                                    text=True, errors="replace", start_new_session=True, env=env)
             stack.callback(stop_child, proc)
             generating = False
             with proc.stdout:
