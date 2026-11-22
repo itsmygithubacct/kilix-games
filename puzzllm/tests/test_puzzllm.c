@@ -1468,7 +1468,7 @@ static void menu_press(uint32_t key)
 
 static int menu_item_page(int item)
 {
-    for (int page = MENU_PAGE_MAIN; page <= MENU_PAGE_BETWEEN; page++) {
+    for (int page = MENU_PAGE_MAIN; page <= MENU_PAGE_BENCH; page++) {
         int rows[12];
         int n = menu_page_rows(page, draw_neuronte_available(), rows, 12);
         for (int i = 0; i < n; i++) if (rows[i] == item) return page;
@@ -1490,6 +1490,7 @@ static void menu_to(int item)
         int group = page == MENU_PAGE_MODEL || page == MENU_PAGE_DOWNLOAD ? MENU_MODEL :
                     page == MENU_PAGE_SCORES ? MENU_SCORES :
                     page == MENU_PAGE_DISPLAY ? MENU_DISPLAY :
+                    page == MENU_PAGE_BENCH ? MENU_BENCH :
                     page == MENU_PAGE_BETWEEN ? MENU_BETWEEN : MENU_RESETS;
         menu_press(KEY_HOME);
         for (int guard = 0; G.menu.selected != group && guard < 12; guard++)
@@ -1585,6 +1586,9 @@ static void test_bench_menu(void)
     sub(state, sizeof state, "bench-menu");
     CHECK(game_init(&G, ".", state, false, err, sizeof err), "bench menu: %s", err);
     menu_to(MENU_BENCH);
+    menu_press(KEY_ENTER);
+    CHECK(G.menu.page == MENU_PAGE_BENCH && !G.bench.open && G.menu.selected == MENU_BENCH_K12,
+          "Bench opens the suite picker with the original computer-use benchmark selected");
     menu_press(KEY_ENTER);
     CHECK(G.bench.open && G.bench.page == BENCH_WATCH && G.bench.provider == -1,
           "Bench opens a standalone monitor before starting a run");
@@ -1752,8 +1756,44 @@ static void test_bench_menu(void)
     CHECK(!G.bench.archive && G.bench.page == BENCH_WATCH && G.bench.selected == 0 && G.bench.provider == 4,
           "Back restores the monitor with its previous answer and model choice");
     menu_press(KEY_ESCAPE);
-    CHECK(!G.bench.open && G.menu.open && G.menu.selected == MENU_BENCH,
-          "leaving the bench returns to its main-menu row");
+    CHECK(!G.bench.open && G.menu.open && G.menu.page == MENU_PAGE_BENCH && G.menu.selected == MENU_BENCH_K12,
+          "leaving a benchmark returns to the selected suite");
+    menu_press(KEY_ESCAPE);
+    CHECK(G.menu.page == MENU_PAGE_MAIN && G.menu.selected == MENU_BENCH, "Back returns to Bench");
+    int bench_y = 0;
+    while (bench_y < L.h && menu_choice_at(MENU_PAGE_MAIN, L.w/2, bench_y) != MENU_BENCH) bench_y++;
+    game_pointer(&G, L.w/2, bench_y, POINTER_DOWN);
+    int boolq_y = 0;
+    while (boolq_y < L.h && menu_choice_at(MENU_PAGE_BENCH, L.w/2, boolq_y) != MENU_BENCH_BOOLQ) boolq_y++;
+    game_pointer(&G, L.w/2, boolq_y, POINTER_DOWN);
+    CHECK(G.bench.open && G.bench.suite == BENCH_BOOLQ && G.bench.count == 0 && !G.bench.report[0],
+          "clicking Bench then BoolQ opens its own monitor without stale computer-use answers");
+    G.spawn = true;
+    game_pointer(&G, rankings.x+3, rankings.y+3, POINTER_DOWN);
+    drain_bench_stream(&G.bench.catalog);
+    CHECK(G.bench.standing_count == 0 && G.bench.run_count == 0,
+          "the BoolQ monitor does not read the computer-use ranking");
+    char boolq_board[2500];
+    snprintf(boolq_board, sizeof boolq_board, "%s/bench/boolq/validation/strict-yesno-v1/rankings.json", state);
+    CHECK(access(boolq_board, R_OK) == 0, "the game opened BoolQ standings on disk");
+    snprintf(saved, sizeof saved, "%s/bench/boolq/validation/strict-yesno-v1/boolq.jsonl", state);
+    const char *boolq_events =
+        "{\"event\":\"begin\",\"suite\":\"boolq\",\"benchmark\":\"BoolQ\",\"split\":\"validation\","
+        "\"protocol\":\"strict-yesno-v1\",\"provider\":\"kilix\",\"model\":\"needle3\",\"total\":1}\n"
+        "{\"event\":\"answer\",\"n\":1,\"question\":\"Is it on?\",\"context\":\"The lamp is off.\","
+        "\"expected\":\"NO\",\"reply\":\"perhaps\",\"verdict\":\"invalid\"}\n"
+        "{\"event\":\"end\"}\n";
+    write_file(saved, boolq_events, strlen(boolq_events));
+    menu_press('u');
+    drain_bench_stream(&G.bench.catalog);
+    CHECK(G.bench.standing_count == 1 && G.bench.run_count == 1 && G.bench.standings[0].invalid == 1,
+          "the BoolQ rankings retain an invalid response");
+    menu_press(KEY_ENTER);
+    menu_press(KEY_ENTER);
+    if (G.bench.archive) drain_bench_stream(&G.bench.archive->worker);
+    CHECK(G.bench.archive && G.bench.archive->suite == BENCH_BOOLQ && G.bench.archive->count == 1 &&
+          !strcmp(G.bench.archive->answers[0].context, "The lamp is off."),
+          "the game reopens the BoolQ journal with its original passage");
     game_shutdown(&G);
 }
 

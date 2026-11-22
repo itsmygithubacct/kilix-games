@@ -342,7 +342,10 @@ void yesno_draw(sr_canvas *c, const yesno_bench *b)
 {
     if (b->archive) b = b->archive;
     draw_fill(c, 0, 0, c->w, c->h, BG, 1);
-    draw_text(c, PAD, 20, b->page == BENCH_REPORT ? "YES / NO BENCH    SAVED ANSWERS" : "YES / NO BENCH", GOLD, 1);
+    const char *suite = b->suite == BENCH_BOOLQ ? BENCH_BOOLQ_NAME : BENCH_K12_NAME;
+    char heading[96];
+    snprintf(heading, sizeof heading, "%s%s", suite, b->page == BENCH_REPORT ? "    Saved answers" : "");
+    draw_text(c, PAD, 20, heading, GOLD, 1);
     if (b->page != BENCH_WATCH && b->page != BENCH_REPORT) {
         if (b->page == BENCH_RANKS || b->page == BENCH_RUNS || b->page == BENCH_MACHINES) records(c, b);
         else picker(c, b);
@@ -389,15 +392,17 @@ void yesno_draw(sr_canvas *c, const yesno_bench *b)
         line(c, PAD, 140, available, text, AQUA, false);
     } else if (b->status == BENCH_READY) {
         draw_text(c, PAD, 140, b->provider < 0 ? "Choose a model to start a run." :
-                  "Start runs the OneBit development questions unattended.", MUTED, 1);
+                  (b->suite == BENCH_BOOLQ ? "Start runs 3,270 BoolQ validation questions." :
+                   "Start runs 442 OneBit development questions."), MUTED, 1);
     }
     if (b->report[0]) {
+        const char *folder = b->suite == BENCH_BOOLQ ? "bench/boolq/validation/strict-yesno-v1" : "bench/yesno";
         if (b->page == BENCH_REPORT || !strcmp(choice, b->run_label))
-            snprintf(text, sizeof text, "Report   bench/yesno/%.125s", b->report);
+            snprintf(text, sizeof text, "Report   %s/%.125s", folder, b->report);
         else if (b->status == BENCH_RUNNING)
-            snprintf(text, sizeof text, "Next run   %.420s     Report   bench/yesno/%.125s", choice, b->report);
+            snprintf(text, sizeof text, "Next run   %.420s     Report   %s/%.125s", choice, folder, b->report);
         else
-            snprintf(text, sizeof text, "Report for %.420s   bench/yesno/%.125s", b->run_label, b->report);
+            snprintf(text, sizeof text, "Report for %.420s   %s/%.125s", b->run_label, folder, b->report);
         line(c, PAD, 167, available, text, MUTED, false);
     }
     history(c, b);

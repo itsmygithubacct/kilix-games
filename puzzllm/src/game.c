@@ -1679,11 +1679,12 @@ static void menu_key(game *g, const key_event *ev)
         if (ev->action == 2) break;
         menu->notice[0] = 0;
         if (menu->selected == MENU_MODEL || menu->selected == MENU_SCORES ||
-            menu->selected == MENU_DISPLAY ||
+            menu->selected == MENU_DISPLAY || menu->selected == MENU_BENCH ||
             menu->selected == MENU_BETWEEN || menu->selected == MENU_RESETS) {
             menu->page = menu->selected == MENU_MODEL ? MENU_PAGE_MODEL :
                          menu->selected == MENU_SCORES ? MENU_PAGE_SCORES :
                          menu->selected == MENU_DISPLAY ? MENU_PAGE_DISPLAY :
+                         menu->selected == MENU_BENCH ? MENU_PAGE_BENCH :
                          menu->selected == MENU_BETWEEN ? MENU_PAGE_BETWEEN : MENU_PAGE_RESET;
             menu_move(g, 0);
             break;
@@ -1809,7 +1810,8 @@ static void menu_key(game *g, const key_event *ev)
             refresh_model_details(g);
         }
         if (menu->selected == MENU_LEADERBOARD) open_leaderboard(g);
-        if (menu->selected == MENU_BENCH) yesno_open(g);
+        if (menu->selected == MENU_BENCH_K12) yesno_open(g, BENCH_K12);
+        if (menu->selected == MENU_BENCH_BOOLQ) yesno_open(g, BENCH_BOOLQ);
         if (menu->selected == MENU_CODEX) select_model(g, true, false, NULL);
         if (menu->selected == MENU_GROK) select_model(g, false, true, NULL);
         if (menu->selected == MENU_CLAUDE) select_claude(g);
@@ -2302,6 +2304,7 @@ void game_key(game *g, const key_event *ev)
                 g->menu.selected = page == MENU_PAGE_MODEL ? MENU_MODEL :
                                    page == MENU_PAGE_SCORES ? MENU_SCORES :
                                    page == MENU_PAGE_DISPLAY ? MENU_DISPLAY :
+                                   page == MENU_PAGE_BENCH ? MENU_BENCH :
                                    page == MENU_PAGE_BETWEEN ? MENU_BETWEEN : MENU_RESETS;
             }
             else if (!g->menu.open) open_menu(g);
@@ -2453,6 +2456,14 @@ void game_pointer(game *g, int x, int y, pointer_action action)
     pane_selection *s = &g->selection;
     if (g->menu.open) {
         s->dragging = false;
+        if (action == POINTER_DOWN && !g->menu.confirm_reset && !g->menu.leaderboard_open &&
+            !g->menu.details_open && !g->menu.model_submenu && !g->menu.prompt_edit && !g->menu.name_edit) {
+            int item = menu_choice_at(g->menu.page, x, y);
+            if (item == MENU_BENCH || item == MENU_BENCH_K12 || item == MENU_BENCH_BOOLQ) {
+                g->menu.selected = item;
+                menu_key(g, &(key_event){.key = KEY_ENTER, .action = 1});
+            }
+        }
         return;
     }
     if (kilix_embed_running(&g->embed)) {

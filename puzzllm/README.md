@@ -104,7 +104,7 @@ start a new one.
 
 The game opens on its menu in this order: **Harness**, **Model**, then
 **Start game** (or resume, or continue a saved level). Below those are
-**Campaign**, **Scores**, **Display**, **Yes/No Bench**, **Auto**, **Reset**, and **Exit game**.
+**Campaign**, **Scores**, **Display**, **Bench**, **Auto**, **Between levels**, **Reset**, and **Exit game**.
 Enter opens a group. Escape steps back one page, and closes the menu once
 play has started.
 
@@ -116,7 +116,18 @@ room and that room starts again. Auto stops in the last playable room.
 An eligible campaign is ranked there as soon as the door opens and the
 agent reports token use. The setting is remembered.
 
-**Yes/No Bench** opens a progress monitor. Press **M** or click **Model** to
+**Bench** opens a submenu. Click a benchmark or use the arrows and Enter.
+
+| Benchmark | Questions | Results under the game state directory |
+|---|---|---|
+| kilix-k12-computer use (yes/no) | 442 OneBit development questions, including historical runs | `bench/yesno/` |
+| BoolQ (YES/NO) | 3,270 validation questions, each paired with its passage | `bench/boolq/validation/strict-yesno-v1/` |
+
+The first BoolQ run downloads the validation data from SuperGLUE and caches
+the verified file. A true label means YES and a false label means NO. Always
+answering YES scores 2,033 correct (62.17%). [BoolQ dataset](https://github.com/google-research-datasets/boolean-questions)
+
+Each benchmark opens its own progress monitor. Press **M** or click **Model** to
 choose an Ollama tag, a llama.cpp GGUF, Codex, Grok, or Claude. For a local
 model, choose from the installed list or enter a tag or file path. Ollama
 pulls a missing tag when you start. For Codex, Grok or Claude, select a
@@ -138,7 +149,7 @@ level for the next run. Each provider, model and effort has its own ranking,
 run history and machine comparison. A known configured default is applied
 explicitly. Older hosted runs without an effort measurement show **Unrecorded**.
 
-Press **R** or click **Start** to run the OneBit development questions. Each
+Press **R** or click **Start** to run the selected benchmark. Each
 question is a fresh request with the instruction `Respond with only YES or NO.`
 After trimming surrounding whitespace, only uppercase `YES` and `NO` count
 as valid. The monitor shows correct, wrong and invalid answers separately.
@@ -148,11 +159,12 @@ and preserves its partial results.
 The player stays beside the controls at the bottom. Click an answer or use
 the arrow keys or wheel to inspect it, **F** to filter misses, **I** or the
 **Invalid** counter to show only invalid replies, and **L** to
-follow the latest answer again. **Esc** returns to the game. The benchmark
-continues even if you close the tab. Reopen **Yes/No Bench**, or launch
-`bin/puzzllm --yesno` in a separate terminal, to watch the same run. Use
+follow the latest answer again. **Esc** returns to the Bench submenu. A run
+continues when you switch benchmarks or close the tab. Reopen its entry or
+launch `bin/puzzllm --yesno` (computer use) or `bin/puzzllm --yesno boolq`
+in a separate terminal to watch the same run. Use
 **Stop** to end it. Each run saves its questions, replies, keys, timings,
-and outcomes in `bench/yesno/*.jsonl` under the game state directory.
+and outcomes in a `.jsonl` journal in that benchmark’s results directory.
 
 Press **B** or click **Rankings** to see the results. A single invalid reply
 in any recorded attempt colors its ranking row red and adds **!**. The
@@ -167,14 +179,15 @@ then select a run to inspect its answers. **U** refreshes the rankings.
 Older journals that omitted the default model's ID appear under
 **Unrecorded default** with their original results.
 
-The worker saves the rankings to `~/.local/share/puzzllm/bench/yesno/rankings.json`
+The worker saves `rankings.json` in each benchmark’s results directory
 at the start and end of each run, including stopped and failed runs. The
-file follows `XDG_DATA_HOME` or the game's `PUZZLLM_STATE` override. It is
+game state defaults to `~/.local/share/puzzllm` and follows `XDG_DATA_HOME`
+or the game's `PUZZLLM_STATE` override. Each standings file is
 versioned, human-readable UTF-8 JSON. Each model has its rank, run count,
 finished count, average correct, mean accuracy in percent, and a history
 with UTC start times and journal filenames. Unranked models have a null
 rank. Opening the bench imports older journals. Each update atomically
-replaces the JSON file. Copy the entire `bench/yesno/` directory to back
+replaces the JSON file. Copy the entire `bench/` directory to back
 up both the standings and the individual answers. Restoring just the
 rankings file keeps the recorded scores and run summaries.
 
@@ -206,16 +219,17 @@ bin/puzzllm --yesno-compare first/rankings.json second/rankings.json
 ```
 
 To see both machines in the game, copy their completed `.jsonl` journals
-into the same `bench/yesno/` directory with their original filenames, then
+into the corresponding benchmark's results directory with their original filenames, then
 press **U** in Rankings. Completed GGUF runs record a content digest so
 identical weights installed at different paths can be compared. Computing
 the digest happens after timing and is cached for unchanged files.
 
-The game uses the pinned `kilix-bench` runner and its OneBit data. Run
+The game uses the pinned `kilix-bench` runner. Run
 `git submodule update --init --recursive` after updating a checkout.
 `third_party/kilix-bench/bin/kilix-yesno` opens the CLI with `--help`,
 and `third_party/kilix-bench/bin/kilix-yesno-tui` opens the terminal
-monitor. They share the same run lock, results and rankings with the game.
+monitor. Use `--suite boolq` in the CLI or **D** in the TUI to choose BoolQ.
+Each suite shares its run lock, results and rankings with the game.
 An alternate OneBit checkout can be named by `PUZZLLM_YESNO_BENCH`. Ollama uses `OLLAMA_HOST`.
 GGUF discovery uses `KILIX_LLM_MODELS_DIR` and `PUZZLLM_MODEL`. A selected
 GGUF runs on a private llama-server for the duration of the benchmark.

@@ -68,17 +68,29 @@ void yesno_close(yesno_bench *b)
     free(b->machines);
 }
 
+const char *yesno_suite_key(bench_suite suite)
+{
+    return suite == BENCH_BOOLQ ? "boolq" : "kilix-k12-computer-use";
+}
+
 static bool launch(game *g, bench_stream *stream, char *mode, char *arg, char *provider, char *model)
 {
     char helper[4096];
     snprintf(helper, sizeof helper, "%s/libexec/puzzllm-yesno", g->root);
-    char *argv[] = {helper, mode, arg, provider, model, !strcmp(mode, "run") ? g->bench.effort : NULL, NULL};
+    char *argv[] = {helper, "--suite", (char *)yesno_suite_key(g->bench.suite), mode, arg, provider, model,
+                    !strcmp(mode, "run") ? g->bench.effort : NULL, NULL};
     return g->spawn && pty_spawn(&stream->process, argv, NULL, 120, 24);
 }
 
-void yesno_open(game *g)
+void yesno_open(game *g, bench_suite suite)
 {
     yesno_bench *b = &g->bench;
+    if (b->suite != suite) {
+        bool standalone = b->standalone;
+        yesno_close(b);
+        *b = (yesno_bench){.standalone = standalone, .suite = suite};
+        yesno_init(b);
+    }
     b->open = b->redraw = true;
     b->page = BENCH_WATCH;
     if (!b->worker.process.pid) {
@@ -441,6 +453,7 @@ static void accept(game *g)
         yesno_bench *view = calloc(1, sizeof *view);
         if (!view) return;
         yesno_init(view);
+        view->suite = b->suite;
         b->archive = view;
         b->page = view->page = BENCH_REPORT;
         view->replay = launch(g, &view->worker, "report", g->state, r->file, NULL);

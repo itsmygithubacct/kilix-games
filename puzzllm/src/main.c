@@ -120,7 +120,7 @@ static pid_t start_goal_service(const char *root, const char *state)
     return child;
 }
 
-static int play(const char *root, const char *state, bool bench_only)
+static int play(const char *root, const char *state, bool bench_only, bench_suite suite)
 {
     char err[512];
     sr_canvas canvas;
@@ -147,7 +147,7 @@ static int play(const char *root, const char *state, bool bench_only)
         pty_init(&the_game.omp);
         pty_init(&the_game.shell);
         yesno_init(&the_game.bench);
-        yesno_open(&the_game);
+        yesno_open(&the_game, suite);
     } else if (!game_init(&the_game, root, state, true, err, sizeof err)) {
         fprintf(stderr, "puzzllm: %s\n", err);
         return 1;
@@ -423,7 +423,14 @@ int main(int argc, char **argv)
         perror("puzzllm-yesno");
         return 1;
     }
-    if (argc == 2 && !strcmp(argv[1], "--yesno")) return play(root, state, true);
+    if (argc >= 2 && !strcmp(argv[1], "--yesno")) {
+        if (argc == 2 || (argc == 3 && !strcmp(argv[2], yesno_suite_key(BENCH_K12))))
+            return play(root, state, true, BENCH_K12);
+        if (argc == 3 && !strcmp(argv[2], yesno_suite_key(BENCH_BOOLQ)))
+            return play(root, state, true, BENCH_BOOLQ);
+        fprintf(stderr, "Choose %s or %s.\n", yesno_suite_key(BENCH_K12), yesno_suite_key(BENCH_BOOLQ));
+        return 2;
+    }
     if (argc == 2 && !strcmp(argv[1], "--goal-status")) return current_goal_status(root, state);
     if (argc == 2 && strcmp(argv[1], "--reset-progress") == 0) {
         if (!game_reset_progress(state)) {
@@ -449,12 +456,12 @@ int main(int argc, char **argv)
     if (argc == 3 && strcmp(argv[1], "--check-level") == 0)
         return check_level(root, state, argv[2]);
     if (argc == 2 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0)) {
-        printf("usage: puzzllm [--version | --yesno | --yesno-compare RANKINGS... | --render DIR | --check-level N | --goal-status | --reset-progress | --bench [WxH] | --renderer]\n");
+        printf("usage: puzzllm [--version | --yesno [kilix-k12-computer-use|boolq] | --yesno-compare RANKINGS... | --render DIR | --check-level N | --goal-status | --reset-progress | --bench [WxH] | --renderer]\n");
         return 0;
     }
     if (argc != 1) {
-        fprintf(stderr, "usage: puzzllm [--version | --yesno | --yesno-compare RANKINGS... | --render DIR | --check-level N | --goal-status | --reset-progress | --bench [WxH] | --renderer]\n");
+        fprintf(stderr, "usage: puzzllm [--version | --yesno [kilix-k12-computer-use|boolq] | --yesno-compare RANKINGS... | --render DIR | --check-level N | --goal-status | --reset-progress | --bench [WxH] | --renderer]\n");
         return 2;
     }
-    return play(root, state, false);
+    return play(root, state, false, BENCH_K12);
 }

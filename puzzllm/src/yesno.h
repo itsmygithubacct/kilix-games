@@ -10,6 +10,9 @@ typedef enum { BENCH_WATCH, BENCH_PROVIDERS, BENCH_MODELS, BENCH_ENTRY,
                BENCH_RANKS, BENCH_RUNS, BENCH_REPORT, BENCH_MACHINES, BENCH_EFFORT } bench_page;
 typedef enum { BENCH_READY, BENCH_RUNNING, BENCH_COMPLETE, BENCH_STOPPED, BENCH_FAILED } bench_status;
 typedef enum { BENCH_CORRECT, BENCH_WRONG, BENCH_INVALID } bench_verdict;
+typedef enum { BENCH_K12, BENCH_BOOLQ } bench_suite;
+#define BENCH_K12_NAME "kilix-k12-computer use (yes/no)"
+#define BENCH_BOOLQ_NAME "BoolQ (YES/NO)"
 enum { BENCH_MODEL, BENCH_START, BENCH_FILTER, BENCH_LATEST, BENCH_RANKINGS, BENCH_BACK, BENCH_BUTTONS };
 
 typedef struct bench_answer {
@@ -51,6 +54,7 @@ typedef struct bench_saved_run {
 typedef struct yesno_bench {
     bool open, replay, follow, misses, invalid_only, standalone, redraw;
     bench_page page;
+    bench_suite suite;
     bench_status status;
     int provider, run_provider, picking, cursor;
     char model[4096], entry[4096], effort[48], run_effort[48], run_label[512], report[128];
@@ -73,7 +77,8 @@ typedef struct yesno_bench {
 struct game;
 void yesno_init(yesno_bench *b);
 void yesno_close(yesno_bench *b);
-void yesno_open(struct game *g);
+void yesno_open(struct game *g, bench_suite suite);
+const char *yesno_suite_key(bench_suite suite);
 void yesno_poll(struct game *g);
 void yesno_key(struct game *g, const key_event *ev);
 void yesno_click(struct game *g, int x, int y);

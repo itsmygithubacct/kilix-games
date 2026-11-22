@@ -336,6 +336,7 @@ int menu_page_rows(int page, bool neuronte, int *out, int cap)
         MENU_DL_GGUF_08, MENU_DL_GGUF_4B, MENU_DL_GEMMA_E2B, MENU_DL_OLLAMA_06, MENU_DL_OLLAMA_4B, MENU_DL_NAME
     };
     static const int between_rows[] = { MENU_LEVEL_SESSION, MENU_LEVEL_CLEANUP, MENU_CLEAN_DISK };
+    static const int bench_rows[] = { MENU_BENCH_K12, MENU_BENCH_BOOLQ };
     const int *rows = main_rows;
     int n = (int)(sizeof main_rows / sizeof main_rows[0]);
     if (page == MENU_PAGE_MODEL) {
@@ -357,10 +358,36 @@ int menu_page_rows(int page, bool neuronte, int *out, int cap)
     } else if (page == MENU_PAGE_BETWEEN) {
         rows = between_rows;
         n = (int)(sizeof between_rows / sizeof between_rows[0]);
+    } else if (page == MENU_PAGE_BENCH) {
+        rows = bench_rows;
+        n = (int)(sizeof bench_rows / sizeof bench_rows[0]);
     }
     if (n > cap) n = cap;
     if (out) for (int i = 0; i < n; i++) out[i] = rows[i];
     return n;
+}
+
+static rect menu_bounds(int w, int h, int rows, int *row_h)
+{
+    const int width = 560, chrome = 125;
+    *row_h = 27;
+    if (chrome + rows * *row_h > h - 8 && rows > 0) {
+        *row_h = (h - 8 - chrome) / rows;
+        if (*row_h < 16) *row_h = 16;
+    }
+    int height = chrome + rows * *row_h, top = (h - height) / 2;
+    return (rect){(w - width) / 2, top < 0 ? 0 : top, width, height};
+}
+
+int menu_choice_at(int page, int x, int y)
+{
+    int ids[12], row_h;
+    int rows = menu_page_rows(page, draw_neuronte_available(), ids, 12);
+    rect panel = menu_bounds(L.w, L.h, rows, &row_h);
+    int offset = y - panel.y - 62;
+    if (x < panel.x + 11 || x >= panel.x + panel.w - 11 || offset < 0 ||
+        offset >= rows * row_h || offset % row_h >= row_h - 2) return -1;
+    return ids[offset / row_h];
 }
 
 void render_menu(sr_canvas *c, int selected, const char *active_model,
@@ -388,7 +415,9 @@ void render_menu(sr_canvas *c, int selected, const char *active_model,
         [MENU_DL_OLLAMA_06] = "Download Ollama qwen3:0.6b",
         [MENU_DL_OLLAMA_4B] = "Download Ollama qwen3:4b-instruct-2507",
         [MENU_DL_NAME] = "Pull another Ollama model",
-        [MENU_BENCH] = "Yes/No Bench",
+        [MENU_BENCH] = "Bench >",
+        [MENU_BENCH_K12] = BENCH_K12_NAME,
+        [MENU_BENCH_BOOLQ] = BENCH_BOOLQ_NAME,
         [MENU_MODEL] = "Model >",
         [MENU_SCORES] = "Scores >",
         [MENU_DISPLAY] = "Display >",
@@ -397,17 +426,10 @@ void render_menu(sr_canvas *c, int selected, const char *active_model,
         [MENU_CLEAN_DISK] = "Clean up disk now",
     };
     int ids[12];
-    int width = 560, row_h = 27, chrome = 125;
+    int row_h;
     int rows = menu_page_rows(page, draw_neuronte_available(), ids, 12);
-    int height = chrome + rows * row_h;
-    if (height > c->h - 8 && rows > 0) {
-        row_h = (c->h - 8 - chrome) / rows;
-        if (row_h < 16) row_h = 16;
-        height = chrome + rows * row_h;
-    }
-    int x = (c->w - width) / 2;
-    int y = (c->h - height) / 2;
-    if (y < 0) y = 0;
+    rect panel = menu_bounds(c->w, c->h, rows, &row_h);
+    int width = panel.w, height = panel.h, x = panel.x, y = panel.y;
     char label[320];
 
     draw_fill(c, 0, 0, c->w, c->h, 0x0c1018, 0.72f);
@@ -434,9 +456,11 @@ void render_menu(sr_canvas *c, int selected, const char *active_model,
                         page == MENU_PAGE_DISPLAY ? "Display" :
                         page == MENU_PAGE_RESET ? "Reset" :
                         page == MENU_PAGE_DOWNLOAD ? "Downloads" :
+                        page == MENU_PAGE_BENCH ? "Bench" :
                         page == MENU_PAGE_BETWEEN ? "Between levels" : "Game menu";
     draw_text(c, x + 18, y + 13, title, 0xffde8c, 1);
-    snprintf(label, sizeof label, "Agent model: %s", *active_model ? active_model : "Qwen 3.5 (llama.cpp)");
+    if (page == MENU_PAGE_BENCH) snprintf(label, sizeof label, "Each benchmark has its own rankings.");
+    else snprintf(label, sizeof label, "Agent model: %s", *active_model ? active_model : "Qwen 3.5 (llama.cpp)");
     text_line(c, x + 18, y + 39, label, 0xbccadb, (width - 36) / CELL_W);
 
     for (int row = 0; row < rows; row++) {
