@@ -116,7 +116,7 @@ room and that room starts again. Auto stops in the last playable room.
 An eligible campaign is ranked there as soon as the door opens and the
 agent reports token use. The setting is remembered.
 
-**Bench** offers **Yes/No** and **Free Text**. Select a category and then a suite with the mouse or the arrow keys and Enter.
+**Bench** offers **Yes/No**, **Free Text** and **Coding**. Select a category and then a suite with the mouse or the arrow keys and Enter.
 Open the same selector in a separate terminal with `bin/puzzllm --bench-menu`
 while a campaign is running. Escape returns from a benchmark to the selector.
 
@@ -124,6 +124,22 @@ while a campaign is running. Escape returns from a benchmark to the selector.
 |---|---|---|
 | kilix-k12-computer use (yes/no) | 442 OneBit development questions, including historical runs | `bench/yesno/` |
 | BoolQ (YES/NO) | 3,270 validation questions, each paired with its passage | `bench/boolq/validation/strict-yesno-v1/` |
+
+**Coding** runs the same suites as the `kilix-bench` CLI. CRUXEval grades input
+and output prediction separately over all 800 Python functions. HumanEval+
+checks one function completion per problem against the base and expanded
+tests for all 164 problems. Both use the Free Text model and harness settings
+below. Their grader needs Linux user namespaces, bubblewrap, and system Python
+with NumPy and psutil for HumanEval+. Terminal-Bench 2.0 runs 74 of the 89
+upstream tasks in its engineering profile using Harbor's Terminus 2 agent,
+Docker and the Compose plugin. It uses a local GGUF or OpenAI-compatible chat
+endpoint. Set `PUZZLLM_FREE_TEXT_MODEL` if the endpoint serves multiple models.
+`PUZZLLM_TERMINAL_CONTEXT` sets the agent's context length in tokens. PuzzLLM
+starts its managed local model with 16,384 tokens by default.
+The Coding menu shows the final score and
+stores the detailed reports under `bench/coding/` in game state. The
+`PUZZLLM_FREE_TEXT_LIMIT` setting also works here and applies to each CRUXEval
+track separately.
 
 **Free Text** offers Kilix Operations, IFEval (strict prompt-level instruction
 following) and GSM8K (strict final-number exact match).
@@ -146,7 +162,7 @@ records accuracy and each generated response under `bench/free-text/kilix_ops/`.
 Selecting a suite starts it. The menu shows
 the score and item count when it finishes. Escape lets the run continue while
 you use the game. Return to Free Text to see its status or select **Stop
-free-text run**. Closing the game stops its active free-text worker. Each run
+benchmark run**. Closing the game stops its active free-text worker. Each run
 saves the upstream report, individual responses and a worker log under
 `bench/free-text/<suite>/run-*/`.
 

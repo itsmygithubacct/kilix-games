@@ -336,8 +336,9 @@ int menu_page_rows(int page, bool neuronte, int *out, int cap)
         MENU_DL_GGUF_08, MENU_DL_GGUF_4B, MENU_DL_GEMMA_E2B, MENU_DL_OLLAMA_06, MENU_DL_OLLAMA_4B, MENU_DL_NAME
     };
     static const int between_rows[] = { MENU_LEVEL_SESSION, MENU_LEVEL_CLEANUP, MENU_CLEAN_DISK };
-    static const int bench_rows[] = { MENU_YESNO, MENU_FREETEXT };
+    static const int bench_rows[] = { MENU_YESNO, MENU_FREETEXT, MENU_CODING };
     static const int yesno_rows[] = { MENU_BENCH_K12, MENU_BENCH_BOOLQ };
+    static const int coding_rows[] = { MENU_CRUXEVAL, MENU_HUMANEVAL_PLUS, MENU_TERMINAL_BENCH, MENU_STOP_TEXT };
     static const int text_rows[] = { MENU_KILIX_OPS, MENU_IFEVAL, MENU_GSM8K, MENU_STOP_TEXT };
     const int *rows = main_rows;
     int n = (int)(sizeof main_rows / sizeof main_rows[0]);
@@ -369,6 +370,9 @@ int menu_page_rows(int page, bool neuronte, int *out, int cap)
     } else if (page == MENU_PAGE_FREETEXT) {
         rows = text_rows;
         n = sizeof text_rows / sizeof text_rows[0];
+    } else if (page == MENU_PAGE_CODING) {
+        rows = coding_rows;
+        n = sizeof coding_rows / sizeof coding_rows[0];
     }
     if (n > cap) n = cap;
     if (out) for (int i = 0; i < n; i++) out[i] = rows[i];
@@ -427,7 +431,10 @@ void render_menu(sr_canvas *c, int selected, const char *active_model,
         [MENU_YESNO] = "Yes/No >", [MENU_FREETEXT] = "Free Text >",
         [MENU_KILIX_OPS] = "Run Kilix Operations",
         [MENU_IFEVAL] = "Run IFEval (instruction following)", [MENU_GSM8K] = "Run GSM8K (math)",
-        [MENU_STOP_TEXT] = "Stop free-text run",
+        [MENU_CODING] = "Coding >", [MENU_CRUXEVAL] = "Run CRUXEval (800 input + 800 output)",
+        [MENU_HUMANEVAL_PLUS] = "Run HumanEval+ (164 functions)",
+        [MENU_TERMINAL_BENCH] = "Run Terminal-Bench 2.0 (engineering)",
+        [MENU_STOP_TEXT] = "Stop benchmark run",
         [MENU_BENCH_K12] = BENCH_K12_NAME,
         [MENU_BENCH_BOOLQ] = BENCH_BOOLQ_NAME,
         [MENU_MODEL] = "Model >",
@@ -471,10 +478,12 @@ void render_menu(sr_canvas *c, int selected, const char *active_model,
                         page == MENU_PAGE_BENCH ? "Bench" :
                         page == MENU_PAGE_YESNO ? "Yes/No" :
                         page == MENU_PAGE_FREETEXT ? "Free Text" :
+                        page == MENU_PAGE_CODING ? "Coding" :
                         page == MENU_PAGE_BETWEEN ? "Between levels" : "Game menu";
     draw_text(c, x + 18, y + 13, title, 0xffde8c, 1);
-    if (page == MENU_PAGE_BENCH) snprintf(label, sizeof label, "Choose an answer format.");
+    if (page == MENU_PAGE_BENCH) snprintf(label, sizeof label, "Choose a benchmark category.");
     else if (page == MENU_PAGE_YESNO) snprintf(label, sizeof label, "Each benchmark has its own rankings.");
+    else if (page == MENU_PAGE_CODING) snprintf(label, sizeof label, "Code reasoning, function completion and terminal tasks.");
     else if (page == MENU_PAGE_FREETEXT) snprintf(label, sizeof label, "Grade generated answers on the local model.");
     else snprintf(label, sizeof label, "Agent model: %s", *active_model ? active_model : "Qwen 3.5 (llama.cpp)");
     text_line(c, x + 18, y + 39, label, 0xbccadb, (width - 36) / CELL_W);

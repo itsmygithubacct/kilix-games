@@ -16,6 +16,8 @@ HARNESS = ("lm_eval[ifeval] @ https://github.com/EleutherAI/lm-evaluation-harnes
            "d6de81643928d653435c431bae19945d41d32520.tar.gz")
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "third_party/kilix-bench/src"))
+from kilix_bench.local_models import CODING_TASKS, task_args
+from kilix_bench import terminal_bench
 from kilix_bench.yesno.worker import llama_server
 from kilix_bench.yesno.models import stop_child
 
@@ -29,13 +31,18 @@ def interrupted(signum, frame):
 
 
 def run(task, state, model):
-    metric = {"kilix_ops": "acc,none", "ifeval": "prompt_level_strict_acc,none", "gsm8k": "exact_match,strict-match"}[task]
-    if runner := shutil.which("lm-eval"):
-        launcher = [runner]
-    elif uv := shutil.which("uv"):
-        launcher = [uv, "tool", "run", "--from", HARNESS, "lm-eval"]
-    else:
-        raise ValueError("Install uv or lm-eval with the ifeval extra.")
+    metrics = {"kilix_ops": "acc,none", "ifeval": "prompt_level_strict_acc,none",
+               "gsm8k": "exact_match,strict-match"}
+    terminal = task == "terminal-bench"
+    if task not in metrics and task not in CODING_TASKS and not terminal:
+        raise ValueError(f"Unknown benchmark {task}")
+    if not terminal:
+        if runner := shutil.which("lm-eval"):
+            launcher = [runner]
+        elif uv := shutil.which("uv"):
+            launcher = [uv, "tool", "run", "--from", HARNESS, "lm-eval"]
+        else:
+            raise ValueError("Install uv or lm-eval with the ifeval extra.")
 
     limit = os.environ.get("PUZZLLM_FREE_TEXT_LIMIT")
     if limit and int(limit) < 1:
@@ -43,11 +50,17 @@ def run(task, state, model):
     budget = os.environ.get("PUZZLLM_FREE_TEXT_MAX_TOKENS")
     if budget and int(budget) < 1:
         raise ValueError("PUZZLLM_FREE_TEXT_MAX_TOKENS must be positive.")
-    base = Path(state) / "bench" / "free-text" / task
+    category = "coding" if terminal or task in CODING_TASKS else "free-text"
+    base = Path(state) / "bench" / category / task
     base.mkdir(parents=True, exist_ok=True)
-    dest = Path(tempfile.mkdtemp(prefix="run-", dir=base))
     with ExitStack() as stack:
         endpoint = os.environ.get("PUZZLLM_FREE_TEXT_ENDPOINT")
+        alias = os.environ.get("PUZZLLM_FREE_TEXT_MODEL")
+        context = None
+        if terminal and (not endpoint or os.environ.get("PUZZLLM_TERMINAL_CONTEXT")):
+            context = int(os.environ.get("PUZZLLM_TERMINAL_CONTEXT") or 16384)
+            if context < 1:
+                raise ValueError("PUZZLLM_TERMINAL_CONTEXT must be positive.")
         if not endpoint:
             os.environ.setdefault("PUZZLLM_ROOT", str(ROOT))
             if not model:
@@ -56,13 +69,19 @@ def run(task, state, model):
             if not model:
                 raise ValueError("Select a GGUF model or set PUZZLLM_FREE_TEXT_ENDPOINT.")
             scratch = Path(stack.enter_context(tempfile.TemporaryDirectory()))
-            endpoint, _ = stack.enter_context(llama_server(model, scratch, status))
+            endpoint, alias = stack.enter_context(llama_server(model, scratch, status, context_size=context or 4096))
             subject = Path(model).name
         else:
             subject = endpoint
+        if terminal:
+            selected = terminal_bench.TASKS[:int(limit)] if limit else terminal_bench.TASKS
+            status(f"Running Terminal-Bench engineering on {subject}")
+            terminal_bench.run_job(alias, endpoint, base, selected, status, context, int(budget) if budget else None)
+            return
+        dest = Path(tempfile.mkdtemp(prefix="run-", dir=base))
         (dest / "run.json").write_text(json.dumps({"task": task, "model": subject, "limit": limit, "max_tokens": budget}) + "\n")
         command = [*launcher, "run", "--model", "gguf", "--model_args", f"base_url={endpoint},timeout=3600",
-                   "--tasks", task, "--output_path", str(dest), "--log_samples"]
+                   *task_args(task), "--output_path", str(dest), "--log_samples"]
         if task == "kilix_ops":
             command.extend(["--include_path", str(ROOT / "libexec/tasks/kilix_ops")])
         if budget:
@@ -84,12 +103,17 @@ def run(task, state, model):
                     if generating and (progress := re.search(r"\|\s*(\d+)/(\d+)\s*\[", line)):
                         status(f"{task}: {progress[1]}/{progress[2]} responses")
             if proc.wait():
-                raise RuntimeError(f"See bench/free-text/{task}/{dest.name}/worker.log")
+                raise RuntimeError(f"See bench/{category}/{task}/{dest.name}/worker.log")
         report, = dest.rglob("results_*.json")
         data = json.loads(report.read_text())
-        score = data["results"][task][metric]
-        n = data["n-samples"][task]["effective"]
-        status(f"{task} score {100 * score:.1f}% ({n} {'item' if n == 1 else 'items'})")
+        summaries = []
+        for name in CODING_TASKS.get(task, (task,)):
+            metric = metrics.get(task, "pass@1,none")
+            score = data["results"][name][metric]
+            n = data["n-samples"][name]["effective"]
+            label = name.removeprefix("kilix_cruxeval_") if task == "cruxeval" else task
+            summaries.append(f"{label} score {100 * score:.1f}% ({n} {'item' if n == 1 else 'items'})")
+        status(" | ".join(summaries))
 
 
 if __name__ == "__main__":

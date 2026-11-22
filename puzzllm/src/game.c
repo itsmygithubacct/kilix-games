@@ -1683,9 +1683,10 @@ static void poll_text(game *g)
 static bool bench_category_back(game *g)
 {
     int page = g->menu.page;
-    if (page != MENU_PAGE_YESNO && page != MENU_PAGE_FREETEXT) return false;
+    if (page != MENU_PAGE_YESNO && page != MENU_PAGE_FREETEXT && page != MENU_PAGE_CODING) return false;
     game_open_bench_menu(g);
-    g->menu.selected = page == MENU_PAGE_YESNO ? MENU_YESNO : MENU_FREETEXT;
+    g->menu.selected = page == MENU_PAGE_CODING ? MENU_CODING :
+                       page == MENU_PAGE_YESNO ? MENU_YESNO : MENU_FREETEXT;
     return true;
 }
 
@@ -1873,6 +1874,18 @@ static void menu_key(game *g, const key_event *ev)
         if (menu->selected == MENU_YESNO || menu->selected == MENU_FREETEXT) {
             menu->page = menu->selected == MENU_YESNO ? MENU_PAGE_YESNO : MENU_PAGE_FREETEXT;
             menu_move(g, 0);
+            break;
+        }
+        if (menu->selected == MENU_CODING) {
+            menu->page = MENU_PAGE_CODING;
+            menu_move(g, 0);
+            break;
+        }
+        if (menu->selected == MENU_CRUXEVAL || menu->selected == MENU_HUMANEVAL_PLUS ||
+            menu->selected == MENU_TERMINAL_BENCH) {
+            const char *suite = menu->selected == MENU_CRUXEVAL ? "cruxeval" :
+                                menu->selected == MENU_HUMANEVAL_PLUS ? "humaneval-plus" : "terminal-bench";
+            text_run(g, suite);
             break;
         }
         if (menu->selected == MENU_KILIX_OPS) {
@@ -2555,7 +2568,8 @@ void game_pointer(game *g, int x, int y, pointer_action action)
             !g->menu.details_open && !g->menu.model_submenu && !g->menu.prompt_edit && !g->menu.name_edit) {
             int item = menu_choice_at(g->menu.page, x, y);
             if (item == MENU_BENCH || (item >= 0 && (g->menu.page == MENU_PAGE_BENCH ||
-                g->menu.page == MENU_PAGE_YESNO || g->menu.page == MENU_PAGE_FREETEXT))) {
+                g->menu.page == MENU_PAGE_YESNO || g->menu.page == MENU_PAGE_FREETEXT ||
+                g->menu.page == MENU_PAGE_CODING))) {
                 g->bench.redraw = true;
                 g->menu.selected = item;
                 menu_key(g, &(key_event){.key = KEY_ENTER, .action = 1});
@@ -3055,7 +3069,8 @@ void game_render(game *g, sr_canvas *c)
     } else if (g->menu.open)
         render_menu(c, g->menu.selected, v.agent_model,
                     g->started, g->sc.level + 1, g->menu.confirm_reset,
-                    g->menu.page == MENU_PAGE_FREETEXT ? g->menu.text_status : g->menu.notice,
+                    (g->menu.page == MENU_PAGE_FREETEXT || g->menu.page == MENU_PAGE_CODING) ?
+                    g->menu.text_status : g->menu.notice,
                     g->thinking_support, g->thinking_enabled, v.hosted_agent, g->use_pi,
                     g->compute, g->tooltips, g->room_buttons, g->campaign, g->campaign_model,
                     g->hints_file, g->yolo, g->menu.page, g->menu.name_edit, g->auto_play,

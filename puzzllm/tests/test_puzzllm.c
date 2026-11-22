@@ -1812,6 +1812,18 @@ static void test_bench_menu(void)
     }
     menu_press(KEY_DOWN);
     menu_press(KEY_ENTER);
+    menu_press(KEY_ESCAPE);
+    menu_press(KEY_DOWN);
+    menu_press(KEY_ENTER);
+    CHECK(G.menu.page == MENU_PAGE_CODING && G.menu.selected == MENU_CRUXEVAL, "Coding opens full CRUXEval");
+    menu_press(KEY_DOWN);
+    CHECK(G.menu.selected == MENU_HUMANEVAL_PLUS, "Coding offers HumanEval+");
+    menu_press(KEY_DOWN);
+    CHECK(G.menu.selected == MENU_TERMINAL_BENCH, "Coding offers Terminal-Bench");
+    menu_press(KEY_ESCAPE);
+    CHECK(G.menu.selected == MENU_CODING, "back from Coding selects its category");
+    menu_press(KEY_UP);
+    menu_press(KEY_ENTER);
     CHECK(G.menu.page == MENU_PAGE_FREETEXT && G.menu.selected == MENU_KILIX_OPS, "Free Text opens Kilix Operations");
     menu_press(KEY_DOWN);
     CHECK(G.menu.selected == MENU_IFEVAL, "Free Text offers IFEval");
