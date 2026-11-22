@@ -140,7 +140,7 @@ pinned evaluator on first use. To install it manually in a Python environment,
 run the following and launch PuzzLLM with that environment active:
 
 ```sh
-pip install 'lm_eval[ifeval] @ git+https://github.com/EleutherAI/lm-evaluation-harness.git@d6de81643928d653435c431bae19945d41d32520'
+pip install 'lm_eval[ifeval] @ https://github.com/EleutherAI/lm-evaluation-harness/archive/d6de81643928d653435c431bae19945d41d32520.tar.gz'
 ```
 
 The evaluator downloads task data on first use. Set `PUZZLLM_FREE_TEXT_LIMIT=1`

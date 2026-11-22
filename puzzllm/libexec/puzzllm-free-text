@@ -12,8 +12,8 @@ import subprocess
 import sys
 import tempfile
 
-HARNESS = ("lm_eval[ifeval] @ git+https://github.com/EleutherAI/lm-evaluation-harness.git"
-           "@d6de81643928d653435c431bae19945d41d32520")
+HARNESS = ("lm_eval[ifeval] @ https://github.com/EleutherAI/lm-evaluation-harness/archive/"
+           "d6de81643928d653435c431bae19945d41d32520.tar.gz")
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "third_party/kilix-bench/src"))
 from kilix_bench.yesno.worker import llama_server
