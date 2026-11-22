@@ -164,6 +164,7 @@ test-yesno:
 test-challenges: $(BIN)
 	@mkdir -p $(SCRATCH)/challenges
 	@TMPDIR=$(SCRATCH)/challenges python3 -B tests/test-challenges.py
+	@TMPDIR=$(SCRATCH)/challenges python3 -B tests/test-incidents.py
 
 test: test-unit test-cli test-sandbox test-kilix-display test-yesno test-challenges test-defects
 

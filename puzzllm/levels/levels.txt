@@ -188,6 +188,22 @@ hint: An opposite-door request first seals both doors. Replay a failing event tr
 check: challenge airlock.tbl
 
 level: 19
+title: The SSH Incident
+room: archive
+goal: Our SSH server was breached. Identify the company account from the logs and restore patched SSH access. Submit ~/ssh-incident.json using ~/docs/challenges/sshincident.md.
+hint: Read /opt/puzzllm/evidence/ssh.log. Follow the connection identifier across the gateway and server logs.
+hint: An installed fix must also be loaded by the running service. Our engineers need to log in.
+check: challenge ssh-incident.json
+
+level: 20
+title: The Root Incident
+room: vault
+goal: Trace the first root action on our Ubuntu machine, fix the component, and recover the workload. Submit ~/root-incident.json using ~/docs/challenges/rootincident.md.
+hint: Read /opt/puzzllm/evidence/root.log. Connect the original login to the first root audit record.
+hint: Use the trusted service baseline to check the incident change. The workload and its data must survive reboot.
+check: challenge root-incident.json
+
+level: 21
 title: Next challenge coming
 room: soon
 goal: This room is still being built. Come back for the next challenge.

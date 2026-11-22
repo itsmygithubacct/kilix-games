@@ -486,8 +486,14 @@ code; further rooms that use them are blocks. The full format is in
 | 16 | The Dispatch Board | Produce a legal schedule or a directed cycle on 514 boards. |
 | 17 | The Emergency Exit | Give a shortest legal route or prove the exit blocked on all 1,024 layouts. |
 | 18 | The Airlock | Keep the doors safe and responsive for every reachable state and event. |
+| 19 | The SSH Incident | Attribute a server breach using gateway and host logs, then restore a patched SSH service. |
+| 20 | The Root Incident | Trace an unauthorized root action and recover the Ubuntu workload across a reboot. |
 
-Room 19 marks the end of the playable campaign. Each advanced room names its submission file and its guide under `~/docs/challenges/`. These guides include sample inputs, accepted outputs and the exact rules. The door and `~/check_goal_status.sh` use the same verifier. An unsuccessful submission reports the first failing input, mapping or event trace.
+Room 21 marks the end of the playable campaign. Each advanced room names its submission file and its guide under `~/docs/challenges/`. These guides include sample inputs, accepted outputs and the exact rules. The door and `~/check_goal_status.sh` use the same verifier. An unsuccessful submission reports the first failing input, mapping or event trace.
+
+The incident rooms give the player's shell and agent read-only evidence under `/opt/puzzllm/evidence/`. Submit the JSON incident report and maintenance work order named in the room guide. The runner applies the order on an isolated Ubuntu 24.04 amd64 QEMU guest and publishes its verified result for the door and goal checker. The guest network permits no external connections. The SSH check makes a real engineer login over guest loopback. Resetting a room creates a new case.
+
+The host needs `qemu-system-x86_64`, `qemu-img` and `xorriso`. The first accepted work order caches Canonical's 248 MiB minimal cloud image in `$XDG_CACHE_HOME/puzzllm/incidents` (default `~/.cache/puzzllm/incidents`). For offline installations, set `PUZZLLM_INCIDENT_IMAGE` to the pinned image. The worker verifies SHA-256 `406630c08b5e545fcc7209854b129d47e3af822db128c9f19336593b5a2d3fe0` before using a temporary overlay. KVM speeds up boot, and QEMU can use software emulation. [Ubuntu image](https://cloud-images.ubuntu.com/minimal/releases/noble/release-20261105/ubuntu-24.04-minimal-cloudimg-amd64.img)
 
 The `check: challenge NAME` entry selects the verifier by submission filename. Python and Bash submissions run in Bubblewrap with standard input and a private filesystem. Each line-oriented solver receives shuffled cases in separate batches. Rename scripts get a fresh directory for each permutation. The host grader checks the submitted results independently. The two declarative tables are read as data.
 

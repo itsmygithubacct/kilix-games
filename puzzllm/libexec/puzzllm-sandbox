@@ -48,6 +48,10 @@ set -u
 
 here=$(dirname "$(readlink -f "$0")")
 state=${PUZZLLM_STATE:-${XDG_DATA_HOME:-$HOME/.local/share}/puzzllm}
+case ${1:-} in
+prepare-ssh-incident|prepare-root-incident)
+    exec /usr/bin/python3 -IB "$here/puzzllm_incident.py" "$state" "$1" ;;
+esac
 if [[ ${1:-} == challenge-check ]]; then
     exec /usr/bin/python3 -IB "$here/puzzllm-challenge" "$state" "${2:-}"
 fi
@@ -399,6 +403,8 @@ agent|agent-exec|codex|grok|claude|shell|shell-exec)
     # This mount must follow the workspace mount.
     (umask 077 && mkdir -p "$state/goals") || die "cannot prepare the goal status socket directory"
     [ ! -L "$state/goals" ] || die "invalid goal status directory"
+    (umask 077 && mkdir -p "$state/incident-evidence") || die "cannot prepare the evidence folder"
+    args+=(--ro-bind "$state/incident-evidence" /opt/puzzllm/evidence)
     args+=(--ro-bind "$here/docs" "$box_home/docs"
            --ro-bind "$here/puzzllm_ipc.py" /opt/puzzllm/bin/puzzllm_ipc.py)
     # Earlier live sandboxes published this relative link to the same read-only guide.

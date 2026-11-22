@@ -378,7 +378,7 @@ printf '1 2\n' > "$goal_state/workspace/sort4.net"
 report agent; rc=$?
 [ "$rc" = 1 ] && grep -Eq 'Input [01]{4} leaves' "$scratch/status.out" &&
     pass "the agent sees the failing network input" || fail "missing sorting counterexample"
-printf 'level 19\n' > "$goal_state/progress"
+printf 'level 21\n' > "$goal_state/progress"
 report shell; rc=$?
 [ "$rc" = 2 ] && grep -q 'no playable goal' "$scratch/status.out" &&
     pass "a placeholder room reports that it has no goal" || fail "placeholder room graded"

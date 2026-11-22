@@ -123,7 +123,7 @@ class Campaign(unittest.TestCase):
                 code, result = self.cli("--check-level", str(number))
                 self.assertEqual(code, 0, result)
                 self.assertIn(status.splitlines()[-1], result)
-        (self.state / "progress").write_text("level 19\n")
+        (self.state / "progress").write_text("level 21\n")
         self.assertEqual(self.cli("--goal-status")[0], 2)
 
     def test_domains(self):

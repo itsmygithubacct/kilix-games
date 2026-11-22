@@ -15,6 +15,12 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # (name, file, old, new, make target[, "neuronte" when it needs that build])
 DEFECTS = [
+    ("incident evidence accepts the wrong account",
+     "libexec/puzzllm_incident.py", "if report.get(key) != expected:",
+     "if key != 'account' and report.get(key) != expected:", "test-challenges"),
+    ("incident completion accepts an incomplete work order",
+     "libexec/puzzllm_incident.py", "if actions != ACTIONS[kind]:",
+     "if False:", "test-challenges"),
     ("rendering a preview overwrites the active guides",
      "src/main.c", "        the_game.state_lock = -1;", "        (void)the_game.state_lock;", "test-cli"),
     ("default room changes move the workspace",

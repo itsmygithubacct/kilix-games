@@ -1988,6 +1988,11 @@ static void enter_level(game *g, int level, bool keep_session)
     if ((cur_level(g)->check == CHECK_FOLLOW_LOG || cur_level(g)->check == CHECK_STAMPED_LOG) &&
         g->state_lock >= 0 && !puzzle_prepare(g->root, g->state, "log-setup"))
         activity_add(&g->act, ACT_ERROR, "Could not install run_check.sh.");
+    if (g->state_lock >= 0 && cur_level(g)->check == CHECK_CHALLENGE &&
+        (!strcmp(cur_level(g)->file, "ssh-incident.json") || !strcmp(cur_level(g)->file, "root-incident.json")) &&
+        !puzzle_prepare(g->root, g->state, !strcmp(cur_level(g)->file, "ssh-incident.json") ?
+                        "prepare-ssh-incident" : "prepare-root-incident"))
+        activity_add(&g->act, ACT_ERROR, "Could not prepare the incident evidence.");
     activity_add(&g->act, ACT_GOAL, "Room %d: %s", level + 1, cur_level(g)->title);
     if (!g->spawn && (cur_level(g)->check == CHECK_COUNT_FILES || cur_level(g)->check == CHECK_CHALLENGE))
         g->goal = levels_check(cur_level(g), g->workspace);

@@ -229,8 +229,9 @@ goal_result script_puzzle_poll(script_puzzle *puzzle, const char *root, const ch
         if (done == 0)
             return ready ? script_checking(lv->file) : missing_submission(lv);
         puzzle->grader = 0;
-        puzzle->result = submission_result(done > 0 && WIFEXITED(status) ? WEXITSTATUS(status) : -1,
-                                          puzzle->feedback);
+        int code = done > 0 && WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+        puzzle->result = submission_result(code, puzzle->feedback);
+        if (code == 75) puzzle->checked = false;
     }
     if (!ready) {
         puzzle->checked = false;

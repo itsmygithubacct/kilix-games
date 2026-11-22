@@ -82,6 +82,9 @@ class Sandbox:
 
 
 def grade(state, name):
+    if name in ("ssh-incident.json", "root-incident.json"):
+        from puzzllm_incident import assess
+        return assess(state, name, read_submission(state / "workspace" / name))
     if name not in TABLES and name not in BATCH and name != "rename.sh":
         raise Incorrect("Unknown campaign submission.")
     source = read_submission(state / "workspace" / name)
@@ -103,6 +106,9 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, stop)
     try:
         message = grade(Path(sys.argv[1]).absolute(), sys.argv[2])
+    except BlockingIOError as error:
+        print(str(error))
+        sys.exit(75)
     except UnicodeError:
         print("Use ASCII for the table or program output.")
         sys.exit(1)

@@ -1,0 +1,114 @@
+#!/bin/bash
+# Runs only in a disposable guest, from the read-only NoCloud seed.
+set -Eeuo pipefail
+cd /var/lib/puzzllm
+port=/dev/virtio-ports/org.puzzllm.result
+finish() {
+    printf '%s\n' "$1" > "$port"
+    systemctl --no-block poweroff
+}
+trap 'finish "FAIL guest check at line $LINENO"; exit 1' ERR
+kind=$(cat kind)
+fixed() {
+    local package=$1 binary=$2 minimum=$3
+    dpkg --compare-versions "$(dpkg-query -W -f='${Version}' "$package")" ge "$minimum"
+    local digest
+    digest=$(awk -v path="${binary#/}" '$2==path {print $1}' "/var/lib/dpkg/info/$package.md5sums")
+    test -n "$digest"
+    test "$(md5sum "$binary" | cut -d' ' -f1)" = "$digest"
+}
+healthy_dispatch() {
+    systemctl is-active --quiet dispatch.service
+    local i
+    for i in {1..25}; do
+        if curl -fsS --max-time 1 http://127.0.0.1:8765/manifest -o /run/dispatch-read &&
+            cmp -s baseline /run/dispatch-read; then return 0; fi
+        sleep .2
+    done
+    return 1
+}
+if [[ -e before-reboot ]]; then
+    test "$(cat /proc/sys/kernel/random/boot_id)" != "$(cat before-reboot)"
+    fixed sudo /usr/bin/sudo 1.9.15p5-3ubuntu5.24.04.1
+    test "$(stat -c '%u:%a' /usr/bin/sudo)" = 0:4755
+    test "$(sudo -n -u nobody id -un)" = nobody
+    test ! -e /etc/systemd/system/dispatch-shadow.service
+    healthy_dispatch
+    finish "PASS patched sudo, clean boot and dispatch data verified"
+    exit
+fi
+if [[ $kind = ssh ]]; then
+    binary=/usr/sbin/sshd
+    fixed openssh-server "$binary" 1:9.6p1-3ubuntu13.3
+else
+    binary=/usr/bin/sudo
+    fixed sudo "$binary" 1.9.15p5-3ubuntu5.24.04.1
+fi
+# Stage a sealed vendor copy for offline recovery. The harmless drill build
+# carries extra bytes, so both installed and running images can be distinguished.
+cp -p "$binary" vendor
+cp -p vendor "$binary.drill"
+printf 'PuzzLLM incident snapshot\n' >> "$binary.drill"
+mv -f "$binary.drill" "$binary"
+if [[ $kind = ssh ]]; then
+    mkdir -p /run/sshd
+    useradd -m -s /bin/sh engineer
+    engineer_home=$(getent passwd engineer | cut -d: -f6)
+    test -d "$engineer_home"
+    usermod -p '*' engineer
+    install -d -m 700 -o engineer -g engineer "$engineer_home/.ssh"
+    ssh-keygen -q -t ed25519 -N '' -f engineer-key
+    ssh-keygen -q -t ed25519 -N '' -f server-key
+    install -m 600 -o engineer -g engineer engineer-key.pub "$engineer_home/.ssh/authorized_keys"
+    printf '[127.0.0.1]:2222 %s\n' "$(cat server-key.pub)" > known_hosts
+    cat > sshd_config <<'EOF'
+Port 2222
+ListenAddress 127.0.0.1
+HostKey /var/lib/puzzllm/server-key
+PidFile /run/puzzllm-sshd.pid
+AllowUsers engineer
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+EOF
+    /usr/sbin/sshd -f "$PWD/sshd_config"
+else
+    mkdir -p /srv/dispatch
+    cp baseline /srv/dispatch/manifest
+    printf '[Unit]\nDescription=Archived unauthorized dispatch change\n[Service]\nType=oneshot\nExecStart=/bin/true\n' > /etc/systemd/system/dispatch-shadow.service
+    cat > /etc/systemd/system/dispatch.service <<'EOF'
+[Unit]
+Description=Dispatch manifest
+[Service]
+User=nobody
+WorkingDirectory=/srv/dispatch
+ExecStart=/usr/bin/python3 -m http.server 8765 --bind 127.0.0.1
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload
+fi
+while read -r action; do
+    case "$action" in
+        restore-openssh-server|restore-sudo)
+            cp -p vendor "$binary.fixed"
+            mv -f "$binary.fixed" "$binary" ;;
+        restart-ssh)
+            pid=$(cat /run/puzzllm-sshd.pid)
+            kill -TERM "$pid"
+            for i in {1..40}; do [[ ! -e /run/puzzllm-sshd.pid ]] && break; sleep .1; done
+            /usr/sbin/sshd -f "$PWD/sshd_config" ;;
+        remove-unapproved-unit) unlink /etc/systemd/system/dispatch-shadow.service ;;
+        restore-dispatch) systemctl enable --now dispatch.service ;;
+        reboot)
+            cat /proc/sys/kernel/random/boot_id > before-reboot
+            systemctl enable puzzllm-verify.service
+            systemctl --no-block reboot
+            exit ;;
+        *) exit 2 ;;
+    esac
+done < actions
+test "$kind" = ssh
+fixed openssh-server "$binary" 1:9.6p1-3ubuntu13.3
+cmp -s vendor "/proc/$(cat /run/puzzllm-sshd.pid)/exe"
+test "$(ssh -F /dev/null -i engineer-key -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=5 -o UserKnownHostsFile="$PWD/known_hosts" -o StrictHostKeyChecking=yes -p 2222 engineer@127.0.0.1 id -un)" = engineer
+finish "PASS patched running sshd and fresh engineer login verified"

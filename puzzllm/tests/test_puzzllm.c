@@ -2084,7 +2084,7 @@ static void test_campaign_door(void)
     sub(state, sizeof state, "campaign-door");
     CHECK(game_init(&G, ".", state, false, err, sizeof err), "campaign door: %s", err);
     game_enter_level(&G, 11);
-    CHECK(G.levels.count == 19 && !strcmp(G.levels.items[11].file, "sort4.net"),
+    CHECK(G.levels.count == 21 && !strcmp(G.levels.items[11].file, "sort4.net"),
           "the sorting room is twelfth of eighteen playable rooms");
     snprintf(path, sizeof path, "%s/workspace/sort4.net", state);
     const char *network = "1 2\n3 4\n1 3\n2 4\n2 3\n";
