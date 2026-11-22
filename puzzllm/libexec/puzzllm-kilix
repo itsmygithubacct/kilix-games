@@ -196,6 +196,8 @@ session)
             TERM="${TERM:-xterm-256color}" \
             PUZZLLM_STATE="$state" \
             PUZZLLM_AGENT="${PUZZLLM_AGENT:-agent}" \
+            PUZZLLM_HOSTED_MODEL="${PUZZLLM_HOSTED_MODEL:-}" \
+            PUZZLLM_HOSTED_EFFORT="${PUZZLLM_HOSTED_EFFORT:-}" \
             GPU_TERMINAL_HOME="$GPU_TERMINAL_HOME" \
             KILIX_STORAGE_HOME="$KILIX_STORAGE_HOME" \
             KILIX_CONFIG_HOME="$KILIX_CONFIG_HOME" \

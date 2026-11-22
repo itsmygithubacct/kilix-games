@@ -21,9 +21,11 @@
 
 static bool save_hints_file(const game *g);
 
-static const char AUTO_ASK[] = "Complete the goal in GOAL.md.";
+static const char AUTO_ASK[] = "complete the goal in GOAL.md";
 enum { AUTO_SAMPLES = 64, AUTO_IDLE_MS = 2000 };
 static void auto_mark_sent(game *g);
+static bool submit_agent_line(game *g, const char *text);
+static bool agent_alive(game *g);
 
 static int load_level(const char *state, const char *name, int level_count)
 {
@@ -425,8 +427,11 @@ static void model_label_for(bool codex, bool grok, const char *ollama, const cha
 
 static void current_model_label(const game *g, char out[SCORE_MODEL_CAP])
 {
-    if (g->use_claude) {
-        leaderboard_label(out, SCORE_MODEL_CAP, "Claude");
+    const char *provider = hosted_agent(g);
+    if (provider) {
+        snprintf(out, SCORE_MODEL_CAP, "%s%s%s%s%s", provider,
+                 g->hosted_model[0] || g->hosted_effort[0] ? "/" : "", g->hosted_model,
+                 g->hosted_effort[0] ? "@" : "", g->hosted_effort);
         return;
     }
     model_label_for(g->use_codex, g->use_grok, g->ollama_model, g->llama_model, out);
@@ -473,7 +478,19 @@ static void apply_locked_model(game *g, const char *label)
         if (dir[0] && n > 0 && (size_t)n < sizeof path && access(path, R_OK) == 0)
             memcpy(g->llama_model, path, (size_t)n + 1);
     }
-    if (codex || grok || claude) g->thinking_support = THINK_UNAVAILABLE;
+    if (codex || grok || claude) {
+        const char *model = strchr(label, '/');
+        if (model) {
+            model++;
+            size_t len = strcspn(model, "@");
+            if (len < sizeof g->hosted_model) {
+                memcpy(g->hosted_model, model, len);
+                g->hosted_model[len] = 0;
+                if (model[len]) snprintf(g->hosted_effort, sizeof g->hosted_effort, "%s", model + len + 1);
+            }
+        }
+        g->thinking_support = THINK_UNAVAILABLE;
+    }
 }
 
 static void stop_metrics(agent_metrics *metrics)
@@ -578,7 +595,7 @@ static void checkpoint_ranked_attempt(game *g)
         g->act.tokens_used >= g->ranked_session_tokens) {
         unsigned long long delta = g->act.tokens_used - g->ranked_session_tokens;
         g->ranked_session_tokens = g->act.tokens_used;
-        if (delta && g->act.codex && g->act.codex_model[0]) {
+        if (delta && g->act.codex && !g->hosted_effort[0] && g->act.codex_model[0]) {
             char model[SCORE_MODEL_CAP], label[SCORE_MODEL_CAP];
             snprintf(model, sizeof model, "Codex/%s", g->act.codex_model);
             leaderboard_label(label, sizeof label, model);
@@ -602,7 +619,7 @@ static void begin_ranked_agent(game *g)
     char clean[SCORE_MODEL_CAP];
     current_model_label(g, clean);
     bool same = !strcmp(score->model, clean) ||
-                (g->use_codex && !strncmp(score->model, "Codex/", 6));
+                (!strcmp(clean, "Codex") && !strncmp(score->model, "Codex/", 6));
     if ((!score->id || (!score->measure[SCORE_TOKENS] && !same)) &&
         !g->sc.goal_met) {
         *score = (score_entry){.level = cur_level(g)->number};
@@ -676,7 +693,10 @@ static void spawn_agent_prompt(game *g, const char *prompt)
     char compute_env[32];
     snprintf(compute_env, sizeof compute_env, "PUZZLLM_COMPUTE=%s", compute_name[g->compute]);
     snprintf(yolo_env, sizeof yolo_env, "PUZZLLM_YOLO=%d", g->yolo ? 1 : 0);
-    char *env[10];
+    char hosted_model[256], hosted_effort[80];
+    snprintf(hosted_model, sizeof hosted_model, "PUZZLLM_HOSTED_MODEL=%s", g->hosted_model);
+    snprintf(hosted_effort, sizeof hosted_effort, "PUZZLLM_HOSTED_EFFORT=%s", g->hosted_effort);
+    char *env[12];
     int en = 0;
     env[en++] = st_env;
     env[en++] = model_env;
@@ -686,6 +706,8 @@ static void spawn_agent_prompt(game *g, const char *prompt)
     env[en++] = g->use_pi ? "PUZZLLM_HARNESS=pi" : "PUZZLLM_HARNESS=omp";
     env[en++] = "TERM=xterm-256color";
     env[en++] = agent_env;
+    env[en++] = hosted_model;
+    env[en++] = hosted_effort;
     if (!g->use_codex && !g->use_grok && !g->use_claude && !g->ollama_model[0] && g->llama_model[0]) {
         snprintf(g->gguf_env, sizeof g->gguf_env, "PUZZLLM_MODEL=%s", g->llama_model);
         env[en++] = g->gguf_env;
@@ -763,22 +785,77 @@ static void clear_models(game_menu *menu)
     menu->count = 0;
 }
 
-static void open_menu(game *g)
+static void discover_ollama(game *g)
 {
     game_menu *menu = &g->menu;
     char helper[4096];
     char *argv[] = {helper, "list-details", NULL};
-    menu->open = true;
-    menu->page = MENU_PAGE_MAIN;
-    menu->selected = MENU_HARNESS;
-    menu->model_submenu = 0;
-    memset(g->held_until, 0, sizeof g->held_until);
-    if (!g->spawn || menu->loading) return;
+    if (!menu->catalog_provider && menu->loading) return;
+    pty_stop(&menu->discovery);
+    menu->loading = false;
+    menu->catalog_provider = 0;
+    if (!g->spawn) return;
     clear_models(menu);
     menu->line_length = 0;
     snprintf(helper, sizeof helper, "%s/libexec/puzzllm-ollama", g->root);
     menu->loading = pty_spawn(&menu->discovery, argv, NULL, 80, 24);
     menu->load_failed = !menu->loading;
+}
+
+static void cancel_auto_request(game *g)
+{
+    if (g->auto_requested) {
+        char path[2300];
+        snprintf(path, sizeof path, "%s/goals/auto-request", g->state);
+        unlink(path);
+        g->auto_requested = false;
+    }
+}
+
+static void open_menu(game *g)
+{
+    game_menu *menu = &g->menu;
+    cancel_auto_request(g);
+    menu->open = true;
+    menu->page = MENU_PAGE_MAIN;
+    menu->selected = MENU_HARNESS;
+    menu->model_submenu = 0;
+    memset(g->held_until, 0, sizeof g->held_until);
+    discover_ollama(g);
+}
+
+static const char *provider_name(int row)
+{
+    return row == MENU_CODEX ? "Codex" : row == MENU_GROK ? "Grok" :
+           row == MENU_CLAUDE ? "Claude" : NULL;
+}
+
+static void hosted_picker(game *g, int provider, bool effort)
+{
+    game_menu *menu = &g->menu;
+    const char *title = provider_name(provider);
+    if (g->campaign && (!hosted_agent(g) || strcmp(hosted_agent(g), title))) {
+        snprintf(menu->notice, sizeof menu->notice, "Campaign is locked to %s.", g->campaign_model);
+        return;
+    }
+    pty_stop(&menu->discovery);
+    clear_models(menu);
+    menu->models = calloc(1, sizeof *menu->models);
+    if (!menu->models) { menu->loading = false; return; }
+    snprintf(menu->models[0].name, sizeof menu->models[0].name, "Use configured default");
+    menu->count = 1;
+    menu->catalog_provider = menu->model_submenu = provider;
+    menu->picking_effort = effort;
+    menu->model_selected = 0;
+    menu->line_length = 0;
+    menu->notice[0] = 0;
+    char helper[4096];
+    snprintf(helper, sizeof helper, "%s/third_party/kilix-bench/bin/kilix-yesno", g->root);
+    char *argv[] = {helper, effort ? "efforts" : "models",
+                    provider == MENU_CODEX ? "codex" : provider == MENU_GROK ? "grok" : "claude",
+                    effort ? menu->pending_model : NULL, NULL};
+    menu->loading = g->spawn && pty_spawn(&menu->discovery, argv, NULL, 512, 4);
+    menu->load_failed = g->spawn && !menu->loading;
 }
 
 static void add_model(game_menu *menu)
@@ -787,15 +864,20 @@ static void add_model(game_menu *menu)
     if (n == 0 || n >= sizeof menu->line) return;
     const char *name = menu->line + 1;
     const char *allowed = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_";
-    if (menu->line[0] < '0' || menu->line[0] > '2' || strspn(name, allowed) == 0 ||
+    if (menu->catalog_provider) {
+        name = menu->line;
+        size_t cap = menu->picking_effort ? sizeof ((game *)0)->hosted_effort : sizeof menu->pending_model;
+        if (n >= cap || strspn(name, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:/-[]+") != n)
+            return;
+    } else if (menu->line[0] < '0' || menu->line[0] > '2' || strspn(name, allowed) == 0 ||
         strspn(name, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.:/-") != n - 1)
         return;
     model_option *list = realloc(menu->models, (size_t)(menu->count + 1) * sizeof *list);
     if (!list) return;
     menu->models = list;
     model_option *model = &list[menu->count++];
-    snprintf(model->name, sizeof model->name, "%s", name);
-    model->thinking = (thinking_support)(menu->line[0] - '0');
+    snprintf(model->name, sizeof model->name, "%.*s", (int)sizeof model->name - 1, name);
+    model->thinking = menu->catalog_provider ? THINK_UNAVAILABLE : (thinking_support)(menu->line[0] - '0');
 }
 
 static void poll_models(game_menu *menu)
@@ -831,12 +913,7 @@ static void start_play(game *g)
     if (!g->started) {
         g->started = true;
         if (g->spawn) {
-            if (g->auto_play) {
-                spawn_agent_prompt(g, AUTO_ASK);
-                auto_mark_sent(g);
-            } else {
-                spawn_agent(g);
-            }
+            spawn_agent(g);
             spawn_shell(g);
         }
     }
@@ -844,26 +921,27 @@ static void start_play(game *g)
     g->menu.page = MENU_PAGE_MAIN;
 }
 
-static void reset_from_menu(game *g)
+static bool reset_from_menu(game *g)
 {
     if (g->menu.selected == MENU_CLEAR_CAMPAIGN) {
         g->menu.confirm_reset = false;
-        if (campaign_board_clear(g->state))
+        bool cleared = campaign_board_clear(g->state);
+        if (cleared)
             snprintf(g->menu.notice, sizeof g->menu.notice, "Campaign board cleared.");
         else
             snprintf(g->menu.notice, sizeof g->menu.notice, "Could not clear the campaign board.");
-        return;
+        return cleared;
     }
     bool level_only = g->menu.selected == MENU_RESET_LEVEL;
     int level = level_only ? g->sc.level : 0;
     g->menu.confirm_reset = false;
     if (g->state_lock < 0) {
         snprintf(g->menu.notice, sizeof g->menu.notice, "Could not lock the save for reset.");
-        return;
+        return false;
     }
     if (level_only && g->transition_pending) {
         snprintf(g->menu.notice, sizeof g->menu.notice, "Resume to finish entering the next level.");
-        return;
+        return false;
     }
     bool was_started = g->started;
     stop_metrics(&g->metrics);
@@ -882,7 +960,7 @@ static void reset_from_menu(game *g)
             spawn_agent(g);
             spawn_shell(g);
         } else if (level_only) g->started = was_started;
-        return;
+        return false;
     }
     neuroterm_feed(&g->omp_vt, "\033c", 2);
     history_clear(&g->omp_history);
@@ -908,6 +986,7 @@ static void reset_from_menu(game *g)
     if (level_only) start_play(g);
     else if (!g->menu.notice[0])
         snprintf(g->menu.notice, sizeof g->menu.notice, "Game reset. Previous files backed up.");
+    return true;
 }
 
 static thinking_support bundled_thinking(void)
@@ -1194,34 +1273,32 @@ static void prompt_editor_key(game *g, const key_event *ev)
     }
 }
 
-static bool campaign_choice_allowed(const game *g, bool codex, bool grok, const char *name)
+static bool local_choice_allowed(const game *g, const char *name)
 {
     char label[SCORE_MODEL_CAP];
     if (!g->campaign) return true;
-    model_label_for(codex, grok, name, g->llama_model, label);
+    model_label_for(false, false, name, g->llama_model, label);
     return campaign_same_model(g->campaign_model, label);
 }
 
-static void select_model(game *g, bool codex, bool grok, const model_option *model)
+static void select_local_model(game *g, const model_option *model)
 {
     const char *name = model ? model->name : "";
-    if (g->campaign && !campaign_choice_allowed(g, codex, grok, name)) {
+    if (!local_choice_allowed(g, name)) {
         snprintf(g->menu.notice, sizeof g->menu.notice, "Campaign is locked to %s.", g->campaign_model);
         return;
     }
-    thinking_support support = (codex || grok) ? THINK_UNAVAILABLE :
-                               model ? model->thinking : bundled_thinking();
-    if (codex != g->use_codex || grok != g->use_grok || g->use_claude ||
+    thinking_support support = model ? model->thinking : bundled_thinking();
+    if (hosted_agent(g) ||
         strcmp(name, g->ollama_model) != 0 || support != g->thinking_support) {
         g->thinking_enabled = false;
         g->thinking_support = support;
         snprintf(g->ollama_model, sizeof g->ollama_model, "%s", name);
-        if (g->use_codex != codex || g->use_grok != grok || g->use_claude) {
+        if (hosted_agent(g)) {
             poll_ranked_attempt(g);
             g->ranked_session_model[0] = 0;
-            g->use_codex = codex;
-            g->act.codex = codex;
-            g->use_grok = g->act.grok = grok;
+            g->use_codex = g->act.codex = false;
+            g->use_grok = g->act.grok = false;
             g->use_claude = g->act.claude = false;
             activity_begin_room(&g->act, g->state, g->workspace, false);
         }
@@ -1233,29 +1310,31 @@ static void select_model(game *g, bool codex, bool grok, const model_option *mod
     start_play(g);
 }
 
-static void select_claude(game *g)
+static void select_hosted(game *g, const char *effort)
 {
-    char label[SCORE_MODEL_CAP];
-    leaderboard_label(label, SCORE_MODEL_CAP, "Claude");
-    if (g->campaign && !campaign_same_model(g->campaign_model, label)) {
-        snprintf(g->menu.notice, sizeof g->menu.notice, "Campaign is locked to %s.", g->campaign_model);
+    game_menu *menu = &g->menu;
+    const char *provider = provider_name(menu->model_submenu);
+    bool same = hosted_agent(g) && !strcmp(provider, hosted_agent(g)) &&
+                !strcmp(menu->pending_model, g->hosted_model) && !strcmp(effort, g->hosted_effort);
+    if (g->campaign && !same) {
+        snprintf(menu->notice, sizeof menu->notice, "Campaign is locked to %s.", g->campaign_model);
         return;
     }
-    if (!g->use_claude) {
-        g->thinking_support = THINK_UNAVAILABLE;
-        g->thinking_enabled = g->thinking_support == THINK_SWITCHABLE;
-        g->ollama_model[0] = 0;
+    if (!same) {
         poll_ranked_attempt(g);
         g->ranked_session_model[0] = 0;
-        g->use_codex = g->act.codex = false;
-        g->use_grok = g->act.grok = false;
-        g->use_claude = g->act.claude = true;
+        g->use_codex = g->act.codex = menu->model_submenu == MENU_CODEX;
+        g->use_grok = g->act.grok = menu->model_submenu == MENU_GROK;
+        g->use_claude = g->act.claude = menu->model_submenu == MENU_CLAUDE;
+        snprintf(g->hosted_model, sizeof g->hosted_model, "%s", menu->pending_model);
+        snprintf(g->hosted_effort, sizeof g->hosted_effort, "%.*s", (int)sizeof g->hosted_effort - 1, effort);
+        g->thinking_support = THINK_UNAVAILABLE;
+        g->thinking_enabled = false;
+        g->ollama_model[0] = 0;
         activity_begin_room(&g->act, g->state, g->workspace, false);
         restart_agent(g);
-    } else if (g->spawn && g->started && pty_poll_exit(&g->omp)) {
-        restart_agent(g);
     }
-    g->menu.model_submenu = 0;
+    menu->model_submenu = 0;
     start_play(g);
 }
 
@@ -1406,12 +1485,12 @@ static void choose_llama(game *g, const char *path)
     snprintf(previous, sizeof previous, "%s", g->llama_model);
     if (path) snprintf(g->llama_model, sizeof g->llama_model, "%s", path);
     else g->llama_model[0] = 0;
-    if (g->campaign && !campaign_choice_allowed(g, false, false, "")) {
+    if (!local_choice_allowed(g, "")) {
         snprintf(g->llama_model, sizeof g->llama_model, "%s", previous);
         snprintf(g->menu.notice, sizeof g->menu.notice, "Campaign is locked to %s.", g->campaign_model);
         return;
     }
-    select_model(g, false, false, NULL);
+    select_local_model(g, NULL);
 }
 
 static void append_pull_name(game_menu *menu, unsigned char c)
@@ -1457,7 +1536,8 @@ static void model_menu_key(game *g, const key_event *ev)
 {
     game_menu *menu = &g->menu;
     bool ollama = menu->model_submenu == MENU_OLLAMA;
-    int count = ollama ? menu->count : (menu->gguf_count > 0 ? menu->gguf_count : 1);
+    bool hosted = provider_name(menu->model_submenu) != NULL;
+    int count = (ollama || hosted) ? menu->count : (menu->gguf_count > 0 ? menu->gguf_count : 1);
     if (!count) return;
     switch (ev->key) {
     case KEY_UP:
@@ -1470,9 +1550,17 @@ static void model_menu_key(game *g, const key_event *ev)
     case KEY_END: menu->model_selected = count - 1; break;
     case KEY_ENTER:
         if (ev->action != 1) break;
-        if (ollama) {
+        if (hosted) {
+            const char *choice = menu->model_selected ? menu->models[menu->model_selected].name : "";
+            if (menu->picking_effort) select_hosted(g, choice);
+            else {
+                snprintf(menu->pending_model, sizeof menu->pending_model, "%.*s",
+                         (int)sizeof menu->pending_model - 1, choice);
+                hosted_picker(g, menu->model_submenu, true);
+            }
+        } else if (ollama) {
             if (menu->count > 0)
-                select_model(g, false, false, &menu->models[menu->model_selected]);
+                select_local_model(g, &menu->models[menu->model_selected]);
         } else if (menu->gguf_count > 0) {
             char path[sizeof g->llama_model];
             if (gguf_path(menu, menu->model_selected, path, sizeof path))
@@ -1612,10 +1700,9 @@ static void set_auto_play(game *g, bool enabled)
         snprintf(g->menu.notice, sizeof g->menu.notice, "Could not save the auto setting.");
         return;
     }
+    cancel_auto_request(g);
     g->auto_play = enabled;
     g->auto_quiet = 0;
-    g->auto_sent = false;
-    g->auto_heard = false;
     g->auto_samples_valid = false;
     snprintf(g->menu.notice, sizeof g->menu.notice, "Auto is %s.", enabled ? "on" : "off");
     activity_add(&g->act, ACT_INFO, "Auto is %s.", enabled ? "on" : "off");
@@ -1759,7 +1846,8 @@ static void menu_key(game *g, const key_event *ev)
             bool enabled = !g->campaign;
             char label[SCORE_MODEL_CAP], player[SCORE_PLAYER_CAP];
             current_model_label(g, label);
-            if (enabled && !(g->campaign_model[0] && campaign_same_model(g->campaign_model, label))) {
+            if (enabled) {
+                if (!reset_from_menu(g)) break;
                 player_name(player);
                 if (!campaign_restart(g->state, label, player, fresh_score_id())) {
                     snprintf(menu->notice, sizeof menu->notice, "Could not start the campaign.");
@@ -1772,10 +1860,11 @@ static void menu_key(game *g, const key_event *ev)
             else {
                 g->campaign = enabled;
                 if (enabled)
-                    snprintf(menu->notice, sizeof menu->notice, "Campaign locked to %s.", g->campaign_model);
+                    snprintf(menu->notice, sizeof menu->notice, "Game reset. Campaign locked to %s.", g->campaign_model);
                 else
                     snprintf(menu->notice, sizeof menu->notice, "Campaign is off.");
             }
+            return;
         }
         if (menu->selected == MENU_CAMPAIGN_BOARD) open_score_board(g, true);
         if (menu->selected == MENU_HARNESS && !hosted_agent(g)) {
@@ -1903,9 +1992,7 @@ static void menu_key(game *g, const key_event *ev)
         }
         if (menu->selected == MENU_BENCH_K12) yesno_open(g, BENCH_K12);
         if (menu->selected == MENU_BENCH_BOOLQ) yesno_open(g, BENCH_BOOLQ);
-        if (menu->selected == MENU_CODEX) select_model(g, true, false, NULL);
-        if (menu->selected == MENU_GROK) select_model(g, false, true, NULL);
-        if (menu->selected == MENU_CLAUDE) select_claude(g);
+        if (provider_name(menu->selected)) hosted_picker(g, menu->selected, false);
         if (menu->selected == MENU_DOWNLOADS) {
             menu->page = MENU_PAGE_DOWNLOAD;
             menu->name_edit = false;
@@ -1982,10 +2069,11 @@ static void enter_level(game *g, int level, bool keep_session)
     g->selection = (pane_selection){0};
     g->level_time = 0;
     g->was_met = false;
+    cancel_auto_request(g);
+    g->auto_room_id = fresh_score_id();
     g->final_score_saved = false;
     g->auto_quiet = 0;
     g->auto_sent = false;
-    g->auto_heard = false;
     g->auto_samples_valid = false;
     activity_begin_room(&g->act, g->state, g->workspace, keep_session);
     if (keep_session) {
@@ -2298,6 +2386,15 @@ static void press_room_button(game *g, room_button button)
         else if (g->spawn) spawn_shell(g);
         activity_add(&g->act, ACT_INFO, "Cleared shell display.");
         break;
+    case BUTTON_GOAL:
+        cancel_auto_request(g);
+        if (g->auto_agent_closed || !agent_alive(g)) {
+            if (!g->spawn) break;
+            spawn_agent_prompt(g, AUTO_ASK);
+        } else if (!submit_agent_line(g, AUTO_ASK)) break;
+        g->auto_sent = true;
+        activity_add(&g->act, ACT_INFO, "Goal submitted to the coding session.");
+        break;
     case BUTTON_SHELL_LOG: {
         const char text[] = "The player shell transcript is at ~/shell.log.";
         bool ready = (g->omp.pid > 0 && !pty_poll_exit(&g->omp)) || kilix_embed_running(&g->embed);
@@ -2400,7 +2497,12 @@ void game_key(game *g, const key_event *ev)
                 g->menu.pull_name[0] = 0;
                 g->menu.notice[0] = 0;
             }
-            else if (g->menu.model_submenu) g->menu.model_submenu = 0;
+            else if (provider_name(g->menu.model_submenu) && g->menu.picking_effort)
+                hosted_picker(g, g->menu.model_submenu, false);
+            else if (g->menu.model_submenu) {
+                g->menu.model_submenu = 0;
+                if (g->menu.catalog_provider) discover_ollama(g);
+            }
             else if (g->menu.open && g->menu.page == MENU_PAGE_DOWNLOAD) {
                 g->menu.page = MENU_PAGE_MODEL;
                 g->menu.selected = MENU_DOWNLOADS;
@@ -2564,10 +2666,18 @@ void game_pointer(game *g, int x, int y, pointer_action action)
     pane_selection *s = &g->selection;
     if (g->menu.open) {
         s->dragging = false;
+        if (action == POINTER_DOWN && provider_name(g->menu.model_submenu)) {
+            int item = model_option_at(g->menu.count, g->menu.model_selected, x, y);
+            if (item >= 0) {
+                g->menu.model_selected = item;
+                model_menu_key(g, &(key_event){.key = KEY_ENTER, .action = 1});
+            }
+            return;
+        }
         if (action == POINTER_DOWN && !g->menu.confirm_reset && !g->menu.leaderboard_open &&
             !g->menu.details_open && !g->menu.model_submenu && !g->menu.prompt_edit && !g->menu.name_edit) {
             int item = menu_choice_at(g->menu.page, x, y);
-            if (item == MENU_BENCH || (item >= 0 && (g->menu.page == MENU_PAGE_BENCH ||
+            if (item == MENU_MODEL || provider_name(item) || item == MENU_CAMPAIGN || item == MENU_BENCH || (item >= 0 && (g->menu.page == MENU_PAGE_BENCH ||
                 g->menu.page == MENU_PAGE_YESNO || g->menu.page == MENU_PAGE_FREETEXT ||
                 g->menu.page == MENU_PAGE_CODING))) {
                 g->bench.redraw = true;
@@ -2778,7 +2888,6 @@ static int embed_motion(game *g)
 static void auto_mark_sent(game *g)
 {
     g->auto_sent = true;
-    g->auto_heard = false;
     g->auto_quiet = 0;
     activity_add(&g->act, ACT_INFO, "Auto asked the model to finish GOAL.md.");
 }
@@ -2787,6 +2896,8 @@ static bool submit_agent_line(game *g, const char *text)
 {
     char line[80];
     bool embedded = kilix_embed_running(&g->embed);
+    if (embedded && !strcmp(text, AUTO_ASK))
+        return kilix_embed_command(&g->embed, "goal agent");
     int n = snprintf(line, sizeof line, "%s%c", text, embedded ? '\n' : '\r');
     if (n <= 0 || (size_t)n >= sizeof line) return false;
     if (embedded) {
@@ -2809,27 +2920,57 @@ static bool auto_can_advance(const game *g)
 
 static void auto_prompt_if_idle(game *g, double dt, bool busy)
 {
-    bool due;
-    bool pane_down;
-    /* A picture that never decodes must not stall the room forever. */
-    double need = (kilix_embed_running(&g->embed) && !g->auto_samples_valid) ? 8.0
-                  : AUTO_IDLE_MS / 1000.0;
-    if (!g->auto_play || busy || g->sc.goal_met || !auto_room_open(g)) return;
-    if (g->auto_quiet < need) g->auto_quiet += dt;
-    if (g->auto_quiet < need) return;
-    due = !g->auto_sent || g->auto_heard;
-    /* The private Kilix can remain up while its coding pane is closed. */
-    pane_down = g->auto_agent_closed || !agent_alive(g);
-    if (pane_down && (g->auto_agent_closed || due)) {
-        if (!g->spawn) return;
-        spawn_agent_prompt(g, AUTO_ASK);
-        g->auto_agent_closed = false;
-        g->auto_samples_valid = false;
-        auto_mark_sent(g);
+    bool guarded = g->use_codex || g->use_claude;
+    if (!g->auto_play || g->auto_sent || g->sc.goal_met || !auto_room_open(g)) {
+        cancel_auto_request(g);
         return;
     }
-    if (!due) return;
-    if (!kilix_embed_running(&g->embed) && !auto_at_prompt(g)) return;
+    if (!guarded && busy) return;
+    g->auto_quiet += dt;
+    if (g->auto_quiet < AUTO_IDLE_MS / 1000.0) return;
+    if (g->auto_agent_closed || !agent_alive(g)) {
+        if (!g->spawn) return;
+        spawn_agent(g);
+        g->auto_agent_closed = false;
+        g->auto_samples_valid = false;
+        g->auto_quiet = 0;
+        return;
+    }
+    if (guarded) {
+        g->auto_quiet = 0;
+        if (g->embed.bridge < 0 || g->state_lock < 0) return;
+        char token[32], command[64], path[2300], receipt[64] = "";
+        snprintf(token, sizeof token, "%llu", g->auto_room_id);
+        snprintf(path, sizeof path, "%s/kx/auto-receipt", g->state);
+        int fd = open(path, O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC);
+        if (fd >= 0) {
+            struct stat st;
+            if (!fstat(fd, &st) && S_ISREG(st.st_mode)) {
+                ssize_t bytes = read(fd, receipt, sizeof receipt - 1);
+                if (bytes > 0) receipt[bytes] = 0;
+            }
+            close(fd);
+        }
+        char *status = strchr(receipt, ' ');
+        if (status) *status++ = 0;
+        if (status && !strcmp(receipt, token)) {
+            if (!strcmp(status, "sent\n")) auto_mark_sent(g);
+            else {
+                g->auto_sent = true;
+                activity_add(&g->act, ACT_INFO, "%s", !strcmp(status, "unavailable\n") ?
+                             "Auto needs Kilix Pane Center and claudex for this coding session." :
+                             "Check the coding pane. Auto could not confirm delivery.");
+            }
+            cancel_auto_request(g);
+            return;
+        }
+        if (!g->auto_requested)
+            g->auto_requested = save_state_line(g->state, "goals/auto-request", token);
+        snprintf(command, sizeof command, "auto-goal %s", token);
+        if (g->auto_requested) kilix_embed_command(&g->embed, command);
+        return;
+    }
+    if (kilix_embed_running(&g->embed) ? !g->auto_samples_valid : !auto_at_prompt(g)) return;
     if (submit_agent_line(g, AUTO_ASK)) auto_mark_sent(g);
 }
 
@@ -2840,10 +2981,7 @@ static void arrive_in_room(game *g, room_transition move)
     if (restart) stop_room_agent(g);
     enter_level(g, move.from + move.direction, running && !restart);
     if (restart && g->spawn && g->started) {
-        if (g->auto_play) {
-            spawn_agent_prompt(g, AUTO_ASK);
-            auto_mark_sent(g);
-        } else spawn_agent(g);
+        spawn_agent(g);
     } else if (running && g->session_mode == SESSION_CLEAR) {
         const char *command = g->use_codex || (g->use_pi && !hosted_agent(g)) ? "/new" : "/clear";
         if (!submit_agent_line(g, command)) activity_add(&g->act, ACT_ERROR, "Could not clear the coding session.");
@@ -2888,10 +3026,7 @@ void game_update(game *g, double dt)
         }
         pump_metrics(g);
     }
-    if (agent_busy) {
-        g->auto_quiet = 0;
-        if (g->auto_sent) g->auto_heard = true;
-    }
+    if (agent_busy && !g->use_codex && !g->use_claude) g->auto_quiet = 0;
     if (g->started && g->ranked_attempt.id && g->ranked_session_model[0] && !g->transition_pending) {
         g->ranked_fraction_ms += dt * 1000.0;
         long long ms = (long long)g->ranked_fraction_ms;
@@ -3002,7 +3137,9 @@ static view game_view(const game *g)
     v.hosted_agent = hosted_agent(g);
     const char *leaf = strrchr(g->llama_model, '/');
     leaf = g->llama_model[0] ? (leaf && leaf[1] ? leaf + 1 : g->llama_model) : "";
-    v.agent_model = v.hosted_agent ? v.hosted_agent :
+    char hosted_label[SCORE_MODEL_CAP];
+    current_model_label(g, hosted_label);
+    v.agent_model = v.hosted_agent ? hosted_label :
                     g->ollama_model[0] ? g->ollama_model : leaf;
     v.pi = g->use_pi;
     v.shell = &g->shell_vt;
@@ -3062,10 +3199,14 @@ void game_render(game *g, sr_canvas *c)
                            g->menu.notice, &g->ranked_attempt, g->menu.campaign_board);
     else if (g->menu.model_submenu) {
         bool ollama_list = g->menu.model_submenu == MENU_OLLAMA;
-        render_model_menu(c, ollama_list, ollama_list ? g->menu.models : g->menu.gguf,
-                          ollama_list ? g->menu.count : g->menu.gguf_count,
+        const char *provider = provider_name(g->menu.model_submenu);
+        char title[96];
+        snprintf(title, sizeof title, "%s %s", provider ? provider : ollama_list ? "Ollama" : "llama.cpp",
+                 provider && g->menu.picking_effort ? "effort" : "models");
+        render_model_menu(c, title, ollama_list, (ollama_list || provider) ? g->menu.models : g->menu.gguf,
+                          (ollama_list || provider) ? g->menu.count : g->menu.gguf_count,
                           g->menu.model_selected, g->menu.loading, g->menu.load_failed,
-                          configured_gguf_label());
+                          configured_gguf_label(), provider ? g->menu.notice : NULL);
     } else if (g->menu.open)
         render_menu(c, g->menu.selected, v.agent_model,
                     g->started, g->sc.level + 1, g->menu.confirm_reset,

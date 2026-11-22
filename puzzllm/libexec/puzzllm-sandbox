@@ -207,6 +207,8 @@ args=(
     --dir /opt/puzzllm
     --symlink "$box_home" /opt/puzzllm/home
     --clearenv
+    --setenv PUZZLLM_HOSTED_MODEL "${PUZZLLM_HOSTED_MODEL:-}"
+    --setenv PUZZLLM_HOSTED_EFFORT "${PUZZLLM_HOSTED_EFFORT:-}"
     --setenv HOME /opt/puzzllm/home --setenv USER kilix --setenv LOGNAME kilix
     --setenv PATH /opt/puzzllm/bin:/usr/local/bin:/usr/bin:/bin
     --setenv TERM "${TERM:-xterm-256color}"
@@ -470,6 +472,25 @@ mount_kilix() {
            --ro-bind "$here/puzzllm_kilix_bridge.py" /opt/puzzllm/bin/puzzllm_kilix_bridge.py
            --ro-bind "$src" "$src"
            --ro-bind "$(dirname "$config")" /opt/puzzllm/kilix-config)
+    if [[ $mode == codex || $mode == claude ]]; then
+        local claudex_dir tui sources
+        claudex_dir=$(command -v claudex || true)
+        if [[ -n $claudex_dir ]]; then
+            claudex_dir=$(dirname "$(readlink -f "$claudex_dir")")
+            for component in providers.py idleness.py; do
+                [[ ! -f "$claudex_dir/$component" ]] ||
+                    args+=(--ro-bind "$claudex_dir/$component" "/opt/puzzllm/idle/claudex/$component")
+            done
+        fi
+        sources=${GPU_TERMINAL_SOURCE_HOME:-${GPU_TERMINAL_HOME:-$HOME/.local/gpu_terminal}/sources}
+        for tui in "${KILIX_TUI_UTILS_DIR:-}" "$sources/kilix-desktops/kilix-tui-utils" /usr/share/kilix-tui-utils; do
+            [[ -f "$tui/src/kilix_tui/pane_center.py" && -d "$tui/src/kilix_rollout" ]] || continue
+            for component in kilix_tui kilix_rollout; do
+                args+=(--ro-bind "$tui/src/$component" "/opt/puzzllm/idle/center/$component")
+            done
+            break
+        done
+    fi
     for component in VERSION kilix-session scripts share third_party/kilix-content third_party/kilix-state; do
         [ ! -e "$cli_root/$component" ] ||
             args+=(--ro-bind "$cli_root/$component" "/opt/puzzllm/cli/$component")

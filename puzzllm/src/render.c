@@ -550,21 +550,39 @@ void render_menu(sr_canvas *c, int selected, const char *active_model,
               0xbccadb, 1);
 }
 
-void render_model_menu(sr_canvas *c, bool ollama, const model_option *models,
-                       int count, int selected, bool loading, bool failed,
-                       const char *llama_model)
+static rect model_menu_bounds(int width, int height, int count, int selected, int *first)
 {
-    int width = 560, row_h = 27;
-    int options = count > 0 ? count : (ollama ? 0 : 1);
-    int rows = (c->h - 180) / row_h;
+    int rows = (height - 180) / 27;
+    if (rows < 1) rows = 1;
     if (rows > 14) rows = 14;
-    if (rows > options) rows = options;
-    int first = rows > 0 && selected >= rows ? selected - rows + 1 : 0;
-    int height = 110 + rows * row_h;
-    int x = (c->w - width) / 2, y = (c->h - height) / 2;
+    if (rows > count) rows = count;
+    *first = rows > 0 && selected >= rows ? selected - rows + 1 : 0;
+    int h = 110 + rows * 27;
+    return (rect){(width - 560) / 2, (height - h) / 2, 560, h};
+}
+
+int model_option_at(int count, int selected, int x, int y)
+{
+    int first;
+    rect panel = model_menu_bounds(L.w, L.h, count, selected, &first);
+    int dy = y - panel.y - 42;
+    if (x < panel.x + 11 || x >= panel.x + panel.w - 11 || dy < 0 ||
+        dy >= panel.h - 110 || dy % 27 >= 25) return -1;
+    return first + dy / 27;
+}
+
+void render_model_menu(sr_canvas *c, const char *title, bool ollama, const model_option *models,
+                       int count, int selected, bool loading, bool failed,
+                       const char *llama_model, const char *notice)
+{
+    int first, row_h = 27;
+    int options = count > 0 ? count : (ollama ? 0 : 1);
+    rect panel = model_menu_bounds(c->w, c->h, options, selected, &first);
+    int x = panel.x, y = panel.y, width = panel.w, height = panel.h;
+    int rows = (height - 110) / row_h;
     draw_fill(c, 0, 0, c->w, c->h, 0x0c1018, 0.72f);
     art_menu_panel(c, x, y, width, height);
-    draw_text(c, x + 18, y + 13, ollama ? "Ollama models" : "llama.cpp models", 0xffde8c, 1);
+    draw_text(c, x + 18, y + 13, title, 0xffde8c, 1);
     for (int i = first; i < first + rows; i++) {
         int row_y = y + 42 + (i - first) * row_h;
         if (i == selected) {
@@ -573,6 +591,11 @@ void render_model_menu(sr_canvas *c, bool ollama, const model_option *models,
         }
         text_line(c, x + 20, row_y + 5, count > 0 ? models[i].name : llama_model,
                   0xf2efeb, (width - 40) / CELL_W);
+    }
+    if (notice) {
+        const char *status = *notice ? notice : loading ? "Reading choices..." :
+                             failed ? "Catalog unavailable. The configured default is available." : "";
+        text_line(c, x + 18, y + height - 46, status, 0xa6b5c6, (width - 36) / CELL_W);
     }
     if (ollama && !count) {
         const char *status = loading ? "Looking for installed Ollama models..." :
@@ -802,7 +825,7 @@ static void render_room_buttons(sr_canvas *c, const scene *s, bool auto_on)
 {
     static const char *const labels[ROOM_BUTTON_COUNT] = {
         "Clear model", "Clear shell", "Harness", "Model",
-        "Shell log", "Reset level", "Reset game", "Metrics", "Auto", "Clean disk",
+        "Shell log", "Reset level", "Reset game", "Metrics", "Auto", "Clean disk", "Goal",
     };
     room_button aimed = s->focus == FOCUS_ROOM ? scene_room_button_at(s->x, s->y) : BUTTON_NONE;
     for (int i = 0; i < ROOM_BUTTON_COUNT; i++) {

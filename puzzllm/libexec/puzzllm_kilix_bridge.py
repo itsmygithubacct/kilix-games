@@ -1,9 +1,22 @@
 """Capture and route input for the two windows on the game's private display."""
 import base64, binascii, json, os, re, select, signal, socket, stat, subprocess, sys, time
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 from puzzllm_ipc import Mailbox
+
+# Read-only modules from the installed Kilix Pane Center and claudex.
+sys.path[:0] = ["/opt/puzzllm/idle/center", "/opt/puzzllm/idle/claudex"]
 
 root = "/opt/puzzllm/kx"
 listen = "unix:/opt/puzzllm/kx/listen.sock"
+fresh_agent = False
+
+
+def opening_without_prompt():
+    try:
+        return Path(root, "agent-prompt").stat().st_size == 0
+    except OSError:
+        return False
 
 
 def window_id(kind):
@@ -54,6 +67,8 @@ def restricted_control(kitten, args):
         return 2, b"The private game panes are unavailable.\n"
 
 def launch_agent(kitten):
+    global fresh_agent
+    fresh_agent = opening_without_prompt()
     subprocess.run(
         [kitten, "@", "--to", listen, "launch", "--type=os-window",
          "--os-window-class=puzzllm-agent", "--os-window-title=agent",
@@ -62,11 +77,92 @@ def launch_agent(kitten):
         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL, timeout=5, check=False)
 
+def agent_window(kitten):
+    args = [kitten, "@", "--to", listen, "ls", "--all-env-vars"]
+    result = subprocess.run(args, capture_output=True, timeout=2, check=True)
+    tree = json.loads(result.stdout)
+    agents = [w for oswin in tree for tab in oswin["tabs"] for w in tab["windows"]
+              if w.get("env", {}).get("PUZZLLM_PANE") == "agent"]
+    if len(agents) != 1:
+        return tree, None
+    return tree, int(agents[0]["id"])
+
+
+def ready_for_goal(kitten, tree, pane_id):
+    from kilix_tui import kitty_rc, pane_center
+    from idleness import assess_idle
+
+    snapshot = pane_center.Inspector().snapshot(kitty_rc.parse(tree))
+    pane = next((info.to_dict() for info in snapshot.panes if info.pane.id == pane_id), None)
+    if not pane or (pane.get("coding_session") or {}).get("provider") != os.environ.get("PUZZLLM_AGENT"):
+        return False
+    screen = subprocess.run([kitten, "@", "--to", listen, "get-text", "--match", f"id:{pane_id}",
+                             "--extent", "screen", "--ansi"], capture_output=True, text=True,
+                            timeout=2, check=True)
+    # A newly launched interactive Codex has no completed turn in its log.
+    # Kilix supports its screen-only check for this first, untouched composer.
+    first_prompt = (fresh_agent and pane["coding_session"]["provider"] == "codex"
+                    and pane["coding_session"].get("session_id") == "unknown"
+                    and not pane["coding_session"].get("last_turn_event"))
+    return assess_idle(pane, screen.stdout, allow_screen_only=first_prompt)["ready"]
+
+
+def send_goal(kitten, token=None):
+    """An explicit click submits immediately. Auto claims one attempt per room."""
+    global fresh_agent
+    request = Path(root, "goals", "auto-request")
+    receipt = Path(root, "auto-receipt")
+    def current():
+        try:
+            return request.read_text().strip() == token and not (
+                receipt.exists() and receipt.read_text().startswith(token + " "))
+        except OSError:
+            return False
+
+    def record(status):
+        with NamedTemporaryFile(mode="w", dir=root, delete=False) as temp:
+            temp.write(f"{token} {status}\n")
+        os.replace(temp.name, receipt)
+
+    if token and not current():
+        return
+    try:
+        tree, pane_id = agent_window(kitten)
+        if pane_id is None:
+            return
+        if token:
+            if not ready_for_goal(kitten, tree, pane_id) or not current():
+                return
+            record("attempted")
+        fresh_agent = False
+        target = ["--match", f"id:{pane_id}"]
+        rc = [kitten, "@", "--to", listen]
+        subprocess.run([*rc, "send-text", *target, "--stdin"], input=b"complete the goal in GOAL.md",
+                       capture_output=True, timeout=2, check=True)
+        subprocess.run([*rc, "send-key", *target, "enter"], stdin=subprocess.DEVNULL,
+                       capture_output=True, timeout=2, check=True)
+        if token:
+            record("sent")
+    except ImportError:
+        if token and current():
+            record("unavailable")
+    except (OSError, KeyError, RuntimeError, TypeError, ValueError, subprocess.SubprocessError) as error:
+        # Keep the display bridge alive even when readiness cannot be read.
+        print(f"Goal delivery unavailable: {error}", file=sys.stderr, flush=True)
+
+
 def handle(line, kitten, sizes):
+    global fresh_agent
     parts = line.split(" ", 3)
     if not parts or not parts[0]:
         return
     op = parts[0]
+    if op == "goal" and parts == ["goal", "agent"]:
+        send_goal(kitten)
+        return
+    if op == "auto-goal" and len(parts) == 2 and re.fullmatch(r"[0-9]{1,20}", parts[1]):
+        send_goal(kitten, parts[1])
+        return
     if op == "close-agent":
         subprocess.run([kitten, "@", "--to", listen, "close-window",
                         "--match", pane_match("agent")],
@@ -80,6 +176,8 @@ def handle(line, kitten, sizes):
     if len(parts) < 2 or parts[1] not in ("agent", "shell"):
         return
     pane = parts[1]
+    if pane == "agent" and op in ("key", "type"):
+        fresh_agent = False
     if op == "resize" and len(parts) == 4 and parts[2].isdigit() and parts[3].isdigit():
         sizes[pane] = (max(1, min(int(parts[2]), 1024)), max(1, min(int(parts[3]), 1280)))
         return
@@ -192,6 +290,8 @@ def capture(sizes, placed):
 
 
 def main(kitty_bin, kitten, xvfb_pid):
+    global fresh_agent
+    fresh_agent = opening_without_prompt()
     config = "/opt/puzzllm/kilix-config/kitty.conf"
     os.environ["KITTY_LISTEN_ON"] = listen
     os.environ["PUZZLLM_KILIX_LISTEN"] = listen

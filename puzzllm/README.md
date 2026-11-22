@@ -95,7 +95,7 @@ already running, review the draft and press Enter to send it. **Harness**
 and **Model** open their settings, both reset buttons ask for confirmation,
 and **Metrics** opens the leaderboard with the current run's tokens and
 time. **Auto** turns automatic play on or off, the same switch as the
-menu row.
+menu row. **Goal** submits `complete the goal in GOAL.md` to the coding session and presses Enter.
 
 Hints come one at a time, every 45 seconds or on H. Progress is kept in
 `~/.local/share/puzzllm/progress`, so the game resumes in the room you
@@ -105,13 +105,12 @@ start a new one.
 The game opens on its menu in this order: **Harness**, **Model**, then
 **Start game** (or resume, or continue a saved level). Below those are
 **Campaign**, **Scores**, **Display**, **Bench**, **Auto**, **Between levels**, **Reset**, and **Exit game**.
-Enter opens a group. Escape steps back one page, and closes the menu once
+Under **Model**, select Codex, Claude, or Grok, then choose a model and its effort level. Each list includes the configured default. Enter opens a group. Escape steps back one page, and closes the menu once
 play has started.
 
 **Auto** is off until you turn it on. While it is on, each playable room
 starts an agent session and tells it to complete the goal in `GOAL.md`.
-A session that is already open and quiet for a couple of seconds gets the
-same sentence. When the door opens, Kilix walks into the next playable
+Auto sends one goal per room. For Codex and Claude it checks the private pane with Kilix Pane Center and the claudex idle detector, which inspect session activity and the visible input box. When the door opens, Kilix walks into the next playable
 room and that room starts again. Auto stops in the last playable room.
 An eligible campaign is ranked there as soon as the door opens and the
 agent reports token use. The setting is remembered.
@@ -323,7 +322,7 @@ are omitted for that metric. Tab switches to player runs ranked by tokens
 within each model.
 
 **Campaign** is on the main menu. It locks the current model for every
-playable room. Turn it on there. The choice is saved, and the game reopens on that
+playable room. Turning it on backs up the workspace and starts a fresh run in room 1. The choice is saved, and the game reopens on that
 model. While it is on, Codex, Grok, Claude, llama.cpp, and Ollama stay on the
 locked model. Finish every playable room with reported token use from
 that model and the campaign is ranked. The unfinished stub room is not

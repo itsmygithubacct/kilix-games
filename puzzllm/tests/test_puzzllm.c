@@ -2152,10 +2152,10 @@ static void test_auto_play(void)
     CHECK(pty_spawn(&G.omp, argv, NULL, 40, 10), "a stand-in agent accepts the goal sentence");
     feed(&G.omp_vt, "still working on it");
     game_update(&G, 2.0);
-    CHECK(!pty_has(&G.omp, "Complete the goal"), "auto waits until the agent is at a prompt");
+    CHECK(!pty_has(&G.omp, "complete the goal"), "auto waits until the agent is at a prompt");
     feed(&G.omp_vt, "\033[H> ");
     game_update(&G, 2.0);
-    CHECK(pty_has(&G.omp, "Complete the goal in GOAL.md."),
+    CHECK(pty_has(&G.omp, "complete the goal in GOAL.md"),
           "an idle prompt is told to finish GOAL.md");
     CHECK(has_line(&G.act, "Auto asked the model to finish GOAL.md."), "the action pane records the ask");
     for (int i = 0; i < 10; i++) {
@@ -2169,9 +2169,18 @@ static void test_auto_play(void)
         long n = pty_read(&G.omp, extra, sizeof extra - 1);
         if (n < 0) n = 0;
         extra[n] = 0;
-        CHECK(strstr(extra, "Complete the goal") == NULL,
+        CHECK(strstr(extra, "complete the goal") == NULL,
               "auto does not ask again until the agent answers");
     }
+
+    menu_to(MENU_AUTO);
+    menu_press(KEY_ENTER);
+    menu_press(KEY_ENTER);
+    menu_close();
+    CHECK(G.auto_play && G.auto_sent, "toggling Auto keeps the delivered room goal");
+    feed(&G.omp_vt, "\033[Hresponse received\r\n> ");
+    game_update(&G, 3.0);
+    CHECK(!pty_has(&G.omp, "complete the goal"), "an answer and a fresh prompt do not resend the goal");
 
     snprintf(hello, sizeof hello, "%s/workspace/hello_world.txt", state);
     write_file(hello, "Hello, World!\n", 14);
@@ -2297,6 +2306,13 @@ static void test_room_buttons(void)
         CHECK(G.sc.focus == FOCUS_OMP && n == (ssize_t)(sizeof expected - 1) &&
               memcmp(input, expected, sizeof expected - 1) == 0,
               "Shell log puts the sandbox path in the active agent's draft");
+        G.auto_agent_closed = false;
+        button = layout_room_button(BUTTON_GOAL);
+        game_click(&G, button.x + 4, button.y + 4);
+        const char goal[] = "complete the goal in GOAL.md\r";
+        n = read(transfer[0], input, sizeof input);
+        CHECK(n == (ssize_t)sizeof goal - 1 && !memcmp(input, goal, sizeof goal - 1) &&
+              G.auto_sent, "Goal writes the exact instruction and Enter to the agent");
         close(transfer[0]);
         close(transfer[1]);
         G.omp.fd = master;
@@ -2325,8 +2341,12 @@ static void test_campaign(void)
     snprintf(path, sizeof path, "%s/workspace/GOAL.md", state);
     CHECK(file_contains(path, "Hello, World"), "campaign save still publishes ~/GOAL.md");
 
+    game_enter_level(&G, 2);
+    snprintf(path, sizeof path, "%s/workspace/previous-room.txt", state);
+    write_file(path, "old", 3);
     menu_to(MENU_CAMPAIGN);
     menu_press(KEY_ENTER);
+    CHECK(G.sc.level == 0 && access(path, F_OK) != 0, "enabling Campaign resets the room and workspace");
     CHECK(G.campaign && G.campaign_model[0] && strstr(G.menu.notice, "locked"),
           "campaign locks the current model");
     snprintf(locked, sizeof locked, "%s", G.campaign_model);
@@ -2404,6 +2424,8 @@ static void test_campaign(void)
     CHECK(!G.campaign && strstr(G.menu.notice, "off"), "campaign can be turned off");
     menu_to(MENU_CODEX);
     menu_press(KEY_ENTER);
+    menu_press(KEY_ENTER);
+    menu_press(KEY_ENTER);
     CHECK(G.use_codex && !G.menu.open, "the model can change after campaign is off");
 
     menu_press(KEY_ESCAPE);
@@ -2480,6 +2502,58 @@ static void test_renderer_menu(void)
     game_shutdown(&G);
 }
 
+static void wait_for_catalog(void)
+{
+    for (int i = 0; i < 300 && G.menu.loading; i++) {
+        game_update(&G, 0.016);
+        nanosleep(&(struct timespec){.tv_nsec = 10000000}, NULL);
+    }
+}
+
+static void test_hosted_picker(void)
+{
+    char path[2500], state[2300], err[256];
+    sub(state, sizeof state, "hosted-picker");
+    CHECK(game_init(&G, ".", state, false, err, sizeof err), "create hosted picker save");
+    snprintf(path, sizeof path, "%s/models_cache.json", state);
+    const char cache[] = "{\"models\":[{\"slug\":\"test-model\",\"supported_reasoning_levels\":[{\"effort\":\"high\"}]}]}";
+    write_file(path, cache, sizeof cache - 1);
+    const char *old = getenv("CODEX_HOME");
+    char *previous = old ? strdup(old) : NULL;
+    setenv("CODEX_HOME", state, 1);
+    menu_to(MENU_CODEX);
+    G.spawn = true; /* Read the native catalog, with no coding session running. */
+    menu_press(KEY_ENTER);
+    wait_for_catalog();
+    CHECK(G.menu.count == 2 && !G.menu.picking_effort && !G.use_codex &&
+          !strcmp(G.menu.models[1].name, "test-model"), "model picker reads the installed catalog");
+    menu_press(KEY_END);
+    menu_press(KEY_ENTER);
+    wait_for_catalog();
+    CHECK(G.menu.picking_effort && G.menu.count == 2 && !G.use_codex &&
+          !strcmp(G.menu.models[1].name, "high"), "effort choices belong to the selected model");
+    menu_press(KEY_ESCAPE);
+    wait_for_catalog();
+    CHECK(!G.menu.picking_effort && !G.use_codex, "back from effort keeps the current agent");
+    menu_press(KEY_END);
+    menu_press(KEY_ENTER);
+    wait_for_catalog();
+    G.spawn = false;
+    menu_press(KEY_END);
+    menu_press(KEY_ENTER);
+    CHECK(G.use_codex && !strcmp(G.hosted_model, "test-model") && !strcmp(G.hosted_effort, "high"),
+          "only the final selection changes the coding session");
+    menu_to(MENU_CAMPAIGN);
+    menu_press(KEY_ENTER);
+    game_shutdown(&G);
+    CHECK(game_init(&G, ".", state, false, err, sizeof err) && G.campaign && G.use_codex &&
+          !strcmp(G.hosted_model, "test-model") && !strcmp(G.hosted_effort, "high"),
+          "campaign reopens with the model and effort it locked");
+    game_shutdown(&G);
+    if (previous) { setenv("CODEX_HOME", previous, 1); free(previous); }
+    else unsetenv("CODEX_HOME");
+}
+
 static void test_codex_menu(void)
 {
     char err[256], state[2300];
@@ -2487,6 +2561,8 @@ static void test_codex_menu(void)
     CHECK(game_init(&G, ".", state, false, err, sizeof err), "codex menu: %s", err);
     G.sc.focus = FOCUS_SHELL;
     menu_to(MENU_CODEX);
+    menu_press(KEY_ENTER);
+    menu_press(KEY_ENTER);
     menu_press(KEY_ENTER);
     CHECK(G.use_codex && G.act.codex && !G.menu.open && G.sc.focus == FOCUS_SHELL,
           "Codex selection changes the agent and the activity source");
@@ -2496,6 +2572,8 @@ static void test_codex_menu(void)
     CHECK(has_line(&G.act, "tool exec_command"), "Codex tool calls reach the activity screen");
 
     menu_to(MENU_GROK);
+    menu_press(KEY_ENTER);
+    menu_press(KEY_ENTER);
     menu_press(KEY_ENTER);
     CHECK(G.use_grok && G.act.grok && !G.use_codex && !G.menu.open &&
           G.thinking_support == THINK_UNAVAILABLE,
@@ -2650,6 +2728,8 @@ static void test_yolo_menu(void)
     CHECK(game_init(&G, ".", state, false, err, sizeof err), "yolo reload: %s", err);
     CHECK(G.yolo, "yolo stays on after relaunch");
     menu_to(MENU_CLAUDE);
+    menu_press(KEY_ENTER);
+    menu_press(KEY_ENTER);
     menu_press(KEY_ENTER);
     CHECK(G.use_claude && G.act.claude && !G.use_codex && !G.use_grok && !G.act.codex &&
           !G.act.grok && G.yolo && G.thinking_support == THINK_UNAVAILABLE,
@@ -2810,6 +2890,8 @@ static void test_compute_menu(void)
     CHECK(game_init(&G, ".", state, false, err, sizeof err), "compute reload: %s", err);
     CHECK(G.compute == COMPUTE_GPU, "compute setting persists");
     menu_to(MENU_CODEX);
+    menu_press(KEY_ENTER);
+    menu_press(KEY_ENTER);
     menu_press(KEY_ENTER);
     menu_to(MENU_COMPUTE);
     menu_press(KEY_ENTER);
@@ -3274,6 +3356,7 @@ int main(void)
     test_pane_clipboard();
     test_thinking_menu();
     test_codex_menu();
+    test_hosted_picker();
     test_downloads();
     test_yolo_menu();
     test_leaderboard();

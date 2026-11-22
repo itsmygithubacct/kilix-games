@@ -48,6 +48,9 @@ typedef struct game_menu {
     bool model_scores;
     int model_submenu;          /* zero or the main menu's backend row */
     int model_selected;
+    int catalog_provider;       /* hosted provider currently being discovered */
+    bool picking_effort;
+    char pending_model[208];
     model_details_tab details_tab;
     int details_scroll;
     char prompt[MODEL_SPEC_CAP], write_schema[MODEL_SPEC_CAP];
@@ -137,6 +140,7 @@ typedef struct game {
     char ollama_model[OLLAMA_NAME_CAP];
     char llama_model[4096];
     char gguf_env[4608];
+    char hosted_model[208], hosted_effort[40];
     bool use_codex;
     bool use_grok;
     bool use_claude;
@@ -151,7 +155,8 @@ typedef struct game {
     bool level_cleanup, transition_pending;
     char omp_note[96], shell_note[96];
     double auto_quiet;          /* seconds the agent has looked idle */
-    bool auto_sent, auto_heard; /* goal sentence in flight, then the agent answered */
+    bool auto_sent, auto_requested;
+    unsigned long long auto_room_id;
     bool auto_agent_closed;     /* the agent pane was explicitly closed */
     bool final_score_saved;
     bool auto_samples_valid;

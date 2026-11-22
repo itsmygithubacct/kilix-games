@@ -193,6 +193,30 @@ else
     fail "Claude yolo: $(tail -n 8 "$scratch/claude-yolo.log" | tr '\n' ' ')"
 fi
 
+# Capture the actual interactive argv after each sandbox has cleared its environment.
+cat > "$scratch/choice-cli" <<'SH'
+#!/bin/sh
+case " $* " in *" login status "*|*" auth status "*|*" login --device-auth "*) exit 0;; esac
+printf '%s\n' "$@" > /kilix/choice-argv
+SH
+chmod +x "$scratch/choice-cli"
+for provider in codex claude grok; do
+    rm -f "$PUZZLLM_STATE/workspace/choice-argv"
+    if env "PUZZLLM_${provider^^}=$scratch/choice-cli" PUZZLLM_HOSTED_MODEL="model[1m]" \
+            PUZZLLM_HOSTED_EFFORT=high timeout 15 "$sandbox" "$provider" </dev/null > "$scratch/choice.log" 2>&1 &&
+       python3 - "$provider" "$PUZZLLM_STATE/workspace/choice-argv" <<'PYARGS'
+import sys
+from pathlib import Path
+args = Path(sys.argv[2]).read_text().splitlines()
+pairs = list(zip(args, args[1:]))
+assert ("--model", "model[1m]") in pairs
+assert {"codex": ("-c", 'model_reasoning_effort="high"'), "claude": ("--effort", "high"),
+        "grok": ("--reasoning-effort", "high")}[sys.argv[1]] in pairs
+PYARGS
+    then pass "$provider receives the chosen model and effort"
+    else fail "$provider model and effort arguments"; fi
+done
+
 # Ollama is exposed to the agent through a model-specific bridge only.
 python3 "$here/tests/fake-ollama.py" "$scratch/ollama-port" > "$scratch/ollama-host.log" 2>&1 &
 ollama_pid=$!

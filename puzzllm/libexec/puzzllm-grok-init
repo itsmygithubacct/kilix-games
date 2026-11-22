@@ -18,6 +18,10 @@ if [ ! -s "$GROK_HOME/auth.json" ]; then
     printf 'Sign in to Grok Build for PuzzLLM.\n'
     "$grok" login --device-auth
 fi
+choice=()
+if [ -n "${PUZZLLM_HOSTED_MODEL:-}" ]; then choice+=(--model "$PUZZLLM_HOSTED_MODEL"); fi
+if [ -n "${PUZZLLM_HOSTED_EFFORT:-}" ]; then choice+=(--reasoning-effort "$PUZZLLM_HOSTED_EFFORT"); fi
+set -- "${choice[@]}" "$@"
 if [ "${PUZZLLM_YOLO:-0}" = 1 ]; then
     exec "$grok" --yolo --disable-web-search --no-subagents \
         --rules "$rules" "$@"

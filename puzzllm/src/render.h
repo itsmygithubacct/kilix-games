@@ -73,9 +73,10 @@ void render_menu(sr_canvas *c, int selected, const char *active_model,
                  bool pi, compute_mode compute, bool tooltips, bool room_buttons,
                  bool campaign, const char *campaign_model, bool hints_file, bool yolo, int page,
                  bool naming, bool auto_play, level_session_mode session_mode, bool level_cleanup);
-void render_model_menu(sr_canvas *c, bool ollama, const struct model_option *models,
+int model_option_at(int count, int selected, int x, int y);
+void render_model_menu(sr_canvas *c, const char *title, bool ollama, const struct model_option *models,
                        int count, int selected, bool loading, bool failed,
-                       const char *llama_model);
+                       const char *llama_model, const char *notice);
 struct score_entry;
 int render_leaderboard(sr_canvas *c, const struct score_entry *scores, int count,
                        int scroll, int level, int metric, bool models, const char *notice,
