@@ -455,6 +455,32 @@ DEFECTS = [
     ("only finished benchmark attempts count toward the number of runs",
      "third_party/kilix-bench/src/kilix_bench/yesno/records.py", "runs=len(attempts), finished=count",
      "runs=count, finished=count", "test-yesno"),
+    ("a diffusion prompt leaves no room for the chat template",
+     "third_party/kilix-bench/src/kilix_bench/yesno/diffusion.py", "length = length + TEMPLATE_TOKENS + ANSWER_TOKENS",
+     "length = length + ANSWER_TOKENS", "test-yesno"),
+    ("the diffusion reply includes the model loading log",
+     "third_party/kilix-bench/src/kilix_bench/yesno/diffusion.py", 'return text[:-1] if text.endswith("\\n") else text', "return log", "test-yesno"),
+    ("diffusion replies keep llama.cpp's log prefix",
+     "third_party/kilix-bench/src/kilix_bench/yesno/diffusion.py", '"--no-log-prefix", ', "", "test-yesno"),
+    ("diffusion replies are read from stderr with the driver messages",
+     "third_party/kilix-bench/src/kilix_bench/yesno/diffusion.py", "output = source.read()", "output = stderr", "test-yesno"),
+    ("a chat GGUF is handed to llama-diffusion-cli",
+     "third_party/kilix-bench/src/kilix_bench/yesno/diffusion.py", "if kind not in ARCHITECTURES:", "if False:", "test-yesno"),
+    ("GGUF metadata arrays are skipped by element count only",
+     "third_party/kilix-bench/src/kilix_bench/yesno/diffusion.py", "_read(source, _SCALARS[inner] * count)", "_read(source, _SCALARS[inner])", "test-yesno"),
+    ("diffusion runs keep their unresolved model path",
+     "third_party/kilix-bench/src/kilix_bench/yesno/records.py", 'GGUF_PROVIDERS = ("llama.cpp", DIFFUSION)', 'GGUF_PROVIDERS = ("llama.cpp",)', "test-yesno"),
+    ("diffusion runs are labelled as a provider CLI",
+     "third_party/kilix-bench/src/kilix_bench/yesno/machine.py", '    if provider == "llama.cpp-diffusion":\n        return "local llama.cpp diffusion"\n', "",
+     "test-yesno"),
+    ("the diffusion GPU choice is ignored",
+     "third_party/kilix-bench/src/kilix_bench/yesno/diffusion.py", '        if device:\n            args += ["--device", device]\n', "", "test-yesno"),
+    ("the bench offers no llama.cpp diffusion provider",
+     "src/yesno.c", '"Kilix models",\n                                        "llama.cpp diffusion"};', '"Kilix models"};',
+     "test-unit"),
+    ("diffusion models lose the GGUF path entry",
+     "src/yesno.c", "bool yesno_gguf(int provider) { return provider == 1 || provider == 6; }",
+     "bool yesno_gguf(int provider) { return provider == 1; }", "test-unit"),
     ("closing a benchmark leaves its saved ranking unfinished",
      "third_party/kilix-bench/src/kilix_bench/yesno/worker.py", "monitor.join()\n        checkpoint()",
      "monitor.join()", "test-yesno"),
@@ -470,6 +496,57 @@ DEFECTS = [
     ("the bench draws the puzzle doorway behind its monitor",
      "src/game.c", 'if (g->bench.open) { yesno_draw(c, &g->bench); return; }',
      'if (g->bench.open) yesno_draw(c, &g->bench);', "test-unit"),
+    ("the door opens without interrupting the coding session",
+     "src/game.c", '        if (g->goal_settled && interrupt_agent(g))\n', '        if (false && interrupt_agent(g))\n',
+     "test-unit"),
+    ("entering an already solved room interrupts the agent",
+     "src/game.c", '        if (g->goal_settled && interrupt_agent(g))\n', '        if (interrupt_agent(g))\n',
+     "test-unit"),
+    ("the door interrupts the agent on every goal check",
+     "src/game.c", '    if (g->goal.met && !g->was_met) {\n', '    if (g->goal.met) {\n',
+     "test-unit"),
+    ("Interrupt sends Enter instead of Escape",
+     "src/game.c", 'pty_write(&g->omp, "\\033", 1);', 'pty_write(&g->omp, "\\r", 1);',
+     "test-unit"),
+    ("Interrupt does nothing",
+     "src/game.c", '        activity_add(&g->act, ACT_INFO, interrupt_agent(g) ? "Interrupted the coding session." :',
+     '        activity_add(&g->act, ACT_INFO, false ? "Interrupted the coding session." :',
+     "test-unit"),
+    ("Chat is not on the main menu",
+     "src/render.c", "MENU_BENCH, MENU_CHAT, MENU_AUTO", "MENU_BENCH, MENU_AUTO", "test-unit"),
+    ("Chat does not run its helper",
+     "src/game.c", "        if (menu->selected == MENU_CHAT) {\n            open_chat(g);\n",
+     "        if (menu->selected == MENU_CHAT) {\n", "test-unit"),
+    ("the chat tab loses the GPU setting",
+     "libexec/puzzllm-chat", "for name in PUZZLLM_GPU KILIX_CHAT_DEVICE", "for name in KILIX_CHAT_DEVICE", "test-cli"),
+    ("the chat helper reports success when the tab launch fails",
+     "libexec/puzzllm-chat", '    echo "Could not open a Kilix tab for kilix-chat."\n    exit 1\n',
+     '    echo "Opened kilix-chat in a new tab."\n', "test-cli"),
+    ("diffusion downloads land in the llama.cpp models folder",
+     "libexec/puzzllm-fetch", 'fetch_gguf "$arg" diffusion_spec "$(diffusion_dir)"',
+     'fetch_gguf "$arg" diffusion_spec "$(models_dir)"', "test-cli"),
+    ("a chat model id is accepted as a diffusion download",
+     "libexec/puzzllm-fetch", "diffusion_spec() {\n    fixture_spec \"$1\" && return 0\n",
+     "diffusion_spec() {\n    fixture_spec \"$1\" && return 0\n    gguf_spec \"$1\" && return 0\n", "test-cli"),
+    ("the Dream-Coder download asks for a llama.cpp GGUF",
+     "src/game.c", '{MENU_DL_DREAM_CODER, "diffusion", "dream-coder-7b"}',
+     '{MENU_DL_DREAM_CODER, "gguf", "dream-coder-7b"}', "test-unit"),
+    ("LLaDA 1.5 is missing from Downloads",
+     "src/render.c", "MENU_DL_LLADA_MOE, MENU_DL_LLADA_15,\n", "MENU_DL_LLADA_MOE,\n", "test-unit"),
+    ("a diffusion GGUF is sent to llama-server",
+     "libexec/puzzllm-sandbox", "        llada|llada-moe|dream|rnd1)\n", "        no-diffusion-arch)\n",
+     "test-sandbox", "kilix-chat"),
+    ("agent-init starts llama-server for a diffusion model",
+     "libexec/puzzllm-agent-init", 'if [ "${PUZZLLM_DIFFUSION:-0}" = 1 ]; then\n    # Every turn',
+     'if false; then\n    # Every turn', "test-sandbox", "kilix-chat"),
+    ("omp may ask a diffusion model for 4096-token replies",
+     "libexec/puzzllm-sandbox", "            max_tokens=512\n", "            max_tokens=4096\n",
+     "test-sandbox", "kilix-chat"),
+    ("diffusion GGUFs are missing from the llama.cpp model list",
+     "src/game.c", "    scan_gguf_folder(menu, true);\n", "", "test-unit"),
+    ("omp is offered more context than the diffusion model has",
+     "libexec/puzzllm-sandbox", '[ "$ctx" -gt "$model_context" ] && ctx=$model_context',
+     '[ "$ctx" -lt 0 ] && ctx=$model_context', "test-sandbox", "kilix-chat"),
 ]
 
 
@@ -494,11 +571,17 @@ def main():
     holes = 0
     ident = os.path.join(HERE, "build", "render.ident")
     neuronte = os.path.exists(ident) and open(ident).read().startswith("neuronte")
+    chat = os.environ.get("PUZZLLM_TEST_KILIX_CHAT") or os.path.join(HERE, "third_party", "kilix-chat", "kilix-chat")
+    kilix_chat = os.access(chat, os.X_OK)
     skipped = 0
     for i, defect in enumerate(DEFECTS, 1):
         name, path, old, new, target = defect[:5]
         if len(defect) > 5 and defect[5] == "neuronte" and not neuronte:
             print("skip  defect %d (%s): this build has no Neuronte" % (i, name))
+            skipped += 1
+            continue
+        if len(defect) > 5 and defect[5] == "kilix-chat" and not kilix_chat:
+            print("skip  defect %d (%s): kilix-chat is not available to the sandbox tests" % (i, name))
             skipped += 1
             continue
         dst = os.path.join(scratch, "d%02d" % i)

@@ -1,0 +1,39 @@
+#!/bin/bash
+# Open kilix-chat in a new tab of the Kilix that runs the game.
+#
+# The chat runs on this computer, outside the game's sandbox, with the
+# models kilix-chat finds there. The one line on stdout is shown in the menu.
+set -u
+here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
+
+chat=${PUZZLLM_KILIX_CHAT:-}
+if [ -z "$chat" ]; then
+    for candidate in "$here/../third_party/kilix-chat/kilix-chat" "$(command -v kilix-chat 2>/dev/null)"; do
+        if [ -n "$candidate" ] && [ -x "$candidate" ]; then chat=$candidate; break; fi
+    done
+fi
+if [ -z "$chat" ] || [ ! -x "$chat" ]; then
+    echo "Install kilix-chat to chat with a model."
+    exit 1
+fi
+chat=$(readlink -f "$chat")
+
+listen=${KITTY_LISTEN_ON:-}
+kitten=${PUZZLLM_KITTEN:-$(command -v kitten 2>/dev/null)}
+if [ -z "$listen" ] || [ -z "$kitten" ] || [ ! -x "$kitten" ]; then
+    echo "Chat opens in a Kilix tab. Outside Kilix, run kilix-chat in a terminal."
+    exit 1
+fi
+
+# A launched tab starts with the terminal's environment, not the game's.
+args=(--type=tab --tab-title=kilix-chat "--cwd=$HOME")
+for name in PUZZLLM_GPU KILIX_CHAT_DEVICE KILIX_CHAT_MODELS KILIX_CHAT_DIFFUSION_CLI \
+            PUZZLLM_DIFFUSION_CLI OLLAMA_HOST; do
+    if [ -n "${!name:-}" ]; then args+=(--env "$name=${!name}"); fi
+done
+if timeout 10 "$kitten" @ --to "$listen" launch "${args[@]}" "$chat" "$@" </dev/null >/dev/null 2>&1; then
+    echo "Opened kilix-chat in a new tab."
+else
+    echo "Could not open a Kilix tab for kilix-chat."
+    exit 1
+fi

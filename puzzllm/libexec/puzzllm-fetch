@@ -2,9 +2,11 @@
 # puzzllm-fetch - download one model on the host. Do not run this in the sandbox.
 #
 #   puzzllm-fetch gguf ID
+#   puzzllm-fetch diffusion ID
 #   puzzllm-fetch ollama NAME
 #
 # llama.cpp files land in the models directory find_model already uses.
+# Text diffusion GGUFs land in the folder the Bench and kilix-chat search.
 # Ollama models are pulled by name. A GGUF is never imported into Ollama.
 set -euo pipefail
 umask 077
@@ -16,6 +18,10 @@ die() {
 
 models_dir() {
     printf '%s\n' "${KILIX_LLM_MODELS_DIR:-${GPU_TERMINAL_HOME:-$HOME/.local/gpu_terminal}/kilix-llm/models}"
+}
+
+diffusion_dir() {
+    printf '%s\n' "${PUZZLLM_DIFFUSION_MODELS:-${XDG_DATA_HOME:-$HOME/.local/share}/puzzllm/diffusion}"
 }
 
 plain_gguf() {
@@ -35,7 +41,7 @@ ollama_name_ok() {
     [ "${#1}" -le 128 ]
 }
 
-gguf_spec() {
+fixture_spec() {
     id=$1
     if [ "$id" = fixture ] && [ "${PUZZLLM_FETCH_FIXTURE_ID:-}" = fixture ]; then
         file=${PUZZLLM_FETCH_FIXTURE_FILE:-}
@@ -56,7 +62,37 @@ gguf_spec() {
         esac
         return 0
     fi
-    case "$id" in
+    return 1
+}
+
+diffusion_spec() {
+    fixture_spec "$1" && return 0
+    case "$1" in
+        llada-moe-7b-a1b)
+            file=LLaDA-MoE-7B-A1B-Instruct.Q4_K_M.gguf
+            bytes=4520661184
+            sha=a8fc1d9d43718a742b55b122cdca739a9cc2e790e38b2316b1a5b10e84489b27
+            url=https://huggingface.co/mradermacher/LLaDA-MoE-7B-A1B-Instruct-GGUF/resolve/1080e16761f6f82a92e8bfb54a4c8998dfee0219/LLaDA-MoE-7B-A1B-Instruct.Q4_K_M.gguf
+            ;;
+        llada-1.5)
+            file=LLaDA-1.5.Q4_K_M.gguf
+            bytes=4925226240
+            sha=967765045ef1f9db6f4dff72b14a338e0c897e81618f7779105426e9e2e9fce8
+            url=https://huggingface.co/mradermacher/LLaDA-1.5-GGUF/resolve/5acdac19a98ed7ff799324391d82c602474edf3b/LLaDA-1.5.Q4_K_M.gguf
+            ;;
+        dream-coder-7b)
+            file=Dream-Coder-v0-Instruct-7B.Q4_K_M.gguf
+            bytes=4683074016
+            sha=c1b2c58e9f2a6e9cd548347e5845c3e5306862be1151329b22c5b3956d858e3c
+            url=https://huggingface.co/mradermacher/Dream-Coder-v0-Instruct-7B-GGUF/resolve/e22431dd659aba45146840ac9b6b9417aff3cac5/Dream-Coder-v0-Instruct-7B.Q4_K_M.gguf
+            ;;
+        *) die "unknown diffusion model" ;;
+    esac
+}
+
+gguf_spec() {
+    fixture_spec "$1" && return 0
+    case "$1" in
         qwen3.5-0.8b)
             file=Qwen3.5-0.8B-Q8_0.gguf
             bytes=833592096
@@ -80,9 +116,8 @@ gguf_spec() {
 }
 
 fetch_gguf() {
-    local id=$1 dir dest size sum tmp
-    gguf_spec "$id"
-    dir=$(models_dir)
+    local id=$1 spec=$2 dir=$3 dest size sum tmp
+    "$spec" "$id"
     mkdir -p -- "$dir"
     dest=$dir/$file
     exec 9>"$dir/.fetch.lock"
@@ -133,7 +168,9 @@ fetch_ollama() {
 mode=${1:-}
 arg=${2:-}
 case "$mode" in
-    gguf) [ -n "$arg" ] || die "usage: puzzllm-fetch gguf ID"; fetch_gguf "$arg" ;;
+    gguf) [ -n "$arg" ] || die "usage: puzzllm-fetch gguf ID"; fetch_gguf "$arg" gguf_spec "$(models_dir)" ;;
+    diffusion) [ -n "$arg" ] || die "usage: puzzllm-fetch diffusion ID"
+               fetch_gguf "$arg" diffusion_spec "$(diffusion_dir)" ;;
     ollama) fetch_ollama "$arg" ;;
-    *) die "usage: puzzllm-fetch gguf ID | puzzllm-fetch ollama NAME" ;;
+    *) die "usage: puzzllm-fetch gguf ID | puzzllm-fetch diffusion ID | puzzllm-fetch ollama NAME" ;;
 esac

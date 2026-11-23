@@ -26,6 +26,7 @@ enum { AUTO_SAMPLES = 64, AUTO_IDLE_MS = 2000 };
 static void auto_mark_sent(game *g);
 static bool submit_agent_line(game *g, const char *text);
 static bool agent_alive(game *g);
+static bool interrupt_agent(game *g);
 
 static int load_level(const char *state, const char *name, int level_count)
 {
@@ -389,6 +390,19 @@ static void models_directory(char *out, size_t cap)
     if (dir && *dir) n = snprintf(out, cap, "%s", dir);
     else if (gpu && *gpu) n = snprintf(out, cap, "%s/kilix-llm/models", gpu);
     else n = snprintf(out, cap, "%s/.local/gpu_terminal/kilix-llm/models", home && *home ? home : ".");
+    if (n < 0 || (size_t)n >= cap) out[0] = 0;
+}
+
+/* Text diffusion GGUFs: the folder the Bench, kilix-chat and Downloads use. */
+static void diffusion_directory(char *out, size_t cap)
+{
+    const char *dir = getenv("PUZZLLM_DIFFUSION_MODELS");
+    const char *data = getenv("XDG_DATA_HOME");
+    const char *home = getenv("HOME");
+    int n;
+    if (dir && *dir) n = snprintf(out, cap, "%s", dir);
+    else if (data && *data) n = snprintf(out, cap, "%s/puzzllm/diffusion", data);
+    else n = snprintf(out, cap, "%s/.local/share/puzzllm/diffusion", home && *home ? home : ".");
     if (n < 0 || (size_t)n >= cap) out[0] = 0;
 }
 
@@ -1346,6 +1360,9 @@ static const struct {
     {MENU_DL_GGUF_08, "gguf", "qwen3.5-0.8b"},
     {MENU_DL_GGUF_4B, "gguf", "qwen3.5-4b-q4"},
     {MENU_DL_GEMMA_E2B, "gguf", "gemma4-e2b-q4-k-m"},
+    {MENU_DL_LLADA_MOE, "diffusion", "llada-moe-7b-a1b"},
+    {MENU_DL_LLADA_15, "diffusion", "llada-1.5"},
+    {MENU_DL_DREAM_CODER, "diffusion", "dream-coder-7b"},
     {MENU_DL_OLLAMA_06, "ollama", "qwen3:0.6b"},
     {MENU_DL_OLLAMA_4B, "ollama", "qwen3:4b-instruct-2507"},
 };
@@ -1367,11 +1384,11 @@ static bool ollama_pull_name(const char *name)
     return true;
 }
 
-static void scan_ggufs(game_menu *menu)
+static void scan_gguf_folder(game_menu *menu, bool diffusion)
 {
     char dir[4096];
-    menu->gguf_count = 0;
-    models_directory(dir, sizeof dir);
+    if (diffusion) diffusion_directory(dir, sizeof dir);
+    else models_directory(dir, sizeof dir);
     if (!dir[0]) return;
     DIR *folder = opendir(dir);
     if (!folder) return;
@@ -1386,16 +1403,28 @@ static void scan_ggufs(game_menu *menu)
         if (lstat(path, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size <= 0) continue;
         snprintf(menu->gguf[menu->gguf_count].name, sizeof menu->gguf[0].name, "%s", ent->d_name);
         menu->gguf[menu->gguf_count].thinking = THINK_UNAVAILABLE;
+        menu->gguf[menu->gguf_count].diffusion = diffusion;
         menu->gguf_count++;
     }
     closedir(folder);
+}
+
+/* llama.cpp GGUFs first (the default Qwen leads), then diffusion GGUFs, each by name. */
+static void scan_ggufs(game_menu *menu)
+{
+    menu->gguf_count = 0;
+    scan_gguf_folder(menu, false);
+    scan_gguf_folder(menu, true);
     for (int i = 1; i < menu->gguf_count; i++) {
         model_option item = menu->gguf[i];
         int j = i;
-        bool item_default = strcmp(item.name, "Qwen3.5-0.8B-Q8_0.gguf") == 0;
+        bool item_default = !item.diffusion && strcmp(item.name, "Qwen3.5-0.8B-Q8_0.gguf") == 0;
         while (j > 0) {
-            bool earlier_default = strcmp(menu->gguf[j - 1].name, "Qwen3.5-0.8B-Q8_0.gguf") == 0;
-            if (earlier_default || (!item_default && strcmp(menu->gguf[j - 1].name, item.name) <= 0))
+            const model_option *earlier = &menu->gguf[j - 1];
+            bool earlier_default = !earlier->diffusion && strcmp(earlier->name, "Qwen3.5-0.8B-Q8_0.gguf") == 0;
+            if (earlier_default || (!item_default && earlier->diffusion == item.diffusion &&
+                                    strcmp(earlier->name, item.name) <= 0) ||
+                (!item_default && !earlier->diffusion && item.diffusion))
                 break;
             menu->gguf[j] = menu->gguf[j - 1];
             j--;
@@ -1409,9 +1438,47 @@ static bool gguf_path(const game_menu *menu, int index, char *out, size_t cap)
     char dir[4096];
     int n;
     if (index < 0 || index >= menu->gguf_count) return false;
-    models_directory(dir, sizeof dir);
+    if (menu->gguf[index].diffusion) diffusion_directory(dir, sizeof dir);
+    else models_directory(dir, sizeof dir);
     n = snprintf(out, cap, "%s/%s", dir, menu->gguf[index].name);
     return dir[0] && n > 0 && (size_t)n < cap && access(out, R_OK) == 0;
+}
+
+/* Run libexec/puzzllm-chat (or $PUZZLLM_CHAT), which opens kilix-chat in a
+   new Kilix tab, and show its one-line answer. */
+static void open_chat(game *g)
+{
+    game_menu *menu = &g->menu;
+    const char *override = getenv("PUZZLLM_CHAT");
+    char helper[4200];
+    int out[2], n;
+    if (override && *override) n = snprintf(helper, sizeof helper, "%s", override);
+    else n = snprintf(helper, sizeof helper, "%s/libexec/puzzllm-chat", g->root);
+    snprintf(menu->notice, sizeof menu->notice, "Could not open kilix-chat.");
+    if (n < 0 || (size_t)n >= sizeof helper || pipe2(out, O_CLOEXEC) != 0) return;
+    pid_t child = fork();
+    if (child == 0) {
+        int null = open("/dev/null", O_RDWR);
+        if (null >= 0) { dup2(null, STDIN_FILENO); dup2(null, STDERR_FILENO); }
+        dup2(out[1], STDOUT_FILENO);
+        execl(helper, helper, (char *)NULL);
+        _exit(127);
+    }
+    close(out[1]);
+    char line[sizeof menu->notice];
+    size_t got = 0;
+    ssize_t r;
+    while (child > 0 && got + 1 < sizeof line &&
+           ((r = read(out[0], line + got, sizeof line - 1 - got)) > 0 || (r < 0 && errno == EINTR)))
+        if (r > 0) got += (size_t)r;
+    close(out[0]);
+    if (child <= 0) return;
+    int status;
+    pid_t done;
+    do { done = waitpid(child, &status, 0); } while (done < 0 && errno == EINTR);
+    line[got] = 0;
+    line[strcspn(line, "\r\n")] = 0;
+    if (line[0]) snprintf(menu->notice, sizeof menu->notice, "%s", line);
 }
 
 static void start_fetch(game *g, const char *kind, const char *arg)
@@ -1827,6 +1894,10 @@ static void menu_key(game *g, const key_event *ev)
             game_open_bench_menu(g);
             break;
         }
+        if (menu->selected == MENU_CHAT) {
+            open_chat(g);
+            break;
+        }
         if (menu->selected == MENU_MODEL || menu->selected == MENU_SCORES ||
             menu->selected == MENU_DISPLAY ||
             menu->selected == MENU_BETWEEN || menu->selected == MENU_RESETS) {
@@ -2013,12 +2084,10 @@ static void menu_key(game *g, const key_event *ev)
             menu->model_selected = 0;
             if (menu->selected == MENU_LOCAL) {
                 scan_ggufs(menu);
-                if (menu->gguf_count > 0) {
-                    const char *leaf = strrchr(g->llama_model, '/');
-                    leaf = leaf ? leaf + 1 : g->llama_model;
-                    for (int i = 0; i < menu->gguf_count; i++)
-                        if (g->llama_model[0] && strcmp(menu->gguf[i].name, leaf) == 0)
-                            menu->model_selected = i;
+                for (int i = 0; i < menu->gguf_count && g->llama_model[0]; i++) {
+                    char path[sizeof g->llama_model];
+                    if (gguf_path(menu, i, path, sizeof path) && strcmp(path, g->llama_model) == 0)
+                        menu->model_selected = i;
                 }
             }
         }
@@ -2069,6 +2138,7 @@ static void enter_level(game *g, int level, bool keep_session)
     g->selection = (pane_selection){0};
     g->level_time = 0;
     g->was_met = false;
+    g->goal_settled = false;
     cancel_auto_request(g);
     g->auto_room_id = fresh_score_id();
     g->final_score_saved = false;
@@ -2246,11 +2316,17 @@ void game_poll_goal(game *g)
     else
         g->goal = game_check_level(g, g->sc.level);
     g->sc.goal_met = g->goal.met;
-    if (g->goal.met && !g->was_met)
+    if (g->goal.met && !g->was_met) {
         activity_add(&g->act, ACT_GOAL, "GOAL MET: %s. The door opens.", g->goal.why);
+        /* Stop the agent's turn once the door opens. A room that was already
+           solved when the player entered it does not interrupt anything. */
+        if (g->goal_settled && interrupt_agent(g))
+            activity_add(&g->act, ACT_INFO, "Interrupted the coding session.");
+    }
     else if (!g->goal.met && g->was_met)
         activity_add(&g->act, ACT_GOAL, "goal lost: %s", g->goal.why);
     g->was_met = g->goal.met;
+    g->goal_settled = true;
 }
 
 static view game_view(const game *g);
@@ -2432,6 +2508,11 @@ static void press_room_button(game *g, room_button button)
         break;
     case BUTTON_CLEAN_DISK:
         clean_disk(g);
+        break;
+    case BUTTON_INTERRUPT:
+        cancel_auto_request(g);
+        activity_add(&g->act, ACT_INFO, interrupt_agent(g) ? "Interrupted the coding session." :
+                                                            "No coding session is running.");
         break;
     case BUTTON_AUTO:
         set_auto_play(g, !g->auto_play);
@@ -2890,6 +2971,14 @@ static void auto_mark_sent(game *g)
     g->auto_sent = true;
     g->auto_quiet = 0;
     activity_add(&g->act, ACT_INFO, "Auto asked the model to finish GOAL.md.");
+}
+
+/* Escape interrupts the running turn of every supported agent harness and
+   of kilix-chat without closing the session. */
+static bool interrupt_agent(game *g)
+{
+    if (kilix_embed_running(&g->embed)) return kilix_embed_command(&g->embed, "key agent Escape");
+    return g->omp.pid > 0 && !pty_poll_exit(&g->omp) && pty_write(&g->omp, "\033", 1);
 }
 
 static bool submit_agent_line(game *g, const char *text)

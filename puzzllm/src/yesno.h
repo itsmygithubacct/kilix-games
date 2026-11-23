@@ -90,6 +90,7 @@ void yesno_draw(sr_canvas *c, const yesno_bench *b);
 
 const char *yesno_provider(int index);
 bool yesno_has_effort(int provider);
+bool yesno_gguf(int provider);
 const char *yesno_option(const yesno_bench *b, int row);
 int yesno_options(const yesno_bench *b);
 int yesno_history_row(const yesno_bench *b, int first, int offset);

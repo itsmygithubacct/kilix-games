@@ -319,7 +319,7 @@ static void room_background(sr_canvas *c, const room_art *art, const char *style
 int menu_page_rows(int page, bool neuronte, int *out, int cap)
 {
     static const int main_rows[] = {
-        MENU_HARNESS, MENU_MODEL, MENU_RESUME, MENU_CAMPAIGN, MENU_SCORES, MENU_DISPLAY, MENU_BENCH, MENU_AUTO, MENU_BETWEEN, MENU_RESETS, MENU_QUIT
+        MENU_HARNESS, MENU_MODEL, MENU_RESUME, MENU_CAMPAIGN, MENU_SCORES, MENU_DISPLAY, MENU_BENCH, MENU_CHAT, MENU_AUTO, MENU_BETWEEN, MENU_RESETS, MENU_QUIT
     };
     static const int model_rows[] = {
         MENU_CODEX, MENU_GROK, MENU_CLAUDE, MENU_LOCAL, MENU_OLLAMA,
@@ -333,7 +333,8 @@ int menu_page_rows(int page, bool neuronte, int *out, int cap)
     };
     static const int reset_rows[] = { MENU_RESET_LEVEL, MENU_RESET };
     static const int download_rows[] = {
-        MENU_DL_GGUF_08, MENU_DL_GGUF_4B, MENU_DL_GEMMA_E2B, MENU_DL_OLLAMA_06, MENU_DL_OLLAMA_4B, MENU_DL_NAME
+        MENU_DL_GGUF_08, MENU_DL_GGUF_4B, MENU_DL_GEMMA_E2B, MENU_DL_LLADA_MOE, MENU_DL_LLADA_15,
+        MENU_DL_DREAM_CODER, MENU_DL_OLLAMA_06, MENU_DL_OLLAMA_4B, MENU_DL_NAME
     };
     static const int between_rows[] = { MENU_LEVEL_SESSION, MENU_LEVEL_CLEANUP, MENU_CLEAN_DISK };
     static const int bench_rows[] = { MENU_YESNO, MENU_FREETEXT, MENU_CODING };
@@ -424,10 +425,14 @@ void render_menu(sr_canvas *c, int selected, const char *active_model,
         [MENU_DL_GGUF_08] = "Download Qwen3.5-0.8B Q8_0",
         [MENU_DL_GGUF_4B] = "Download Qwen3.5-4B Q4_K_M",
         [MENU_DL_GEMMA_E2B] = "Download Gemma 4 E2B Q4_K_M",
+        [MENU_DL_LLADA_MOE] = "Download LLaDA-MoE 7B-A1B (diffusion)",
+        [MENU_DL_LLADA_15] = "Download LLaDA 1.5 8B (diffusion)",
+        [MENU_DL_DREAM_CODER] = "Download Dream-Coder 7B (diffusion)",
         [MENU_DL_OLLAMA_06] = "Download Ollama qwen3:0.6b",
         [MENU_DL_OLLAMA_4B] = "Download Ollama qwen3:4b-instruct-2507",
         [MENU_DL_NAME] = "Pull another Ollama model",
         [MENU_BENCH] = "Bench >",
+        [MENU_CHAT] = "Chat with a model",
         [MENU_YESNO] = "Yes/No >", [MENU_FREETEXT] = "Free Text >",
         [MENU_KILIX_OPS] = "Run Kilix Operations",
         [MENU_IFEVAL] = "Run IFEval (instruction following)", [MENU_GSM8K] = "Run GSM8K (math)",
@@ -589,8 +594,10 @@ void render_model_menu(sr_canvas *c, const char *title, bool ollama, const model
             draw_fill(c, x + 11, row_y, width - 22, row_h - 2, 0x354356, 1);
             draw_fill(c, x + 11, row_y, 3, row_h - 2, 0xe0c070, 1);
         }
-        text_line(c, x + 20, row_y + 5, count > 0 ? models[i].name : llama_model,
-                  0xf2efeb, (width - 40) / CELL_W);
+        char name[OLLAMA_NAME_CAP + 16];
+        snprintf(name, sizeof name, "%s%s", count > 0 ? models[i].name : llama_model,
+                 count > 0 && models[i].diffusion ? "  (diffusion)" : "");
+        text_line(c, x + 20, row_y + 5, name, 0xf2efeb, (width - 40) / CELL_W);
     }
     if (notice) {
         const char *status = *notice ? notice : loading ? "Reading choices..." :
@@ -826,6 +833,7 @@ static void render_room_buttons(sr_canvas *c, const scene *s, bool auto_on)
     static const char *const labels[ROOM_BUTTON_COUNT] = {
         "Clear model", "Clear shell", "Harness", "Model",
         "Shell log", "Reset level", "Reset game", "Metrics", "Auto", "Clean disk", "Goal",
+        "Interrupt",
     };
     room_button aimed = s->focus == FOCUS_ROOM ? scene_room_button_at(s->x, s->y) : BUTTON_NONE;
     for (int i = 0; i < ROOM_BUTTON_COUNT; i++) {

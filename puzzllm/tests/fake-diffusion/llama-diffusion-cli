@@ -1,0 +1,20 @@
+#!/usr/bin/env python3
+"""Stand-in for llama-diffusion-cli in the sandbox tests: no model, same shape.
+
+Writes llama.cpp's log file the way the real tool does with prefixes off and
+always answers "Hello, World!". It records its arguments beside the log.
+"""
+import json
+import os
+import sys
+
+args = sys.argv[1:]
+if "--list-devices" in args:
+    print("Available devices:\n  Vulkan0: Stand-in GPU (6144 MiB, 6144 MiB free)")
+    sys.exit(0)
+log = args[args.index("--log-file") + 1]
+with open(os.path.join(os.path.dirname(log), "fake-diffusion-args.json"), "w") as out:
+    json.dump({"args": args, "model_exists": os.path.exists(args[args.index("-m") + 1])}, out)
+with open(log, "w") as out:
+    out.write("load_tensors: offloaded 0/0 layers\n\ntotal time: 1.00ms, time per step: 0.10ms\n\nHello, World!\n")
+sys.stderr.write("NVVM compilation failed: 3\n")

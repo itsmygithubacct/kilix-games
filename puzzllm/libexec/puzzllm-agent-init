@@ -3,7 +3,8 @@
 #
 # Starts llama-server on the sandbox's private loopback, waits until it
 # answers, then replaces itself with omp. bwrap is PID 1 of the sandbox, so
-# llama-server dies with the sandbox when omp exits.
+# llama-server dies with the sandbox when omp exits. A text diffusion GGUF
+# is served by kilix-chat on the same port instead (PUZZLLM_DIFFUSION=1).
 #
 # Progress goes to the terminal (the omp screen) and to
 # $PI_CODING_AGENT_DIR/puzzllm/status, which the game shows on the activity screen.
@@ -82,7 +83,9 @@ think_args=(--reasoning-budget 0)
 device_args=(--device none --gpu-layers 0)
 placement=CPU
 if [ "$compute" = gpu ] || [ -n "${PUZZLLM_GPU:-}" ]; then
-    if ! /opt/puzzllm/llama/llama-server --list-devices >"$log" 2>&1 ||
+    probe=/opt/puzzllm/llama/llama-server
+    [ "${PUZZLLM_DIFFUSION:-0}" = 1 ] && probe=/opt/puzzllm/diffusion/llama-diffusion-cli
+    if ! "$probe" --list-devices >"$log" 2>&1 ||
        ! grep -Eq '^  [^[:space:]:]+: ' "$log"; then
         say "llama.cpp found no GPU inside the sandbox. Select CPU or check the GPU backend."
         exit 2
@@ -92,24 +95,38 @@ if [ "$compute" = gpu ] || [ -n "${PUZZLLM_GPU:-}" ]; then
     placement=GPU
 fi
 
-say "starting Qwen 3.5 ($model_id) on $placement"
-/opt/puzzllm/llama/llama-server \
-    --model /opt/puzzllm/model.gguf --alias "$model_id" \
-    --host 127.0.0.1 --port "$port" --ctx-size "${PUZZLLM_CTX:-32768}" \
-    --jinja "${think_args[@]}" "${device_args[@]}" --no-webui \
-    >"$log" 2>&1 &
+if [ "${PUZZLLM_DIFFUSION:-0}" = 1 ]; then
+    # Every turn is one llama-diffusion-cli run over the whole conversation.
+    name="diffusion model $model_id"
+    server_name=kilix-chat
+    chat_device=()
+    [ "$placement" = GPU ] && [ -n "${PUZZLLM_GPU:-}" ] && chat_device=(--device "$PUZZLLM_GPU")
+    say "starting $name on $placement through kilix-chat"
+    /usr/bin/python3 -I /opt/puzzllm/kilix-chat/kilix-chat --model /opt/puzzllm/model.gguf "${chat_device[@]}" \
+        --max-tokens "${PUZZLLM_MAX_TOKENS:-512}" serve --host 127.0.0.1 --port "$port" --alias "$model_id" \
+        >"$log" 2>&1 &
+else
+    name="Qwen 3.5"
+    server_name=llama-server
+    say "starting Qwen 3.5 ($model_id) on $placement"
+    /opt/puzzllm/llama/llama-server \
+        --model /opt/puzzllm/model.gguf --alias "$model_id" \
+        --host 127.0.0.1 --port "$port" --ctx-size "${PUZZLLM_CTX:-32768}" \
+        --jinja "${think_args[@]}" "${device_args[@]}" --no-webui \
+        >"$log" 2>&1 &
+fi
 server=$!
 
 for _ in $(seq 1 600); do
     if health; then break; fi
     if ! kill -0 "$server" 2>/dev/null; then
-        say "llama-server exited; see agent/puzzllm/llama-server.log"
+        say "$server_name exited; see agent/puzzllm/llama-server.log"
         tail -n 15 "$log"
         exec bash -i
     fi
     sleep 0.2
 done
-health || { say "llama-server did not come up"; exec bash -i; }
+health || { say "$server_name did not come up"; exec bash -i; }
 
 prompt_args=()
 if [ -s "$HOME/.system/llama-prompt.txt" ] && [ -f "$HOME/.system/llama-prompt.txt" ]; then
@@ -117,10 +134,10 @@ if [ -s "$HOME/.system/llama-prompt.txt" ] && [ -f "$HOME/.system/llama-prompt.t
     [ -z "$custom_prompt" ] || prompt_args=(--system-prompt "$custom_prompt")
 fi
 if [ -n "${PUZZLLM_PI_COMMAND:-}" ]; then
-    say "Qwen 3.5 ready; starting Pi"
+    say "$name ready; starting Pi"
     start_pi "${prompt_args[@]}" "$@"
 fi
-say "Qwen 3.5 ready; starting omp"
+say "$name ready; starting omp"
 exec /opt/puzzllm/bin/omp --model "puzzllm-local/$model_id" \
     "${prompt_args[@]}" \
     --append-system-prompt "Inspect the player's shell with tmux capture-pane -p -t shell. Its output is recorded in ~/shell.log." \

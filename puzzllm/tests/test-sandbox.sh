@@ -127,6 +127,51 @@ if PUZZLLM_ROOT=$here "$here/build/puzzllm" --check-level 1 >/dev/null; then
 else
     fail "level 1 goal not met"
 fi
+# A text diffusion GGUF is served by kilix-chat, not llama-server.
+chat=${PUZZLLM_TEST_KILIX_CHAT:-$here/third_party/kilix-chat/kilix-chat}
+if [ -x "$chat" ]; then
+    diffusion_model=$scratch/diffusion/tiny-llada.gguf
+    mkdir -p "$scratch/diffusion"
+    python3 - "$diffusion_model" <<'PY'
+import struct, sys
+def text(value):
+    data = value.encode()
+    return struct.pack("<Q", len(data)) + data
+pairs = [text("general.architecture") + struct.pack("<I", 8) + text("llada"),
+         text("llada.context_length") + struct.pack("<II", 4, 4096)]
+open(sys.argv[1], "wb").write(b"GGUF" + struct.pack("<IQQ", 3, 0, len(pairs)) + b"".join(pairs))
+PY
+    rm -f "$PUZZLLM_STATE/workspace/hello_world.txt"
+    PUZZLLM_KILIX_CHAT=$chat PUZZLLM_DIFFUSION_CLI=$here/tests/fake-diffusion/llama-diffusion-cli \
+    PUZZLLM_OMP=$here/tests/fake-omp PUZZLLM_LLAMA_SERVER=/nonexistent/llama-server \
+    PUZZLLM_MODEL=$diffusion_model \
+        timeout 60 "$sandbox" agent < /dev/null > "$scratch/diffusion-agent.log" 2>&1
+    [ "$(cat "$PUZZLLM_STATE/workspace/hello_world.txt" 2>/dev/null)" = "Hello, World!" ] &&
+        grep -q 'diffusion model tiny-llada ready; starting omp' "$scratch/diffusion-agent.log" &&
+        pass "a diffusion GGUF reaches omp through kilix-chat" ||
+        fail "diffusion agent chain: $(tail -n 8 "$scratch/diffusion-agent.log" | tr '\n' ' ')"
+    grep -q 'id: "tiny-llada"' "$PUZZLLM_STATE/agent/models.yml" &&
+        grep -q 'contextWindow: 4096' "$PUZZLLM_STATE/agent/models.yml" &&
+        grep -q 'maxTokens: 512' "$PUZZLLM_STATE/agent/models.yml" &&
+        pass "omp sees the diffusion model's name, context and reply cap" ||
+        fail "diffusion models.yml: $(grep -E 'id:|contextWindow|maxTokens' "$PUZZLLM_STATE/agent/models.yml" | tr '\n' ' ')"
+    grep -q 'kilix-chat serving tiny-llada on http://127.0.0.1:' "$PUZZLLM_STATE/agent/puzzllm/llama-server.log" &&
+        pass "kilix-chat serves on the sandbox loopback" ||
+        fail "kilix-chat log: $(tail -n 5 "$PUZZLLM_STATE/agent/puzzllm/llama-server.log" | tr '\n' ' ')"
+    PUZZLLM_KILIX_CHAT=/nonexistent PATH=/usr/bin:/bin \
+    PUZZLLM_DIFFUSION_CLI=$here/tests/fake-diffusion/llama-diffusion-cli \
+    PUZZLLM_OMP=$here/tests/fake-omp PUZZLLM_MODEL=$diffusion_model \
+        timeout 30 "$sandbox" agent < /dev/null > "$scratch/diffusion-missing.log" 2>&1
+    grep -q 'kilix-chat not found' "$scratch/diffusion-missing.log" &&
+        pass "a diffusion model without kilix-chat says what is missing" ||
+        fail "diffusion without kilix-chat: $(tail -n 3 "$scratch/diffusion-missing.log" | tr '\n' ' ')"
+    PUZZLLM_KILIX_CHAT=$chat PUZZLLM_MODEL=$here/tests/fake-llama/model.gguf \
+        "$sandbox" paths | grep -qx 'diffusion=0' &&
+        pass "an ordinary GGUF still uses llama-server" || fail "a non-diffusion GGUF was routed to kilix-chat"
+else
+    printf 'skip kilix-chat is not vendored here; the diffusion agent chain was not run\n'
+fi
+
 models=$PUZZLLM_STATE/agent/models.yml
 if grep -q 'baseUrl: http://127.0.0.1:' "$models" &&
    [ "$(grep -c 'baseUrl:' "$models")" = 1 ]; then

@@ -33,6 +33,7 @@ typedef enum thinking_support {
 typedef struct model_option {
     char name[OLLAMA_NAME_CAP];
     thinking_support thinking;
+    bool diffusion;           /* a GGUF in the diffusion folder, served by kilix-chat */
 } model_option;
 
 typedef struct game_menu {
@@ -125,6 +126,7 @@ typedef struct game {
     count_puzzle count_check;
     script_puzzle script_check;
     bool was_met;
+    bool goal_settled;        /* the room's first goal check has run */
     int hints_shown;
     double level_time;
     double poll_timer;

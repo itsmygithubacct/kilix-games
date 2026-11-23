@@ -96,6 +96,10 @@ and **Model** open their settings, both reset buttons ask for confirmation,
 and **Metrics** opens the leaderboard with the current run's tokens and
 time. **Auto** turns automatic play on or off, the same switch as the
 menu row. **Goal** submits `complete the goal in GOAL.md` to the coding session and presses Enter.
+**Interrupt** sends Escape to the coding session, which stops the agent's
+current turn without closing it. The game also interrupts the session when
+the door opens, so the agent does not keep working on a solved room.
+Entering a room that is already solved interrupts nothing.
 
 Hints come one at a time, every 45 seconds or on H. Progress is kept in
 `~/.local/share/puzzllm/progress`, so the game resumes in the room you
@@ -187,7 +191,8 @@ answering YES scores 2,033 correct (62.17%). [BoolQ dataset](https://github.com/
 
 Each Yes/No benchmark opens its own progress monitor. Press **M** or click **Model** to
 choose an Ollama tag, a llama.cpp GGUF, Codex, Grok, or Claude. For a local
-model, choose from the installed list or enter a tag or file path. Ollama
+model, choose from the installed list or enter a tag or file path. A llama.cpp
+diffusion GGUF is chosen the same way. Ollama
 pulls a missing tag when you start. For Codex, Grok or Claude, select a
 named model from the CLI's catalog and local settings, use the configured
 default, or enter a model ID. You can choose the next model while a benchmark
@@ -201,6 +206,16 @@ those attempts. Needle2 uses a fresh process for each question. Needle3
 resets its cached runtime between questions. Ollama decision models, including
 AutoTrust Jev, use the native binary decision API and record its probability.
 At or above 0.5 the answer is YES.
+
+**llama.cpp diffusion** runs text diffusion models such as LLaDA, LLaDA-MoE,
+Dream and RND1, which llama-server cannot load. It lists the GGUF files in
+`~/.local/share/puzzllm/diffusion/` (or `$PUZZLLM_DIFFUSION_MODELS`) and
+accepts a typed path. Each question is one `llama-diffusion-cli` run that
+denoises a 32-token reply at temperature 0. The tool comes from
+`$PUZZLLM_DIFFUSION_CLI`, PATH, or a `llama-*/` build folder beside the
+models. `PUZZLLM_GPU=Vulkan1` selects the device. The models are not shipped.
+**Model → Downloads** offers three that fit a 6 GB GPU, or put your own GGUFs
+in the folder.
 
 For a hosted model, press **E** or click **Effort** to choose a reasoning
 level for the next run. Each provider, model and effort has its own ranking,
@@ -295,6 +310,16 @@ GGUF runs on a private llama-server for the duration of the benchmark.
 **Harness** toggles between OMP and Pi for a local model. **Model** chooses
 Codex, Grok, Claude, llama.cpp, or Ollama, and holds the prompt, thinking,
 compute, and Yolo settings. The llama.cpp and Ollama rows open their model lists.
+
+The llama.cpp list also shows the GGUFs in the diffusion folder, marked
+**(diffusion)**. llama-server cannot load them, so the sandbox serves the
+chosen one with `kilix-chat serve` on the same private port. It mounts kilix-chat
+and `llama-diffusion-cli`'s folder read-only. omp or Pi then sees an ordinary
+local provider, with the model's own context length and replies capped at
+512 tokens. Every turn re-denoises the whole conversation, and these models
+are not trained for tool calls. Expect slow, unreliable agent turns. They
+are for experiments, not for clearing rooms. Without kilix-chat or the tool,
+the agent screen says which one is missing.
 Confirming a model from the opening menu starts the game. Model changes
 restart the agent with a fresh conversation in the same workspace. Model
 choices apply until you quit.
@@ -395,6 +420,21 @@ its size and SHA-256. The files go into `KILIX_LLM_MODELS_DIR`, which defaults
 to `GPU_TERMINAL_HOME/kilix-llm/models` or `~/.local/gpu_terminal/kilix-llm/models`.
 The game and bench discover installed GGUFs there. Ollama selections are
 pulled by tag. The sandbox mounts the chosen GGUF read-only.
+
+The same page offers three text diffusion models: LLaDA-MoE 7B-A1B Instruct
+(4.52 GB), LLaDA 1.5 8B (4.93 GB) and Dream-Coder v0 Instruct 7B (4.68 GB),
+all Q4_K_M from mradermacher's GGUF repositories at pinned revisions. They go
+into `~/.local/share/puzzllm/diffusion/` (or `$PUZZLLM_DIFFUSION_MODELS`),
+where the Bench's **llama.cpp diffusion** provider and kilix-chat find them.
+`llama-diffusion-cli` is not downloaded. Build it from llama.cpp.
+
+**Chat with a model** on the main menu opens kilix-chat in a new tab of
+the Kilix that runs the game. It chats with the diffusion models above,
+showing each reply as it denoises, and with your Ollama models. The chat
+runs on the host, outside the game's sandbox. The game finds kilix-chat
+through `$PUZZLLM_KILIX_CHAT`, `third_party/kilix-chat`, or PATH. The tab
+receives the game's `PUZZLLM_GPU`, `KILIX_CHAT_*`, `PUZZLLM_DIFFUSION_CLI`
+and `OLLAMA_HOST`. Outside Kilix, run `kilix-chat` in any terminal.
 
 PuzzLLM requests **32,768 context tokens** from Ollama for every turn.
 `PUZZLLM_CTX` changes the requested limit. The game checks the model's

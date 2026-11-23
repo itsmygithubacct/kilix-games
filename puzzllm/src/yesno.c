@@ -6,11 +6,16 @@
 #include <stdlib.h>
 #include <string.h>
 
-static const char *const providers[] = {"Ollama", "llama.cpp", "Codex", "Grok", "Claude", "Kilix models"};
-static const char *const commands[] = {"ollama", "llama.cpp", "codex", "grok", "claude", "kilix"};
+static const char *const providers[] = {"Ollama", "llama.cpp", "Codex", "Grok", "Claude", "Kilix models",
+                                        "llama.cpp diffusion"};
+static const char *const commands[] = {"ollama", "llama.cpp", "codex", "grok", "claude", "kilix",
+                                       "llama.cpp-diffusion"};
 enum { PROVIDERS = sizeof providers / sizeof providers[0] };
 
 bool yesno_has_effort(int provider) { return provider >= 2 && provider <= 4; }
+
+/* Providers whose model is a GGUF file path: llama-server and llama-diffusion-cli. */
+bool yesno_gguf(int provider) { return provider == 1 || provider == 6; }
 
 const char *yesno_provider(int index)
 {
@@ -19,7 +24,7 @@ const char *yesno_provider(int index)
 
 static const char *model_label(int provider, const char *model)
 {
-    const char *leaf = provider == 1 ? strrchr(model, '/') : NULL;
+    const char *leaf = yesno_gguf(provider) ? strrchr(model, '/') : NULL;
     return leaf ? leaf + 1 : model;
 }
 
@@ -404,7 +409,7 @@ int yesno_options(const yesno_bench *b)
     if (b->page == BENCH_RUNS) return b->standings[b->standing_index].loaded;
     if (b->page == BENCH_MACHINES) return b->standings[b->standing_index].machine_count;
     if (b->picking == 5) return b->model_count;
-    return b->model_count + (b->picking < 2 ? 1 : 2);
+    return b->model_count + (yesno_has_effort(b->picking) ? 2 : 1);
 }
 
 const char *yesno_option(const yesno_bench *b, int row)
@@ -412,7 +417,7 @@ const char *yesno_option(const yesno_bench *b, int row)
     if (b->page == BENCH_PROVIDERS) return yesno_provider(row);
     if (b->page == BENCH_EFFORT) return row ? b->models[row-1] : "Use configured default";
     if (b->picking == 5) return b->models[row];
-    if (b->picking >= 2) {
+    if (yesno_has_effort(b->picking)) {
         if (row < 2) return row ? "Enter model ID..." : "Use configured default";
         return b->models[row-2];
     }
@@ -432,8 +437,8 @@ static void accept(game *g)
     } else if (b->page == BENCH_MODELS) {
         if (b->picking == 5) {
             if (b->cursor < b->model_count) choose(b, b->models[b->cursor]);
-        } else if (b->picking >= 2 && !b->cursor) choose(b, "");
-        else if (b->cursor >= (b->picking < 2 ? 1 : 2)) choose(b, yesno_option(b, b->cursor));
+        } else if (yesno_has_effort(b->picking) && !b->cursor) choose(b, "");
+        else if (b->cursor >= (yesno_has_effort(b->picking) ? 2 : 1)) choose(b, yesno_option(b, b->cursor));
         else {
             b->entry[0] = 0;
             b->page = BENCH_ENTRY;

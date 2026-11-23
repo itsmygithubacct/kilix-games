@@ -1,0 +1,73 @@
+#!/usr/bin/python3 -I
+"""puzzllm-gguf-arch FILE - print a GGUF's architecture and context length.
+
+Only the metadata header is read. A file that is not GGUF prints nothing and
+exits 1, so callers treat it as an ordinary llama.cpp model and let
+llama-server report the problem.
+"""
+import struct
+import sys
+
+SIZES = {0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4, 7: 1, 10: 8, 11: 8, 12: 8}
+FORMATS = {0: "<B", 1: "<b", 2: "<H", 3: "<h", 4: "<I", 5: "<i", 6: "<f", 7: "<?",
+           10: "<Q", 11: "<q", 12: "<d"}
+
+
+def read(source, size):
+    data = source.read(size)
+    if len(data) != size:
+        raise ValueError("truncated")
+    return data
+
+
+def text(source):
+    (length,) = struct.unpack("<Q", read(source, 8))
+    if length > 1 << 20:
+        raise ValueError("oversized string")
+    return read(source, length).decode("utf-8", "replace")
+
+
+def value(source, kind):
+    if kind == 8:
+        return text(source)
+    if kind == 9:
+        inner, count = struct.unpack("<IQ", read(source, 12))
+        for _ in range(count):
+            if inner == 8:
+                text(source)
+            elif inner in SIZES:
+                source.seek(SIZES[inner] * count - SIZES[inner], 1)
+                read(source, SIZES[inner])
+                break
+            else:
+                raise ValueError("nested array")
+        return None
+    if kind not in FORMATS:
+        raise ValueError("unknown type")
+    return struct.unpack(FORMATS[kind], read(source, SIZES[kind]))[0]
+
+
+def main(path):
+    with open(path, "rb") as source:
+        if read(source, 4) != b"GGUF":
+            raise ValueError("not GGUF")
+        version, _, count = struct.unpack("<IQQ", read(source, 20))
+        if version < 2 or count > 1 << 16:
+            raise ValueError("unsupported header")
+        info = {}
+        for _ in range(count):
+            key = text(source)
+            (kind,) = struct.unpack("<I", read(source, 4))
+            info[key] = value(source, kind)
+    arch = info.get("general.architecture")
+    if not isinstance(arch, str) or not arch:
+        raise ValueError("no architecture")
+    context = info.get(f"{arch}.context_length")
+    print(arch, context if isinstance(context, int) and context > 0 else 0)
+
+
+if __name__ == "__main__":
+    try:
+        main(sys.argv[1])
+    except (IndexError, OSError, ValueError, struct.error):
+        sys.exit(1)

@@ -44,6 +44,9 @@
 #   PUZZLLM_COMPUTE       auto, cpu, or gpu
 #   PUZZLLM_GPU=DEVICE    run the model on a llama.cpp device such as Vulkan1
 #                         (GPU device nodes are then mounted); default CPU
+#   PUZZLLM_KILIX_CHAT    kilix-chat launcher, which serves a text diffusion
+#                         GGUF (LLaDA, Dream, RND1) in place of llama-server
+#   PUZZLLM_DIFFUSION_CLI llama-diffusion-cli; its directory is mounted
 set -u
 
 here=$(dirname "$(readlink -f "$0")")
@@ -174,9 +177,43 @@ find_model() {
     [ -f "$dir/Qwen3.5-0.8B-Q8_0.gguf" ] && printf '%s\n' "$dir/Qwen3.5-0.8B-Q8_0.gguf"
 }
 
+find_kilix_chat() {
+    local c
+    for c in "${PUZZLLM_KILIX_CHAT:-}" "$here/../third_party/kilix-chat/kilix-chat" \
+             "$(command -v kilix-chat 2>/dev/null)"; do
+        [ -n "$c" ] && [ -x "$c" ] && { readlink -f "$c"; return; }
+    done
+}
+
+find_diffusion_cli() {
+    local c dir
+    if [ -n "${PUZZLLM_DIFFUSION_CLI:-}" ]; then printf '%s\n' "$PUZZLLM_DIFFUSION_CLI"; return; fi
+    command -v llama-diffusion-cli 2>/dev/null && return
+    dir=${PUZZLLM_DIFFUSION_MODELS:-${XDG_DATA_HOME:-$HOME/.local/share}/puzzllm/diffusion}
+    for c in $(ls -1d "$dir"/llama-*/ 2>/dev/null | sort -rV); do
+        [ -x "$c/llama-diffusion-cli" ] && { printf '%s\n' "${c%/}/llama-diffusion-cli"; return; }
+    done
+}
+
 omp_bin=$(find_omp)
 llama_bin=$(find_llama)
 model=$(find_model)
+# A text diffusion GGUF cannot be loaded by llama-server; kilix-chat serves it.
+diffusion=0 kilix_chat= diffusion_cli= max_tokens=4096
+if [ -z "${PUZZLLM_OLLAMA_MODEL:-}" ] && [ -n "$model" ] && [ -f "$model" ] &&
+   read -r model_arch model_context < <("$here/puzzllm-gguf-arch" "$model" 2>/dev/null); then
+    case "$model_arch" in
+        llada|llada-moe|dream|rnd1)
+            diffusion=1
+            kilix_chat=$(find_kilix_chat)
+            diffusion_cli=$(find_diffusion_cli)
+            max_tokens=512
+            [ -z "${PUZZLLM_MODEL_ID:-}" ] && model_id=$(basename "$model" .gguf)
+            # Never offer omp more context than the model was trained for.
+            [ "$model_context" -gt 0 ] && [ "$ctx" -gt "$model_context" ] && ctx=$model_context
+            ;;
+    esac
+fi
 
 mode=${1:-}
 [ $# -gt 0 ] && shift
@@ -192,6 +229,8 @@ fi
 if [ "$mode" = paths ]; then
     printf 'state=%s\nomp=%s\nllama_server=%s\nmodel=%s\nmodel_id=%s\n' \
         "$state" "${omp_bin:-}" "${llama_bin:-}" "${model:-}" "$model_id"
+    printf 'diffusion=%s\nkilix_chat=%s\ndiffusion_cli=%s\nctx=%s\n' \
+        "$diffusion" "$kilix_chat" "$diffusion_cli" "$ctx"
     exit 0
 fi
 
@@ -302,8 +341,15 @@ agent|agent-exec)
            --chdir "$box_home")
     [ "$harness" = omp ] && [ -n "$omp_bin" ] && [ -x "$omp_bin" ] &&
         args+=(--ro-bind "$(readlink -f "$omp_bin")" /opt/puzzllm/bin/omp)
-    [ -z "$ollama" ] && [ -n "$llama_bin" ] && [ -x "$llama_bin" ] &&
+    [ -z "$ollama" ] && [ "$diffusion" = 0 ] && [ -n "$llama_bin" ] && [ -x "$llama_bin" ] &&
         args+=(--ro-bind "$(dirname "$(readlink -f "$llama_bin")")" /opt/puzzllm/llama)
+    if [ -z "$ollama" ] && [ "$diffusion" = 1 ] && [ -n "$kilix_chat" ] && [ -n "$diffusion_cli" ]; then
+        args+=(--ro-bind "$(dirname "$kilix_chat")" /opt/puzzllm/kilix-chat
+               --ro-bind "$(dirname "$(readlink -f "$diffusion_cli")")" /opt/puzzllm/diffusion
+               --setenv PUZZLLM_DIFFUSION 1
+               --setenv PUZZLLM_MAX_TOKENS "$max_tokens"
+               --setenv KILIX_CHAT_DIFFUSION_CLI /opt/puzzllm/diffusion/llama-diffusion-cli)
+    fi
     [ -z "$ollama" ] && [ -n "$model" ] && [ -f "$model" ] &&
         args+=(--ro-bind "$(readlink -f "$model")" /opt/puzzllm/model.gguf)
     args+=(--ro-bind "$here/puzzllm-agent-init" /opt/puzzllm/bin/puzzllm-agent-init
@@ -556,6 +602,11 @@ agent)
                --ro-bind "$here/puzzllm-ollama" /opt/puzzllm/bin/puzzllm-ollama
                --ro-bind "$here/puzzllm-ollama-prompt.txt" /opt/puzzllm/ollama-prompt.txt
                --setenv PUZZLLM_OLLAMA_MODEL "$ollama")
+    elif [ "$diffusion" = 1 ]; then
+        model_name="${model##*/} (diffusion)"
+        [ -n "$kilix_chat" ] || die "kilix-chat not found (set PUZZLLM_KILIX_CHAT); it serves diffusion models"
+        [ -n "$diffusion_cli" ] && [ -x "$diffusion_cli" ] ||
+            die "llama-diffusion-cli not found (set PUZZLLM_DIFFUSION_CLI); build it from llama.cpp"
     else
         [ -n "$llama_bin" ] && [ -x "$llama_bin" ] ||
             die "llama-server not found (set PUZZLLM_LLAMA_SERVER)"
@@ -563,11 +614,11 @@ agent)
             die "Qwen 3.5 weights not found (set PUZZLLM_MODEL); nothing is downloaded"
     fi
     if [ "$harness" = pi ]; then
-        python3 - "$agent_state/models.json" "$port" "$model_id" "$model_name" "$ctx" "$reasoning" <<'PY' ||
+        python3 - "$agent_state/models.json" "$port" "$model_id" "$model_name" "$ctx" "$reasoning" "$max_tokens" <<'PY' ||
 import json
 import sys
 
-path, port, model_id, name, context, reasoning = sys.argv[1:]
+path, port, model_id, name, context, reasoning, max_tokens = sys.argv[1:]
 provider = {
     "baseUrl": f"http://127.0.0.1:{port}/v1",
     "api": "openai-completions",
@@ -575,7 +626,7 @@ provider = {
     "compat": {"supportsStore": False, "supportsDeveloperRole": False,
                "supportsReasoningEffort": False, "maxTokensField": "max_tokens"},
     "models": [{"id": model_id, "name": name, "reasoning": reasoning == "true",
-                "input": ["text"], "contextWindow": int(context), "maxTokens": 4096}],
+                "input": ["text"], "contextWindow": int(context), "maxTokens": int(max_tokens)}],
 }
 with open(path, "w", encoding="utf-8") as config:
     json.dump({"providers": {"puzzllm-local": provider}}, config, indent=2)
@@ -597,7 +648,7 @@ providers:
         reasoning: $reasoning
         input: [text]
         contextWindow: $ctx
-        maxTokens: 4096
+        maxTokens: $max_tokens
 EOF
     # A fresh omp profile opens a setup wizard that offers cloud sign-ins;
     # mark setup done (omp's own setupVersion key) so it starts at its prompt.

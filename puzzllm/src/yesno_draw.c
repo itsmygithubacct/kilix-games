@@ -112,7 +112,7 @@ static void picker(sr_canvas *c, const yesno_bench *b)
     draw_text(c, PAD, 56, title, AQUA, 1);
     if (b->page == BENCH_ENTRY) {
         const char *caption = b->picking == 0 ? "Ollama model tag (missing models are pulled on Start)" :
-                              b->picking == 1 ? "Path to a GGUF model file" : "Model ID";
+                              yesno_gguf(b->picking) ? "Path to a GGUF model file" : "Model ID";
         draw_text(c, PAD, 100, caption, MUTED, 1);
         draw_fill(c, PAD, 131, r.w, 46, PANEL, 1);
         draw_stroke(c, PAD, 131, r.w, 46, 1, AQUA, 1);
@@ -138,7 +138,7 @@ static void picker(sr_canvas *c, const yesno_bench *b)
         if (selected) draw_fill(c, r.x, y, 3, BENCH_ROW_H-1, AQUA, 1);
         const char *option = yesno_option(b, i);
         /* Keep the distinguishing filename visible for long absolute paths. */
-        const char *leaf = b->page == BENCH_MODELS && b->picking == 1 && i ? strrchr(option, '/') : NULL;
+        const char *leaf = b->page == BENCH_MODELS && yesno_gguf(b->picking) && i ? strrchr(option, '/') : NULL;
         if (leaf && draw_text_width(option) > r.w-36) option = leaf+1;
         line(c, r.x+14, y+4, r.w-28, option, selected ? INK : MUTED, false);
     }
@@ -224,7 +224,7 @@ static void records(sr_canvas *c, const yesno_bench *b)
             else snprintf(text, sizeof text, "%s", flagged ? "- !" : "-");
             draw_text(c, cols[0], y, text, flagged ? FLAG : GOLD, 1);
             const char *model = s->model;
-            const char *leaf = !strcmp(s->provider, "llama.cpp") ? strrchr(model, '/') : NULL;
+            const char *leaf = !strncmp(s->provider, "llama.cpp", 9) ? strrchr(model, '/') : NULL;
             snprintf(text, sizeof text, "%s / %s", *s->provider ? s->provider : "Unknown",
                      leaf ? leaf+1 : *model ? model : "Unrecorded default");
             line(c, cols[1], y, cols[2]-cols[1]-8, text, flagged ? FLAG : INK, false);
@@ -358,7 +358,7 @@ void yesno_draw(sr_canvas *c, const yesno_bench *b)
     draw_disc(c, c->w-PAD-width-13, 28, 4, 4, b->status == BENCH_FAILED ? RED : AQUA, 1);
     draw_text(c, c->w-PAD-width, 20, state, INK, 1);
     char text[1100], choice[512];
-    const char *model = b->provider == 1 ? strrchr(b->model, '/') : NULL;
+    const char *model = yesno_gguf(b->provider) ? strrchr(b->model, '/') : NULL;
     model = model ? model+1 : b->model;
     snprintf(choice, sizeof choice, "%s%s%.420s%s%s", yesno_provider(b->provider), *model ? " / " : "", model,
              b->effort[0] ? " / " : "", b->effort);

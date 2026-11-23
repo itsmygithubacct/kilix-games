@@ -322,6 +322,29 @@ KILIX_LLM_MODELS_DIR=$models PUZZLLM_FETCH_FIXTURE_ID=fixture \
     "$fetch" gguf fixture > "$scratch/out"; rc=$?
 [ "$rc" -eq 2 ] && grep -q 'does not match' "$scratch/out" &&
     pass "a different file with the suggested name is left in place" || fail "gguf mismatch rc=$rc"
+diffusion=$scratch/fetch-diffusion
+PUZZLLM_DIFFUSION_MODELS=$diffusion KILIX_LLM_MODELS_DIR=$models PUZZLLM_FETCH_FIXTURE_ID=fixture \
+    PUZZLLM_FETCH_FIXTURE_FILE=tiny-diffusion.gguf PUZZLLM_FETCH_FIXTURE_BYTES=$bytes \
+    PUZZLLM_FETCH_FIXTURE_SHA=$sha PUZZLLM_FETCH_FIXTURE_URL=$url \
+    "$fetch" diffusion fixture > "$scratch/out"; rc=$?
+[ "$rc" -eq 0 ] && grep -qx 'saved tiny-diffusion.gguf' "$scratch/out" &&
+    [ "$(cat "$diffusion/tiny-diffusion.gguf")" = "puzzllm-fetch-ok" ] && [ ! -e "$models/tiny-diffusion.gguf" ] &&
+    pass "a diffusion GGUF is saved into the diffusion folder" || fail "diffusion fetch rc=$rc $(cat "$scratch/out")"
+out=$(env -u PUZZLLM_DIFFUSION_MODELS XDG_DATA_HOME="$scratch/xdg" PUZZLLM_FETCH_FIXTURE_ID=fixture \
+    PUZZLLM_FETCH_FIXTURE_FILE=tiny-diffusion.gguf PUZZLLM_FETCH_FIXTURE_BYTES=$bytes \
+    PUZZLLM_FETCH_FIXTURE_SHA=$sha PUZZLLM_FETCH_FIXTURE_URL=$url "$fetch" diffusion fixture); rc=$?
+[ "$rc" -eq 0 ] && [ -f "$scratch/xdg/puzzllm/diffusion/tiny-diffusion.gguf" ] &&
+    pass "diffusion downloads default to the folder kilix-chat and the Bench search" || fail "diffusion default rc=$rc $out"
+# A stand-in curl keeps a broken id check from starting a real download.
+mkdir -p "$scratch/nocurl"
+printf '#!/bin/sh\nexit 7\n' > "$scratch/nocurl/curl"
+chmod 755 "$scratch/nocurl/curl"
+PATH="$scratch/nocurl:$PATH" PUZZLLM_DIFFUSION_MODELS=$diffusion "$fetch" diffusion qwen3.5-0.8b > "$scratch/out"; rc=$?
+[ "$rc" -eq 2 ] && grep -qx 'unknown diffusion model' "$scratch/out" &&
+    pass "a chat GGUF id is not a diffusion download" || fail "diffusion chat id rc=$rc"
+for id in llada-moe-7b-a1b llada-1.5 dream-coder-7b; do
+    grep -q "^        $id)\$" "$fetch" || fail "no pinned diffusion download $id"
+done
 "$fetch" gguf nope > "$scratch/out"; rc=$?
 [ "$rc" -eq 2 ] && grep -q 'unknown llama.cpp model' "$scratch/out" &&
     pass "an unknown GGUF id is refused" || fail "unknown gguf rc=$rc"
@@ -369,6 +392,33 @@ PUZZLLM_KILIX_LISTEN=unix:@kilix-1 KITTY_LISTEN_ON=unix:@kilix-1 \
 [ "$rc" -eq 2 ] && grep -q 'not this sandbox Kilix' "$scratch/out" &&
     pass "Kilix send refuses a desktop listen socket" ||
     fail "kilix send rc=$rc $(cat "$scratch/out")"
+
+# Chat with a model: kilix-chat opens in a new tab of the game's Kilix.
+mkdir -p "$scratch/chat"
+printf '#!/bin/sh\nprintf "%%s\\n" "$@" > "%s/chat/kitten-args"\n' "$scratch" > "$scratch/chat/kitten"
+printf '#!/bin/sh\nexit 0\n' > "$scratch/chat/kilix-chat"
+chmod 755 "$scratch/chat/kitten" "$scratch/chat/kilix-chat"
+out=$(env -u KILIX_CHAT_MODELS -u OLLAMA_HOST KITTY_LISTEN_ON=unix:@host-kilix PUZZLLM_KITTEN="$scratch/chat/kitten" \
+      PUZZLLM_KILIX_CHAT="$scratch/chat/kilix-chat" PUZZLLM_GPU=Vulkan1 "$here/libexec/puzzllm-chat"); rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "Opened kilix-chat in a new tab." ] &&
+    [ "$(tr '\n' ' ' < "$scratch/chat/kitten-args")" = "@ --to unix:@host-kilix launch --type=tab --tab-title=kilix-chat --cwd=$HOME --env PUZZLLM_GPU=Vulkan1 $(readlink -f "$scratch/chat/kilix-chat") " ] &&
+    pass "Chat opens kilix-chat in a new tab with the GPU setting" ||
+    fail "chat rc=$rc $out $(cat "$scratch/chat/kitten-args" 2>/dev/null)"
+rm -f "$scratch/chat/kitten-args"
+out=$(env -u KITTY_LISTEN_ON PUZZLLM_KITTEN="$scratch/chat/kitten" PUZZLLM_KILIX_CHAT="$scratch/chat/kilix-chat" \
+      "$here/libexec/puzzllm-chat"); rc=$?
+[ "$rc" -eq 1 ] && [ "$out" = "Chat opens in a Kilix tab. Outside Kilix, run kilix-chat in a terminal." ] &&
+    [ ! -e "$scratch/chat/kitten-args" ] && pass "Chat outside Kilix explains how to run kilix-chat" ||
+    fail "chat outside Kilix rc=$rc $out"
+out=$(PATH=/usr/bin:/bin PUZZLLM_KILIX_CHAT= KITTY_LISTEN_ON=unix:@host-kilix PUZZLLM_KITTEN="$scratch/chat/kitten" \
+      "$here/libexec/puzzllm-chat"); rc=$?
+[ "$rc" -eq 1 ] && [ "$out" = "Install kilix-chat to chat with a model." ] && [ ! -e "$scratch/chat/kitten-args" ] &&
+    pass "Chat without kilix-chat says to install it" || fail "chat without kilix-chat rc=$rc $out"
+printf '#!/bin/sh\nexit 1\n' > "$scratch/chat/kitten"
+out=$(KITTY_LISTEN_ON=unix:@host-kilix PUZZLLM_KITTEN="$scratch/chat/kitten" \
+      PUZZLLM_KILIX_CHAT="$scratch/chat/kilix-chat" "$here/libexec/puzzllm-chat"); rc=$?
+[ "$rc" -eq 1 ] && [ "$out" = "Could not open a Kilix tab for kilix-chat." ] &&
+    pass "a refused tab launch is reported" || fail "refused chat launch rc=$rc $out"
 
 echo "test-cli: $fails failed"
 [ $fails -eq 0 ]

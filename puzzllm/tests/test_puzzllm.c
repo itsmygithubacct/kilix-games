@@ -1585,6 +1585,23 @@ static void test_bench_menu(void)
     char err[256], state[2300];
     sub(state, sizeof state, "bench-menu");
     CHECK(game_init(&G, ".", state, false, err, sizeof err), "bench menu: %s", err);
+    char helper[2400], marker[2400], script[5200];
+    snprintf(helper, sizeof helper, "%s/chat-helper", state);
+    snprintf(marker, sizeof marker, "%s/chat-ran", state);
+    int length = snprintf(script, sizeof script, "#!/bin/sh\n: > '%s'\necho 'Opened kilix-chat in a new tab.'\n", marker);
+    write_file(helper, script, (size_t)length);
+    chmod(helper, 0700);
+    setenv("PUZZLLM_CHAT", helper, 1);
+    menu_to(MENU_CHAT);
+    CHECK(G.menu.page == MENU_PAGE_MAIN && G.menu.selected == MENU_CHAT, "the main menu offers Chat");
+    menu_press(KEY_ENTER);
+    CHECK(access(marker, F_OK) == 0 && !strcmp(G.menu.notice, "Opened kilix-chat in a new tab.") && G.menu.open,
+          "Chat runs the chat helper and shows its answer: %s", G.menu.notice);
+    write_file(helper, "#!/bin/sh\nexit 1\n", 18);
+    menu_press(KEY_ENTER);
+    CHECK(!strcmp(G.menu.notice, "Could not open kilix-chat."), "a silent helper failure is reported");
+    unsetenv("PUZZLLM_CHAT");
+    menu_close();
     menu_to(MENU_BENCH);
     menu_press(KEY_ENTER);
     CHECK(G.menu.page == MENU_PAGE_BENCH && !G.bench.open && G.menu.selected == MENU_YESNO,
@@ -1596,8 +1613,9 @@ static void test_bench_menu(void)
           "Bench opens a standalone monitor before starting a run");
     rect pick = yesno_button_rect(L.w, L.h, BENCH_MODEL);
     game_pointer(&G, pick.x + 3, pick.y + 3, POINTER_DOWN);
-    CHECK(G.bench.page == BENCH_PROVIDERS && yesno_options(&G.bench) == 6,
-          "mouse opens six providers including the local Kilix models");
+    CHECK(G.bench.page == BENCH_PROVIDERS && yesno_options(&G.bench) == 7 &&
+          !strcmp(yesno_option(&G.bench, 6), "llama.cpp diffusion"),
+          "mouse opens seven providers including the Kilix and llama.cpp diffusion models");
     for (int i = 0; i < 5; i++) {
         menu_press(KEY_HOME);
         for (int j = 0; j < i; j++) menu_press(KEY_DOWN);
@@ -1614,6 +1632,30 @@ static void test_bench_menu(void)
               !G.use_codex && !G.use_grok && !G.use_claude, "bench model choice is independent of the room");
         menu_press('m');
     }
+    menu_press(KEY_END);
+    menu_press(KEY_ENTER);
+    CHECK(G.bench.page == BENCH_MODELS && G.bench.picking == 6 && !yesno_has_effort(6) && yesno_gguf(6),
+          "the last provider opens the llama.cpp diffusion GGUF files");
+    char *diffusion[] = {"printf", "%s\n", "{\"event\":\"model\",\"model\":\"/models/diffusion/LLaDA-MoE.gguf\"}", NULL};
+    CHECK(pty_spawn(&G.bench.catalog.process, diffusion, NULL, 80, 24), "load one diffusion GGUF");
+    drain_bench_stream(&G.bench.catalog);
+    CHECK(yesno_options(&G.bench) == 2 && !strcmp(yesno_option(&G.bench, 0), "Enter a GGUF file path...") &&
+          !strcmp(yesno_option(&G.bench, 1), "/models/diffusion/LLaDA-MoE.gguf"),
+          "diffusion lists its GGUF files after the path entry row");
+    menu_press(KEY_END);
+    menu_press(KEY_ENTER);
+    CHECK(G.bench.provider == 6 && G.bench.page == BENCH_WATCH && !G.bench.effort[0] &&
+          !strcmp(G.bench.model, "/models/diffusion/LLaDA-MoE.gguf"), "diffusion selects the listed GGUF");
+    menu_press('e');
+    CHECK(G.bench.page == BENCH_WATCH, "diffusion models have no reasoning effort");
+    menu_press('m');
+    menu_press(KEY_ENTER);
+    menu_press(KEY_ENTER);
+    CHECK(G.bench.page == BENCH_ENTRY, "diffusion accepts a typed GGUF path");
+    game_paste(&G, (const unsigned char *)"/elsewhere/dream.gguf", 21, true);
+    menu_press(KEY_ENTER);
+    CHECK(G.bench.provider == 6 && !strcmp(G.bench.model, "/elsewhere/dream.gguf"), "diffusion keeps the typed path");
+    menu_press('m');
     for (int i = 2; i < 5; i++) {
         menu_press(KEY_HOME);
         for (int j = 0; j < i; j++) menu_press(KEY_DOWN);
@@ -1953,7 +1995,10 @@ static void cross_door(bool forward)
 static void test_between_levels(void)
 {
     char err[256], state[2300], live[2500], goal[2500], hints[2500], archive[2400], file[2500];
-    char *echo[] = {"/bin/sh", "-c", "while IFS= read -r cmd; do echo accepted-$cmd; done", NULL};
+    /* Like an agent TUI, the stand-in takes Escape as a key (an interrupt), not as line text. */
+    char *echo[] = {"/bin/sh", "-c", "e=$(printf '\\033'); while IFS= read -r cmd; do "
+                    "case $cmd in *\"$e\"*) printf 'interrupted ';; esac; "
+                    "echo accepted-$(printf %s \"$cmd\" | tr -d '\\033'); done", NULL};
     sub(state, sizeof state, "between-levels");
     CHECK(game_init(&G, ".", state, false, err, sizeof err), "between-level game: %s", err);
     CHECK(G.session_mode == SESSION_KEEP && !G.level_cleanup, "fresh saves keep the session and workspace");
@@ -1993,8 +2038,8 @@ static void test_between_levels(void)
     menu_close();
     cross_door(false);
     CHECK(G.sc.level == 0 && G.omp.pid == agent && G.shell.pid == shell &&
-          pty_has(&G.omp, "accepted-/clear") && !pty_has(&G.shell, "/clear"),
-          "the /clear option submits the command only to the same running coding process");
+          pty_has(&G.omp, "interrupted accepted-/clear") && !pty_has(&G.shell, "/clear"),
+          "the door interrupted the agent, then /clear went only to the same running coding process");
     G.use_pi = true;
     G.sc.door = 1;
     cross_door(true);
@@ -2313,6 +2358,25 @@ static void test_room_buttons(void)
         n = read(transfer[0], input, sizeof input);
         CHECK(n == (ssize_t)sizeof goal - 1 && !memcmp(input, goal, sizeof goal - 1) &&
               G.auto_sent, "Goal writes the exact instruction and Enter to the agent");
+        button = layout_room_button(BUTTON_INTERRUPT);
+        game_click(&G, button.x + 4, button.y + 4);
+        n = read(transfer[0], input, sizeof input);
+        CHECK(n == 1 && input[0] == '\033', "Interrupt sends Escape to the coding session");
+        char hello[2500];
+        snprintf(hello, sizeof hello, "%s/workspace/hello_world.txt", state);
+        unlink(hello);
+        game_poll_goal(&G);
+        CHECK(!G.sc.goal_met && read(transfer[0], input, sizeof input) < 0, "an unmet goal sends no key");
+        write_file(hello, "Hello, World!\n", 14);
+        game_poll_goal(&G);
+        n = read(transfer[0], input, sizeof input);
+        CHECK(G.sc.goal_met && n == 1 && input[0] == '\033', "opening the door interrupts the coding session");
+        game_poll_goal(&G);
+        CHECK(G.sc.goal_met && read(transfer[0], input, sizeof input) < 0, "an open door interrupts only once");
+        game_enter_level(&G, 0);
+        game_poll_goal(&G);
+        CHECK(G.sc.goal_met && read(transfer[0], input, sizeof input) < 0,
+              "entering an already solved room does not interrupt the agent");
         close(transfer[0]);
         close(transfer[1]);
         G.omp.fd = master;
@@ -2622,6 +2686,10 @@ static void test_downloads(void)
         "  printf 'saved Qwen3.5-0.8B-Q8_0.gguf\\n'\n"
         "  exit 0\n"
         "fi\n"
+        "if [ \"$1\" = diffusion ]; then\n"
+        "  printf 'saved %s\\n' \"$2\"\n"
+        "  exit 0\n"
+        "fi\n"
         "if [ \"$1\" = ollama ]; then\n"
         "  printf 'pulled %s\\n' \"$2\"\n"
         "  exit 0\n"
@@ -2703,6 +2771,45 @@ static void test_downloads(void)
     menu_press(KEY_ENTER);
     CHECK(G.menu.gguf_count == 2 && !strcmp(G.menu.gguf[1].name, "gemma-4-E2B-it-Q4_K_M.gguf"),
           "choosing the lazy Gemma download makes the verified GGUF selectable");
+
+    static const struct { int item; const char *id; } diffusion[] = {
+        {MENU_DL_LLADA_MOE, "llada-moe-7b-a1b"}, {MENU_DL_LLADA_15, "llada-1.5"},
+        {MENU_DL_DREAM_CODER, "dream-coder-7b"},
+    };
+    for (size_t i = 0; i < sizeof diffusion / sizeof diffusion[0]; i++) {
+        char expected[64], body[512] = {0};
+        menu_to(diffusion[i].item);
+        CHECK(G.menu.page == MENU_PAGE_DOWNLOAD && G.menu.selected == diffusion[i].item,
+              "Downloads offers the %s diffusion model", diffusion[i].id);
+        menu_press(KEY_ENTER);
+        wait_fetch();
+        FILE *f = fopen(log, "r");
+        if (f) { fread(body, 1, sizeof body - 1, f); fclose(f); }
+        snprintf(expected, sizeof expected, "diffusion\n%s\n", diffusion[i].id);
+        CHECK(strstr(body, expected) && strstr(G.menu.notice, diffusion[i].id),
+              "the %s download asks the host fetcher for a diffusion model", diffusion[i].id);
+    }
+
+    char diffusion_dir[2400], diffusion_file[2500];
+    snprintf(diffusion_dir, sizeof diffusion_dir, "%s/diffusion", state);
+    snprintf(diffusion_file, sizeof diffusion_file, "%s/A-llada.gguf", diffusion_dir);
+    mkdir(diffusion_dir, 0700);
+    write_file(diffusion_file, "x", 1);
+    setenv("PUZZLLM_DIFFUSION_MODELS", diffusion_dir, 1);
+    menu_to(MENU_LOCAL);
+    menu_press(KEY_ENTER);
+    CHECK(G.menu.gguf_count == 3 && !G.menu.gguf[0].diffusion && !G.menu.gguf[1].diffusion &&
+          G.menu.gguf[2].diffusion && !strcmp(G.menu.gguf[2].name, "A-llada.gguf"),
+          "diffusion GGUFs follow the llama.cpp GGUFs in the model list");
+    G.menu.model_selected = 2;
+    menu_press(KEY_ENTER);
+    CHECK(!strcmp(G.llama_model, diffusion_file), "choosing a diffusion GGUF passes its own folder's path: %s",
+          G.llama_model);
+    menu_to(MENU_LOCAL);
+    menu_press(KEY_ENTER);
+    CHECK(G.menu.model_selected == 2, "the model list reopens on the chosen diffusion GGUF");
+    menu_press(KEY_ESCAPE);
+    unsetenv("PUZZLLM_DIFFUSION_MODELS");
 
     unsetenv("KILIX_LLM_MODELS_DIR");
     unsetenv("PUZZLLM_FETCH");
