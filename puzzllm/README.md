@@ -428,8 +428,9 @@ into `~/.local/share/puzzllm/diffusion/` (or `$PUZZLLM_DIFFUSION_MODELS`),
 where the Bench's **llama.cpp diffusion** provider and kilix-chat find them.
 `llama-diffusion-cli` is not downloaded. Build it from llama.cpp.
 
-**Chat with a model** on the main menu opens kilix-chat in a new tab of
-the Kilix that runs the game. It chats with the diffusion models above,
+**Chat with a model** on the main menu opens
+[kilix-chat](https://github.com/itsmygithubacct/kilix-chat), bundled as
+`third_party/kilix-chat`, in a new tab of the Kilix that runs the game. It chats with the diffusion models above,
 showing each reply as it denoises, and with your Ollama models. The chat
 runs on the host, outside the game's sandbox. The game finds kilix-chat
 through `$PUZZLLM_KILIX_CHAT`, `third_party/kilix-chat`, or PATH. The tab

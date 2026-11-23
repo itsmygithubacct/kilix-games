@@ -8,3 +8,6 @@
 	path = puzzllm/third_party/kilix-bench
 	url = https://github.com/itsmygithubacct/kilix-bench.git
 	branch = work/0.2.4-yesno
+[submodule "puzzllm/third_party/kilix-chat"]
+	path = puzzllm/third_party/kilix-chat
+	url = https://github.com/itsmygithubacct/kilix-chat.git

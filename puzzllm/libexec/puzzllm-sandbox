@@ -179,8 +179,12 @@ find_model() {
 
 find_kilix_chat() {
     local c
-    for c in "${PUZZLLM_KILIX_CHAT:-}" "$here/../third_party/kilix-chat/kilix-chat" \
-             "$(command -v kilix-chat 2>/dev/null)"; do
+    # A set PUZZLLM_KILIX_CHAT is the only place looked, like puzzllm-chat.
+    if [ -n "${PUZZLLM_KILIX_CHAT:-}" ]; then
+        [ -x "$PUZZLLM_KILIX_CHAT" ] && readlink -f "$PUZZLLM_KILIX_CHAT"
+        return
+    fi
+    for c in "$here/../third_party/kilix-chat/kilix-chat" "$(command -v kilix-chat 2>/dev/null)"; do
         [ -n "$c" ] && [ -x "$c" ] && { readlink -f "$c"; return; }
     done
 }

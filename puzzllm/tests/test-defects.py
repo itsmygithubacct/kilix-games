@@ -547,6 +547,12 @@ DEFECTS = [
     ("omp is offered more context than the diffusion model has",
      "libexec/puzzllm-sandbox", '[ "$ctx" -gt "$model_context" ] && ctx=$model_context',
      '[ "$ctx" -lt 0 ] && ctx=$model_context', "test-sandbox", "kilix-chat"),
+    ("a set but missing PUZZLLM_KILIX_CHAT falls back to the bundled copy",
+     "libexec/puzzllm-sandbox", '        [ -x "$PUZZLLM_KILIX_CHAT" ] && readlink -f "$PUZZLLM_KILIX_CHAT"\n        return\n',
+     '        [ -x "$PUZZLLM_KILIX_CHAT" ] && { readlink -f "$PUZZLLM_KILIX_CHAT"; return; }\n',
+     "test-sandbox", "kilix-chat"),
+    ("Chat ignores the bundled kilix-chat",
+     "libexec/puzzllm-chat", '"$here/../third_party/kilix-chat/kilix-chat" ', "", "test-cli"),
 ]
 
 

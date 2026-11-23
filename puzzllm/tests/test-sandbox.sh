@@ -158,7 +158,7 @@ PY
     grep -q 'kilix-chat serving tiny-llada on http://127.0.0.1:' "$PUZZLLM_STATE/agent/puzzllm/llama-server.log" &&
         pass "kilix-chat serves on the sandbox loopback" ||
         fail "kilix-chat log: $(tail -n 5 "$PUZZLLM_STATE/agent/puzzllm/llama-server.log" | tr '\n' ' ')"
-    PUZZLLM_KILIX_CHAT=/nonexistent PATH=/usr/bin:/bin \
+    PUZZLLM_KILIX_CHAT=$scratch/absent-kilix-chat PATH=/usr/bin:/bin \
     PUZZLLM_DIFFUSION_CLI=$here/tests/fake-diffusion/llama-diffusion-cli \
     PUZZLLM_OMP=$here/tests/fake-omp PUZZLLM_MODEL=$diffusion_model \
         timeout 30 "$sandbox" agent < /dev/null > "$scratch/diffusion-missing.log" 2>&1

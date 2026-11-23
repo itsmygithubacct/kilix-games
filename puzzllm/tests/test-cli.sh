@@ -410,10 +410,15 @@ out=$(env -u KITTY_LISTEN_ON PUZZLLM_KITTEN="$scratch/chat/kitten" PUZZLLM_KILIX
 [ "$rc" -eq 1 ] && [ "$out" = "Chat opens in a Kilix tab. Outside Kilix, run kilix-chat in a terminal." ] &&
     [ ! -e "$scratch/chat/kitten-args" ] && pass "Chat outside Kilix explains how to run kilix-chat" ||
     fail "chat outside Kilix rc=$rc $out"
-out=$(PATH=/usr/bin:/bin PUZZLLM_KILIX_CHAT= KITTY_LISTEN_ON=unix:@host-kilix PUZZLLM_KITTEN="$scratch/chat/kitten" \
+out=$(PATH=/usr/bin:/bin PUZZLLM_KILIX_CHAT="$scratch/chat/absent" KITTY_LISTEN_ON=unix:@host-kilix PUZZLLM_KITTEN="$scratch/chat/kitten" \
       "$here/libexec/puzzllm-chat"); rc=$?
 [ "$rc" -eq 1 ] && [ "$out" = "Install kilix-chat to chat with a model." ] && [ ! -e "$scratch/chat/kitten-args" ] &&
     pass "Chat without kilix-chat says to install it" || fail "chat without kilix-chat rc=$rc $out"
+out=$(env -u PUZZLLM_KILIX_CHAT PATH=/usr/bin:/bin KITTY_LISTEN_ON=unix:@host-kilix PUZZLLM_KITTEN="$scratch/chat/kitten" \
+      "$here/libexec/puzzllm-chat"); rc=$?
+[ "$rc" -eq 0 ] && grep -qx "$(readlink -f "$here/third_party/kilix-chat/kilix-chat")" "$scratch/chat/kitten-args" &&
+    pass "Chat runs the kilix-chat bundled in third_party" || fail "bundled chat rc=$rc $out"
+rm -f "$scratch/chat/kitten-args"
 printf '#!/bin/sh\nexit 1\n' > "$scratch/chat/kitten"
 out=$(KITTY_LISTEN_ON=unix:@host-kilix PUZZLLM_KITTEN="$scratch/chat/kitten" \
       PUZZLLM_KILIX_CHAT="$scratch/chat/kilix-chat" "$here/libexec/puzzllm-chat"); rc=$?
