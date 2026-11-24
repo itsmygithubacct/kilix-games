@@ -16,12 +16,13 @@ incorporate source files from another chess game.
 
 | Runtime files | Origin | Release processing |
 |---|---|---|
-| `assets/title.ppm` | Original pixel-art concept generated with Google Gemini | Cropped and normalized to binary PPM |
+| `assets/title.ppm` | Original pixel-art key art generated with xAI Grok image generation (2026-11-23) | Scaled to 960x540 binary PPM |
 | `assets/pieces.ppm` | Original chess-army sprite concept generated with Google Gemini | Chroma-keyed runtime atlas |
 | `assets/pieces_direction.ppm` | Gemini-generated directional study derived from the project sprite concept | Normalized directional atlas |
 | `assets/pieces_fight.ppm` | Gemini-generated battle poses using the project sprites as character references | Identity-checked and normalized fight atlas |
 | `assets/effects.ppm` | Original effects study generated with Google Gemini | Chroma-keyed runtime atlas |
-| `assets/boards/*.ppm` | Original Gemini environment concepts, edited with OpenAI image generation | Boards and checker grids removed; center-cleared and normalized to 640x360 PPM |
+| `assets/boards/<theme>.ppm` | Original Gemini environment concepts, edited with OpenAI image generation | Boards and checker grids removed; center-cleared and normalized to 640x360 PPM |
+| `assets/boards/<theme>-light.ppm`, `-dark.ppm` | Original stone, ice and metal surface textures generated with xAI Grok image generation (2026-11-23), one prompt per texture | Border cropped, scaled to 256x256 binary PPM; brightness is levelled at load time |
 
 The image-generation briefs required original retro pixel art and prohibited
 copied game sprites, screenshots, logos, recognizable copyrighted characters,
@@ -31,7 +32,7 @@ its own board there.
 
 All generated images were visually reviewed and materially prepared for the
 game through selection, layout decisions, cropping, atlas construction,
-chroma-key cleanup, and runtime conversion. Google and OpenAI are tool
+chroma-key cleanup, and runtime conversion. Google, OpenAI and xAI are tool
 providers, not authors, sponsors, or endorsers of Chess Bash.
 
 ## Audio assets

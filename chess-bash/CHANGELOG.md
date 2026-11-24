@@ -10,9 +10,9 @@ All notable user-facing changes are recorded here.
   the title menu has a View row
 - Textured stone boards with a frame for every battlefield, new title art
 - Moves are shown in algebraic notation; the top-down view has a score sheet
-- New sound effects and music generated with ElevenLabs, including new cues
-  for castling, promotion, illegal moves, draws, defeat and the menus, and a
-  second in-game track. This audio is not CC0; see `docs/asset-sources.md`
+- Distinct sound cues for castling, promotion, illegal moves, draws, defeat and
+  the menus, and an optional local audio pack under `assets/pack/` that can
+  replace any bundled sound or track
 - Take back a move with U or Backspace, including after checkmate or a draw;
   against the computer its reply goes back too
 - After the game, V hides the result banner so the final position can be seen
