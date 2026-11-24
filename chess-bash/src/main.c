@@ -578,6 +578,54 @@ done:
     return ok ? 0 : 1;
 }
 
+static double cpu_ms(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts);
+    return ts.tv_sec * 1000.0 + ts.tv_nsec / 1e6;
+}
+
+/* The interactive loop draws at 30 Hz, so composing one board frame has to
+ * cost less CPU than the frame it is shown in.  CPU time, and the best of
+ * several batches, keep a busy host from failing this. */
+static int frame_test(void)
+{
+    enum { BATCHES = 5, FRAMES = 20 };
+    const double budget_ms = 1000.0 / 30.0;
+    char asset_error[256];
+    game_init(1000, 640, 1);
+    render_init(G.W, G.H);
+    if (!render_validate_assets(asset_error, sizeof asset_error)) {
+        fprintf(stderr, "frame-test: %s\n", asset_error);
+        render_shutdown();
+        game_shutdown();
+        return 1;
+    }
+    game_start(MODE_HUMAN_HUMAN);
+    game_handle_key(KEY_ENTER);   /* a selected piece with move markers */
+    double best = 1e9;
+    for (int batch = 0; batch < BATCHES; batch++) {
+        double start = cpu_ms();
+        for (int i = 0; i < FRAMES; i++) {
+            game_tick();
+            render_frame();
+            (void)render_fb();
+        }
+        double each = (cpu_ms() - start) / FRAMES;
+        if (each < best) best = each;
+    }
+    render_shutdown();
+    game_shutdown();
+    if (best > budget_ms) {
+        printf("FAIL: a %dx%d board frame costs %.1f ms of CPU; the budget is %.1f ms\n",
+               1000, 640, best, budget_ms);
+        return 1;
+    }
+    printf("PASS: a %dx%d board frame costs %.1f ms of CPU (budget %.1f ms)\n",
+           1000, 640, best, budget_ms);
+    return 0;
+}
+
 static int sound_test(void)
 {
     bool ok = sound_init();
@@ -671,6 +719,7 @@ static void print_usage(void)
            "  --perft depth [fen]         count legal move-tree nodes (quote FEN)\n"
            "  --fallback-test             smoke-test the built-in AI without an engine\n"
            "  --render-test [seed]        dump screenshots of every game state\n"
+           "  --frame-test                check a board frame fits the frame budget\n"
            "  --sound-test                play every sound cue and exit\n"
            "  --version                   print version\n"
            "  --help                      this text\n\n"
@@ -908,6 +957,9 @@ int main(int argc, char **argv)
             return 2;
         }
         return render_test(seed);
+    }
+    if (argc == 2 && !strcmp(argv[1], "--frame-test")) {
+        return frame_test();
     }
     if (argc == 2 && !strcmp(argv[1], "--sound-test")) {
         return sound_test();

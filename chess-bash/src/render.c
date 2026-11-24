@@ -11,6 +11,11 @@ static int W, H;
 static Bitmap title_img, board_bg_img, piece_atlas, piece_direction_atlas;
 static Bitmap fight_atlas, effect_atlas;
 static int loaded_theme = -1;
+/* The battlefield and the empty board never change between frames, so they
+ * are composed once per theme, size and view and copied back each frame. */
+static sr_canvas backdrop;
+static bool backdrop_valid;
+static bool backdrop_flipped;
 static float board_cx, board_top, tile_w, tile_h;
 static float shake_x, shake_y;   /* whole-scene impact shake, set per frame */
 
@@ -74,7 +79,10 @@ static void fill_diamond(float cx, float cy, float tw, float th, uint32_t rgb, f
 {
     float xs[4] = {cx, cx + tw * 0.5f, cx, cx - tw * 0.5f};
     float ys[4] = {cy - th * 0.5f, cy, cy + th * 0.5f, cy};
-    sr_fill_convex(&canvas, xs, ys, 4u, rgb, a);
+    /* Scanline fill: sr_fill_convex() tests every edge at every pixel of the
+     * bounding box, which made the board shadow alone cost more than a whole
+     * frame's budget. */
+    sr_fill_polygon(&canvas, xs, ys, 4u, rgb, a);
 }
 
 static void fill_triangle(float ax, float ay, float bx, float by, float cx, float cy,
@@ -146,6 +154,7 @@ void render_set_theme(int i)
     snprintf(rel, sizeof rel, "boards/%s.ppm", themes[i].file);
     board_bg_img = load_ppm(asset_path(rel));
     loaded_theme = i;
+    backdrop_valid = false;
 }
 
 static void draw_bitmap_cover_zoom(const Bitmap *b, float zoom)
@@ -627,7 +636,8 @@ static int legal_target_kind(int from, int to)
     return kind;
 }
 
-static void draw_board(void)
+/* shadow, squares and coordinates: everything a move cannot change */
+static void draw_board_base(void)
 {
     for (int layer = 0; layer < 7; layer++) {
         float a = 0.025f * (7 - layer);
@@ -667,7 +677,11 @@ static void draw_board(void)
         char lab[2] = { (char)('1' + r), 0 };
         draw_text(cx - tile_w * 0.46f, cy + tile_h * 0.14f, lab, 0xe2d4bb, 0.55f, 1);
     }
+}
 
+/* selection, last move and check: redrawn every frame over the base */
+static void draw_board_marks(void)
+{
     if (G.selected >= 0 && G.state == GS_PLAYING) {
         draw_square_overlay(G.selected, 0xfbbf24, 0.28f);
         float scx, scy;
@@ -1565,6 +1579,8 @@ void render_resize(int w, int h)
     if (w == W && h == H && fb && canvas.px) return;
     free(fb);
     sr_canvas_free(&canvas);
+    sr_canvas_free(&backdrop);
+    backdrop_valid = false;
     W = w;
     H = h;
     fb = malloc((size_t)W * H * 4);
@@ -1576,6 +1592,8 @@ void render_shutdown(void)
     free(fb);
     fb = NULL;
     sr_canvas_free(&canvas);
+    sr_canvas_free(&backdrop);
+    backdrop_valid = false;
     free_bitmap(&title_img);
     free_bitmap(&board_bg_img);
     free_bitmap(&piece_atlas);
@@ -1583,6 +1601,49 @@ void render_shutdown(void)
     free_bitmap(&fight_atlas);
     free_bitmap(&effect_atlas);
     loaded_theme = -1;
+}
+
+static void draw_battlefield(void)
+{
+    if (board_bg_img.ok) {
+        draw_bitmap_cover(&board_bg_img);
+        fill_rect(0, 0, W, H, 0x02040a, 0.14f);
+    } else {
+        clear_bg(0x101827, 0x02040a);
+        for (int i = 0; i < 160; i++) {
+            int x = (i * 977 + 31) % W;
+            int y = (i * 577 + 73) % H;
+            px_blend(x, y, (i & 3) ? 0x334155 : 0x64748b, 0.45f);
+        }
+    }
+}
+
+static void draw_backdrop(void)
+{
+    /* The impact shake moves the board against the battlefield, so those few
+     * frames are composed directly. */
+    if (shake_x != 0.0f || shake_y != 0.0f) {
+        draw_battlefield();
+        draw_board_base();
+        return;
+    }
+    bool flipped = game_view_flipped();
+    if (!backdrop_valid || backdrop_flipped != flipped ||
+        backdrop.w != W || backdrop.h != H) {
+        draw_battlefield();
+        draw_board_base();
+        backdrop_valid = false;
+        if (!backdrop.px || backdrop.w != W || backdrop.h != H) {
+            sr_canvas_free(&backdrop);
+            if (!sr_canvas_init(&backdrop, W, H))
+                return;   /* out of memory: keep composing every frame */
+        }
+        memcpy(backdrop.px, canvas.px, (size_t)W * (size_t)H * sizeof *canvas.px);
+        backdrop_flipped = flipped;
+        backdrop_valid = true;
+        return;
+    }
+    memcpy(canvas.px, backdrop.px, (size_t)W * (size_t)H * sizeof *canvas.px);
 }
 
 void render_frame(void)
@@ -1600,19 +1661,8 @@ void render_frame(void)
     setup_board_metrics();
     compute_animation();
 
-    if (board_bg_img.ok) {
-        draw_bitmap_cover(&board_bg_img);
-        fill_rect(0, 0, W, H, 0x02040a, 0.14f);
-    } else {
-        clear_bg(0x101827, 0x02040a);
-        for (int i = 0; i < 160; i++) {
-            int x = (i * 977 + 31) % W;
-            int y = (i * 577 + 73) % H;
-            uint32_t c = ((i + G.frame_count / 12) & 3) ? 0x334155 : 0x64748b;
-            px_blend(x, y, c, 0.45f);
-        }
-    }
-    draw_board();
+    draw_backdrop();
+    draw_board_marks();
     draw_scene_pieces();
     if (G.anim.active)
         draw_battle_fx();

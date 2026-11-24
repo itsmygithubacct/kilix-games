@@ -70,6 +70,7 @@ test: $(BIN) $(ENGINE_LIFECYCLE_TEST) validate-assets test-cli
 	./$(BIN) --rules-test
 	./$(BIN) --perft-test
 	./$(BIN) --fallback-test
+	./$(BIN) --frame-test
 	./$(BIN) --selftest 1337 160
 	./$(BIN) --selftest 42 300
 	./$(BIN) --selftest 7 500
@@ -122,6 +123,7 @@ test-cli: $(BIN)
 	check --rules-test extra; \
 	check --perft-test extra; \
 	check --sound-test extra; \
+	check --frame-test extra; \
 	check --version extra; \
 	check --help extra; \
 	check --bogus-option; \
