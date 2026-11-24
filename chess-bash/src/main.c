@@ -70,6 +70,24 @@ static void sleep_ms(double ms)
     nanosleep(&ts, NULL);
 }
 
+/* Game time follows the clock rather than the frame count, so a frame that
+ * takes longer than its slot does not slow the animations, the intro or the
+ * confirmation timers.  A long stall is dropped instead of being replayed. */
+enum { MAX_CATCHUP_TICKS = 8 };
+
+static int ticks_due(double elapsed_ms, double *carry_ms)
+{
+    const double tick_ms = 1000.0 * TICK_DT;
+    if (elapsed_ms > 0) *carry_ms += elapsed_ms;
+    int due = (int)(*carry_ms / tick_ms);
+    if (due > MAX_CATCHUP_TICKS) {
+        *carry_ms = 0;
+        return MAX_CATCHUP_TICKS;
+    }
+    *carry_ms -= due * tick_ms;
+    return due;
+}
+
 static char render_output_dir[768] = ".";
 static bool render_output_ready;
 
@@ -405,6 +423,23 @@ static int rules_test(void)
     EXPECT(G.state == GS_TITLE, "second N confirms leaving the game");
 
     G.human_white = true;
+
+    /* Game time follows elapsed time, whatever the frame rate. */
+    double carry = 0;
+    EXPECT(ticks_due(1000.0 / 30.0 + 0.01, &carry) == 2,
+           "an on-time 30 Hz frame advances two ticks");
+    carry = 0;
+    EXPECT(ticks_due(2000.0 / 30.0 + 0.01, &carry) == 4,
+           "a frame that took twice as long advances twice as far");
+    carry = 0;
+    int ticked = 0;
+    for (int i = 0; i < 90; i++)
+        ticked += ticks_due(1000.0 / 90.0, &carry);
+    EXPECT(ticked >= 59 && ticked <= 60,
+           "short frames still add up to sixty ticks a second");
+    carry = 0;
+    EXPECT(ticks_due(5000.0, &carry) == MAX_CATCHUP_TICKS && carry == 0,
+           "a long stall is dropped, not replayed");
     game_shutdown();
 #undef EXPECT
     if (failures) {
@@ -679,6 +714,7 @@ static int run_interactive(void)
 
     const double frame_ms = 1000.0 / 30.0;
     double next = now_ms();
+    double last = next, carry = 0;
     while (!G.quit) {
         int key;
         while ((key = term_poll_key()) != -1)
@@ -691,8 +727,11 @@ static int run_interactive(void)
             render_resize(nw, nh);
         }
 
-        game_tick();
-        game_tick();
+        double now = now_ms();
+        int due = ticks_due(now - last, &carry);
+        last = now;
+        for (int i = 0; i < due; i++)
+            game_tick();
         render_frame();
         term_present(render_fb(), G.W, G.H);
 
