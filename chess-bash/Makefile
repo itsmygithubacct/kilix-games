@@ -187,7 +187,7 @@ validate-assets: $(ASSET_FILES)
 			[ "$$rate" = 44100 ] && [ "$$bits" = 16 ] || \
 			{ echo "unsupported WAV format: $$file (need mono 44.1 kHz PCM16)" >&2; return 1; }; \
 	}; \
-	check_ppm assets/title.ppm 640 360; \
+	check_ppm assets/title.ppm 960 540; \
 	check_ppm assets/pieces.ppm 768 256; \
 	check_ppm assets/pieces_direction.ppm 768 512; \
 	check_ppm assets/pieces_fight.ppm 768 1024; \

@@ -1643,13 +1643,14 @@ static void draw_title(void)
 {
     float zoom = 1.02f + 0.045f * sinf(G.title_t * 0.11f);
     draw_bitmap_cover_zoom(&title_img, zoom);
-    fill_rect(0, 0, W, H, 0x02040a, 0.42f);
-    fill_rect(0, 0, W, 92, 0x02040a, 0.48f);
+    fill_rect(0, 0, W, H, 0x02040a, 0.16f);
+    for (int i = 0; i < 6; i++)   /* a soft band behind the title */
+        fill_rect(0, 0, W, 60 + i * 9, 0x02040a, 0.13f);
     draw_text_banner(W / 2.0f, 20, "CHESS BASH", 0xfacc15, 1, W >= 820 ? 4 : 3);
     draw_text_center(W / 2.0f, W >= 820 ? 84 : 72,
-                     "animated terminal chess for Kitty / kilix", 0x93c5fd, 1, 1);
+                     "animated battle chess for Kitty / kilix terminals", 0xfde68a, 1, 1);
 
-    int pw = 560, ph = 320;
+    int pw = 500, ph = 320;
     if (pw > W - 30) pw = W - 30;
     /* A short terminal gives the menu the margins instead: at 80x24 the
      * seven rows otherwise sit closer together than the font is tall. */
@@ -1658,8 +1659,12 @@ static void draw_title(void)
     int px = (W - pw) / 2;
     int py = H - ph - (compact ? 10 : 40);
     if (py < 100) py = 100;
-    fill_rect(px, py, pw, ph, 0x070a12, 0.88f);
-    fill_rect(px, py, pw, 3, 0xfacc15, 0.75f);
+    fill_rect(px - 3, py - 3, pw + 6, ph + 6, 0x000000, 0.35f);
+    fill_rect(px, py, pw, ph, 0x0b0f1a, 0.84f);
+    fill_rect(px, py, pw, 3, 0xfacc15, 0.85f);
+    fill_rect(px, py + ph - 2, pw, 2, 0xfacc15, 0.35f);
+    fill_rect(px, py, 2, ph, 0xfacc15, 0.35f);
+    fill_rect(px + pw - 2, py, 2, ph, 0xfacc15, 0.35f);
 
     char val[80];
     int row_h = (ph - 66) / MENU_COUNT;
@@ -1774,7 +1779,7 @@ bool render_validate_assets(char *error, size_t error_len)
             snprintf(error, error_len, "render framebuffer allocation failed");
         return false;
     }
-    if (!expect_bitmap(&title_img, "title.ppm", 640, 360, error, error_len) ||
+    if (!expect_bitmap(&title_img, "title.ppm", 960, 540, error, error_len) ||
         !expect_bitmap(&piece_atlas, "pieces.ppm", 768, 256, error, error_len) ||
         !expect_bitmap(&piece_direction_atlas, "pieces_direction.ppm", 768, 512,
                        error, error_len) ||
