@@ -14,6 +14,9 @@ All notable user-facing changes are recorded here.
   the menus, and an optional local audio pack under `assets/pack/` that can
   replace any bundled sound or track
 - H shows a hint from the built-in search
+- New music: a title march, a victory fanfare, and two in-game tracks that
+  alternate from game to game. The music is AI-generated with the open
+  MiniMax-Music3 model
 - The menu choices (mode, side, difficulty, battlefield, view, music, battle
   speed) are remembered between runs
 - Take back a move with U or Backspace, including after checkmate or a draw;

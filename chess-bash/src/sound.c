@@ -329,7 +329,7 @@ void sound_shutdown(void)
 void sound_music_play(int id, float vol, bool loop)
 {
     if (id == MUS_THINKING_B && !music_tracks[id].data)
-        id = MUS_THINKING;   /* the second track comes only with a pack */
+        id = MUS_THINKING;   /* one in-game track is enough to play */
     if (!mixer_started || id < 0 || id >= MUSIC_COUNT ||
         !music_tracks[id].data)
         return;

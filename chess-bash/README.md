@@ -143,8 +143,10 @@ isometric sprite renderer remains game-specific.
 
 ## Assets and license
 
-Chess Bash code, project-specific art, and deterministic music are released
-under the [MIT License](LICENSE) to the extent applicable. The bundled gameplay
+Chess Bash code, project-specific art, and music are released
+under the [MIT License](LICENSE) to the extent applicable. The music in
+`assets/music/` is AI-generated: it was made with the open MiniMax-Music3
+model, run locally. The bundled gameplay
 SFX in `assets/sfx/` are locally generated and CC0-derived, with no
 standalone-use restriction. The embedded terminal font retains its permissive
 upstream notice. See the public [asset provenance and licensing
@@ -157,8 +159,8 @@ source tree. Files under `assets/pack/sfx/` and `assets/pack/music/` are used in
 place of the bundled file of the same name, and `make install` copies them when
 they are present. A pack can also supply cues the bundled set has no recording
 for (`castle`, `promote`, `illegal`, `menu_move`, each with a `_v02` variant,
-and `draw`, `defeat`, `menu_confirm`) and a second in-game track
-(`music/thinking_loop_b.wav`); without a pack these cues reuse a bundled sound.
+and `draw`, `defeat`, `menu_confirm`); without a pack these cues reuse a
+bundled sound.
 Pack files must be mono 44.1 kHz 16-bit WAV. The directory is ignored by git:
 a pack carries its own licence terms and is not part of this repository.
 

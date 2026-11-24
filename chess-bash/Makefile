@@ -42,8 +42,8 @@ SFX_ASSETS = assets/sfx/select.wav assets/sfx/select_v02.wav \
 	assets/sfx/start_trumpet.wav assets/sfx/start_trumpet_v02.wav \
 	assets/sfx/win_trumpet.wav assets/sfx/win_trumpet_v02.wav \
 	assets/sfx/check.wav assets/sfx/check_v02.wav assets/sfx/check_v03.wav
-MUSIC_ASSETS = assets/music/thinking_loop.wav assets/music/battle_loop.wav \
-	assets/music/victory_fanfare.wav
+MUSIC_ASSETS = assets/music/thinking_loop.wav assets/music/thinking_loop_b.wav \
+	assets/music/battle_loop.wav assets/music/victory_fanfare.wav
 # an optional local audio pack; never part of the source tree
 PACK_SFX = $(wildcard assets/pack/sfx/*.wav)
 PACK_MUSIC = $(wildcard assets/pack/music/*.wav)

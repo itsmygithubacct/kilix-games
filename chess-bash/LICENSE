@@ -24,8 +24,17 @@ SOFTWARE.
 
 Unless an asset is identified below as third-party material or as an exception,
 the MIT License above also applies to the project-specific visual assets and
-the deterministic music in assets/music/, to the extent copyright or related
-rights exist. See docs/asset-sources.md for provenance.
+the music in assets/music/, to the extent copyright or related rights exist.
+See docs/asset-sources.md for provenance.
+
+Music
+
+The WAV files in assets/music/ are machine-generated: they were produced with
+the openly released MiniMax-Music3 model, run locally, and then cut, looped and
+levelled for the game. They are provided as is. The model's own terms, the
+MiniMax-Music3 Community License, ask that machine-generated output be
+disclosed as such and that commercial products built on the model display the
+name "MiniMax-Music3"; anyone reusing these files should read that licence.
 
 Sound-effect assets
 
