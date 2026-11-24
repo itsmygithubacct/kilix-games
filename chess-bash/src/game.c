@@ -767,6 +767,16 @@ bool game_load_fen(const char *fen)
             return false;
         ep = make_sq(p[0] - 'a', p[1] - '1');
         p += 2;
+        /* The square must be the one a pawn of the side that just moved
+         * skipped over; anything else would let the side to move capture
+         * en passant onto its own third rank, or take a pawn that is not
+         * there. */
+        int behind = side == SIDE_WHITE ? ep - 8 : ep + 8;
+        int origin = side == SIDE_WHITE ? ep + 8 : ep - 8;
+        if (sq_rank(ep) != (side == SIDE_WHITE ? 5 : 2) ||
+            board[ep] != '.' || board[origin] != '.' ||
+            board[behind] != (side == SIDE_WHITE ? 'p' : 'P'))
+            return false;
     }
     if (*p++ != ' ') return false;
 

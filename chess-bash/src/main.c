@@ -389,6 +389,13 @@ static int rules_test(void)
                "en-passant moves the pawn and removes the bypassed pawn");
     }
 
+    EXPECT(!game_load_fen("4k3/8/8/8/8/8/3PP3/4K3 w - e3 0 1"),
+           "an en-passant square behind the side to move is rejected");
+    EXPECT(!game_load_fen("4k3/8/8/4P3/8/8/8/4K3 w - d6 0 1"),
+           "an en-passant square with no pawn to capture is rejected");
+    EXPECT(game_load_fen("4k3/8/8/8/3pP3/8/8/4K3 b - e3 0 1"),
+           "a consistent en-passant square for Blue still loads");
+
     /* The black rook attacks f1 only: White may castle long, not through f1. */
     loaded = game_load_fen("r3k2r/8/8/8/8/8/5r2/R3K2R w KQkq - 0 1");
     EXPECT(loaded, "castling-through-check fixture FEN loads");
