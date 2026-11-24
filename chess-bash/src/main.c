@@ -784,9 +784,26 @@ static int sound_test(void)
     return 0;
 }
 
+/* Checked before the terminal is taken over: with an asset missing the game
+ * would otherwise start and draw a board with no pieces on it. */
+static bool assets_ready(void)
+{
+    char error[256];
+    render_init(480, 320);
+    bool ok = render_validate_assets(error, sizeof error);
+    render_shutdown();
+    if (!ok)
+        fprintf(stderr, "chess-bash: %s\n"
+                "chess-bash: looked in %s; set CHESS_BASH_ASSETS to the asset directory\n",
+                error, asset_path(""));
+    return ok;
+}
+
 static int run_interactive(void)
 {
     int w, h;
+    if (!assets_ready())
+        return 1;
     if (!term_init(&w, &h)) {
         fprintf(stderr, "chess-bash: needs an interactive kitty-protocol terminal\n");
         fprintf(stderr, "or run --selftest / --render-test.\n");

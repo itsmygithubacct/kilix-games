@@ -146,6 +146,11 @@ test-cli: $(BIN)
 	accept --ai-test 10000000 2; \
 	accept --ai-test 20000 0; \
 	check --ai-test 20000 1 extra; \
+	set +e; out=$$(CHESS_BASH_ASSETS="$$TMPDIR/no-assets" timeout 10 ./$(BIN) 2>&1 </dev/null); rc=$$?; set -e; \
+	case "$$rc:$$out" in \
+	1:*"required asset"*) ;; \
+	*) echo "test-cli: missing assets not reported before start (exit $$rc): $$out" >&2; exit 1 ;; \
+	esac; \
 	check --script; \
 	check --script a b; \
 	check --battle-test; \
