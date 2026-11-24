@@ -1278,10 +1278,13 @@ static void draw_hud(void)
     draw_text(16, H - 31, help, 0x94a3b8, 1, 1);
 
     if (G.anim.active && G.anim.caption[0]) {
-        int scale = G.anim.move.capture ? 2 : 1;
+        /* The large caption box covers the near ranks of a compact board,
+         * so a short terminal gets the small one, just above the key bar. */
+        bool compact = H < 560;
+        int scale = G.anim.move.capture && !compact ? 2 : 1;
         int tw = text_width(G.anim.caption, scale) + 36;
         int x = (W - tw) / 2;
-        int y = H - (scale == 2 ? 112 : 92);
+        int y = compact ? H - 82 : H - (scale == 2 ? 112 : 92);
         fill_rect(x, y, tw, scale == 2 ? 44 : 32, 0x12080a, 0.82f);
         draw_text_center(W / 2.0f, y + (scale == 2 ? 10 : 8), G.anim.caption,
                          piece_color(G.anim.attacker) == SIDE_WHITE ? 0xffd0a2 : 0xa5f3fc,
@@ -1453,10 +1456,13 @@ static void draw_title(void)
 
     int pw = 560, ph = 320;
     if (pw > W - 30) pw = W - 30;
-    if (ph > H - 160) ph = H - 160;
+    /* A short terminal gives the menu the margins instead: at 80x24 the
+     * seven rows otherwise sit closer together than the font is tall. */
+    bool compact = H < 480;
+    if (ph > H - (compact ? 110 : 160)) ph = H - (compact ? 110 : 160);
     int px = (W - pw) / 2;
-    int py = H - ph - 40;
-    if (py < 110) py = 110;
+    int py = H - ph - (compact ? 10 : 40);
+    if (py < 100) py = 100;
     fill_rect(px, py, pw, ph, 0x070a12, 0.88f);
     fill_rect(px, py, pw, 3, 0xfacc15, 0.75f);
 
@@ -1525,7 +1531,9 @@ static void draw_title(void)
                          : "ARROWS choose/change   ENTER select   Q quit",
                      0x94a3b8, 1, 1);
 
-    title_attract_battle(px + pw / 2.0f, (float)py - 12.0f, 64.0f);
+    /* the duelling pawns need clear space between the subtitle and the menu */
+    if (py - 12 - 64 >= (W >= 820 ? 84 : 72) + 20)
+        title_attract_battle(px + pw / 2.0f, (float)py - 12.0f, 64.0f);
 }
 
 /* ---------- top level ---------- */
