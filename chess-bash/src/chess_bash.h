@@ -165,6 +165,7 @@ typedef struct {
     int winner_side;        /* side index or -1 for draw */
     int loser_king_sq;      /* fallen king shown on the gameover board */
     float over_t;           /* seconds since the game ended */
+    bool over_hidden;       /* result banner put aside to see the board */
 
     /* check feedback */
     float check_flash;      /* seconds remaining on the king flash */
@@ -215,6 +216,7 @@ void game_reset_to_title(void);
 void game_start(int mode);
 void game_tick(void);
 void game_handle_key(int key);
+bool game_can_take_back(void);
 void game_generate_legal(void);
 bool game_apply_human_target(int from, int to);
 bool game_apply_uci_move(const char *uci);

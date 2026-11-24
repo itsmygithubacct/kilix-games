@@ -648,6 +648,7 @@ static void game_over(int kind, int winner)
     G.result_kind = kind;
     G.winner_side = winner;
     G.over_t = 0;
+    G.over_hidden = false;
     G.loser_king_sq = winner >= 0 ? game_king_square(1 - winner) : -1;
     switch (kind) {
     case RESULT_CHECKMATE:
@@ -809,6 +810,7 @@ bool game_load_fen(const char *fen)
     G.winner_side = -1;
     G.loser_king_sq = -1;
     G.over_t = 0;
+    G.over_hidden = false;
     G.check_flash = 0;
     G.check_sq = -1;
     G.resign_arm = G.leave_arm = 0;
@@ -853,23 +855,34 @@ uint64_t game_perft(int depth)
     return nodes;
 }
 
-static void finish_animation(void)
+/* Make a move on the board and record it: history, captured tray and the
+ * repetition window.  A finished animation and a take-back replay share it. */
+static void commit_move(Move m)
 {
-    Move m = G.anim.move;
+    char attacker = G.board[m.from];
+    char victim = '.';
+    if (m.capture)
+        victim = G.board[m.en_passant
+            ? make_sq(sq_file(m.to), sq_rank(m.from)) : m.to];
     char uci[8];
     game_move_to_uci(m, uci);
     append_history(uci);
 
-    if (m.capture && G.anim.victim != '.') {
-        int capturer = piece_color(G.anim.attacker);
+    if (victim != '.') {
+        int capturer = piece_color(attacker);
         if (capturer >= 0 && G.captured_count[capturer] < 16)
-            G.captured[capturer][G.captured_count[capturer]++] = G.anim.victim;
+            G.captured[capturer][G.captured_count[capturer]++] = victim;
     }
 
     bool irreversible = m.capture || m.castle || m.promo ||
-                        piece_type(G.anim.attacker) == PT_PAWN;
+                        piece_type(attacker) == PT_PAWN;
     apply_move_state(&G, m);
     push_position_hash(irreversible);
+}
+
+static void finish_animation(void)
+{
+    commit_move(G.anim.move);
     G.selected = -1;
     G.anim.active = false;
     game_generate_legal();
@@ -972,7 +985,8 @@ static void confirm_promotion(void)
     G.state = GS_PLAYING;   /* should not happen; fail open */
 }
 
-bool game_apply_uci_move(const char *uci)
+/* Match UCI text against the legal moves of the current position. */
+static bool find_uci_move(const char *uci, Move *out)
 {
     if (!uci) return false;
     size_t len = strlen(uci);
@@ -991,11 +1005,19 @@ bool game_apply_uci_move(const char *uci)
         /* UCI requires a promotion suffix exactly when the move promotes. */
         if ((m.promo != 0) != (promo != 0)) continue;
         if (same_move_target(m, from, to, promo)) {
-            start_animation(m);
+            *out = m;
             return true;
         }
     }
     return false;
+}
+
+bool game_apply_uci_move(const char *uci)
+{
+    Move m;
+    if (!find_uci_move(uci, &m)) return false;
+    start_animation(m);
+    return true;
 }
 
 static const char *initial_rank(int rank)
@@ -1007,52 +1029,124 @@ static const char *initial_rank(int rank)
     return ranks[rank];
 }
 
-void game_start(int mode)
+/* The opening position with no history: a new game and a take-back replay
+ * both start from here. */
+static void position_reset(void)
 {
-    engine_cancel_all();
     memset(G.board, '.', sizeof G.board);
     for (int r = 0; r < 8; r++) {
         const char *src = initial_rank(r);
         for (int f = 0; f < 8; f++)
             G.board[make_sq(f, r)] = src[f];
     }
-    G.mode = mode;
     G.side = SIDE_WHITE;
-    G.cursor = G.human_white || mode != MODE_HUMAN_AI
-        ? make_sq(4, 1) : make_sq(4, 6);
-    G.selected = -1;
     G.castle_wk = G.castle_wq = G.castle_bk = G.castle_bq = true;
     G.ep_square = -1;
     G.halfmove_clock = 0;
     G.fullmove_number = 1;
     G.uci_history[0] = '\0';
     G.last_move[0] = '\0';
+    G.ply_count = 0;
+    memset(G.captured, 0, sizeof G.captured);
+    G.captured_count[0] = G.captured_count[1] = 0;
+    pos_hash_count = 0;
+    push_position_hash(false);
+}
+
+/* Back to a live position with nothing selected, armed or decided. */
+static void resume_play(void)
+{
+    G.selected = -1;
+    G.anim.active = false;
     G.result[0] = '\0';
     G.result_kind = RESULT_NONE;
     G.winner_side = -1;
     G.loser_king_sq = -1;
     G.over_t = 0;
+    G.over_hidden = false;
     G.check_flash = 0;
     G.check_sq = -1;
     G.resign_arm = 0;
     G.leave_arm = 0;
     G.ai_thinking = false;
-    for (int i = 0; i < 2; i++)
-        if (!G.engines[i].ok)
-            G.engine_attempted[i] = false;
-    G.ply_count = 0;
     G.ai_delay = 0.35f;
-    G.ai_movetime_ms = diff_movetime[G.difficulty % DIFF_COUNT];
-    G.anim.active = false;
-    memset(G.captured, 0, sizeof G.captured);
-    G.captured_count[0] = G.captured_count[1] = 0;
-    pos_hash_count = 0;
-    push_position_hash(false);
     game_generate_legal();
     set_turn_status();
     G.state = GS_PLAYING;
+}
+
+void game_start(int mode)
+{
+    engine_cancel_all();
+    position_reset();
+    G.mode = mode;
+    G.cursor = G.human_white || mode != MODE_HUMAN_AI
+        ? make_sq(4, 1) : make_sq(4, 6);
+    for (int i = 0; i < 2; i++)
+        if (!G.engines[i].ok)
+            G.engine_attempted[i] = false;
+    G.ai_movetime_ms = diff_movetime[G.difficulty % DIFF_COUNT];
+    resume_play();
     sound_play(SND_START_TRUMPET, 0.85f, 1.0f);
     if (G.music_on)
+        sound_music_play(MUS_THINKING, 0.42f, true);
+}
+
+/* How many plies a take-back keeps, or -1 when there is nothing to take
+ * back.  Against the computer it returns to the human's previous turn, so
+ * the reply goes with the move that provoked it. */
+static int take_back_target(void)
+{
+    if (G.mode == MODE_AI_AI || G.ply_count <= 0) return -1;
+    if (G.state != GS_PLAYING &&
+        !(G.state == GS_GAMEOVER && G.result_kind != RESULT_RESIGN))
+        return -1;
+    int target = G.ply_count - 1;
+    if (G.mode == MODE_HUMAN_AI) {
+        int human = G.human_white ? SIDE_WHITE : SIDE_BLACK;
+        while (target >= 0 && ((target & 1) ? SIDE_BLACK : SIDE_WHITE) != human)
+            target--;
+    }
+    return target;
+}
+
+bool game_can_take_back(void)
+{
+    return take_back_target() >= 0;
+}
+
+/* Rebuild the position by replaying the recorded moves from the opening.
+ * That restores castling rights, the en-passant square, the captured trays,
+ * the fifty-move clock and the repetition window without a second copy of
+ * the rules to keep in step. */
+static void take_back(void)
+{
+    static char replay[UCI_HISTORY_MAX];
+    int target = take_back_target();
+    if (target < 0) {
+        if (G.state == GS_PLAYING && G.mode != MODE_AI_AI)
+            snprintf(G.status, sizeof G.status, "No move to take back");
+        return;
+    }
+    bool was_over = G.state == GS_GAMEOVER;
+    engine_cancel_all();
+    memcpy(replay, G.uci_history, sizeof replay);
+    position_reset();
+    char *rest = NULL;
+    int kept = 0;
+    for (char *tok = strtok_r(replay, " ", &rest); tok && kept < target;
+         tok = strtok_r(NULL, " ", &rest)) {
+        Move m;
+        if (!find_uci_move(tok, &m)) break;   /* recorded moves were legal */
+        commit_move(m);
+        kept++;
+    }
+    resume_play();
+    char turn[sizeof G.status];
+    snprintf(turn, sizeof turn, "%s", G.status);
+    snprintf(G.status, sizeof G.status, "Move taken back - %.120s", turn);
+    sound_play(SND_SELECT, 0.50f, 0.75f);
+    if (was_over && G.music_on)
         sound_music_play(MUS_THINKING, 0.42f, true);
 }
 
@@ -1607,6 +1701,10 @@ void game_handle_key(int key)
             game_reset_to_title();
         else if (key == 'r' || key == 'R')
             game_start(G.mode);   /* rematch */
+        else if (key == 'v' || key == 'V' || key == KEY_ESC)
+            G.over_hidden = !G.over_hidden;   /* look at the final position */
+        else if (key == 'u' || key == 'U' || key == KEY_BACKSPACE)
+            take_back();
         return;
     }
     if (G.state == GS_ANIMATING) {
@@ -1648,6 +1746,10 @@ void game_handle_key(int key)
     }
     if (key == 'r' || key == 'R') {
         resign_key();
+        return;
+    }
+    if (key == 'u' || key == 'U' || key == KEY_BACKSPACE) {
+        take_back();
         return;
     }
     if (!game_is_human_turn()) return;

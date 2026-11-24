@@ -1243,8 +1243,16 @@ static void draw_hud(void)
     draw_captured_tray(SIDE_BLACK, W - 26.0f, top_h + 40.0f, true, W * 0.30f);
 
     const char *help;
+    bool undo = game_can_take_back();
     if (G.state == GS_GAMEOVER) {
-        help = "ENTER menu   R rematch   Q quit";
+        if (G.over_hidden)
+            help = undo ? "V show result   U undo   ENTER menu   R rematch   Q quit"
+                        : "V show result   ENTER menu   R rematch   Q quit";
+        else
+            help = undo ? "ENTER menu   R rematch   V board   U undo   Q quit"
+                        : "ENTER menu   R rematch   V board   Q quit";
+        if (text_width(help, 1) > W - 24)
+            help = "ENTER menu  R rematch  V board";
     } else if (G.anim.active) {
         help = W >= 900
             ? "S / ENTER skip battle   F fast battles   M music   Q quit"
@@ -1254,14 +1262,19 @@ static void draw_hud(void)
             ? "ARROWS/WASD target   ENTER move   ESC cancel   R resign   N leave   Q quit"
             : "WASD target  ENTER move  ESC cancel  N leave";
     } else if (G.state == GS_PLAYING && !game_is_human_turn()) {
-        help = "Computer thinking   R resign   N leave   M music   Q quit";
+        help = undo ? "Computer thinking   U undo   R resign   N leave   M music   Q quit"
+                    : "Computer thinking   R resign   N leave   M music   Q quit";
+    } else if (undo) {
+        help = W >= 900
+            ? "ARROWS/WASD move   ENTER select   U undo   R resign   M music   F fast battles   N leave   Q quit"
+            : "WASD move  ENTER select  U undo  R resign  N leave  Q quit";
     } else {
         help = W >= 900
             ? "ARROWS/WASD move   ENTER select   R resign   M music   F fast battles   N leave   Q quit"
             : "WASD move  ENTER select  R resign  N leave  Q quit";
     }
     if (text_width(help, 1) > W - 24)
-        help = "WASD ENTER R M N Q";
+        help = "WASD ENTER U R M N Q";
     draw_text(16, H - 31, help, 0x94a3b8, 1, 1);
 
     if (G.anim.active && G.anim.caption[0]) {
@@ -1342,7 +1355,7 @@ static void draw_fireworks(void)
 static void draw_gameover_overlay(void)
 {
     float slide = ease_smooth(clampf(G.over_t / 0.7f, 0, 1));
-    if (slide <= 0.01f) return;
+    if (slide <= 0.01f || G.over_hidden) return;
 
     draw_fireworks();
 
@@ -1359,7 +1372,8 @@ static void draw_gameover_overlay(void)
     int scale = text_width(G.result[0] ? G.result : "Game over", 2) < pw - 30 ? 2 : 1;
     draw_text_banner(W / 2.0f, y + 30, G.result[0] ? G.result : "Game over",
                      0xf8fafc, 1, scale);
-    draw_text_center(W / 2.0f, y + 78, "ENTER menu    R rematch    Q quit", 0x94a3b8, 1, 1);
+    draw_text_center(W / 2.0f, y + 78, "ENTER menu    R rematch    V view board    Q quit",
+                     0x94a3b8, 1, 1);
     if (G.winner_side >= 0) {
         char buf[64];
         snprintf(buf, sizeof buf, "the %s army is victorious", side_name(G.winner_side));

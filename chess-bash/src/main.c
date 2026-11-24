@@ -431,6 +431,77 @@ static int rules_test(void)
 
     G.human_white = true;
 
+    /* Take-back replays the game to the mover's previous turn. */
+    G.human_white = true;
+    game_start(MODE_HUMAN_HUMAN);
+    game_handle_key('u');
+    EXPECT(G.ply_count == 0 && G.state == GS_PLAYING,
+           "take-back with no moves played changes nothing");
+    EXPECT(test_apply_moves("e2e4 d7d5 e4d5"), "take-back fixture moves are legal");
+    game_handle_key('u');
+    EXPECT(G.state == GS_PLAYING && G.ply_count == 2 && G.side == SIDE_WHITE &&
+           G.board[make_sq(4, 3)] == 'P' && G.board[make_sq(3, 4)] == 'p' &&
+           G.captured_count[SIDE_WHITE] == 0 &&
+           !strcmp(G.uci_history, "e2e4 d7d5") && !strcmp(G.last_move, "d7d5"),
+           "take-back restores the captured pawn, the tray and the history");
+    game_handle_key(KEY_BACKSPACE);
+    game_handle_key('u');
+    EXPECT(G.ply_count == 0 && G.side == SIDE_WHITE && !G.uci_history[0] &&
+           G.board[make_sq(4, 1)] == 'P' && G.board[make_sq(3, 6)] == 'p',
+           "repeated take-back reaches the opening position");
+    EXPECT(test_apply_moves("e2e4 a7a6 e4e5 d7d5 a2a3"),
+           "en-passant take-back fixture is legal");
+    game_handle_key('u');
+    EXPECT(G.ep_square == make_sq(3, 5) && game_apply_uci_move("e5d6"),
+           "take-back restores the en-passant right");
+    anim_run_out();
+
+    game_start(MODE_HUMAN_HUMAN);
+    EXPECT(test_apply_moves("f2f3 e7e5 g2g4 d8h4"), "Fool's Mate is legal");
+    EXPECT(G.state == GS_GAMEOVER && G.result_kind == RESULT_CHECKMATE,
+           "Fool's Mate ends the game");
+    for (int i = 0; i < 60; i++) game_tick();
+    game_handle_key('v');
+    EXPECT(G.state == GS_GAMEOVER && G.over_hidden,
+           "V puts the result banner aside without leaving the game");
+    game_handle_key('v');
+    EXPECT(!G.over_hidden, "V brings the result banner back");
+    game_handle_key('u');
+    EXPECT(G.state == GS_PLAYING && G.side == SIDE_BLACK && G.ply_count == 3 &&
+           G.result_kind == RESULT_NONE && G.board[make_sq(3, 7)] == 'q',
+           "take-back undoes a checkmate");
+
+    /* Against the computer, the reply goes back with the move before it. */
+    game_start(MODE_HUMAN_AI);
+    EXPECT(test_apply_moves("e2e4 e7e5 g1f3"), "computer-game fixture is legal");
+    game_handle_key('u');
+    EXPECT(G.ply_count == 2 && G.side == SIDE_WHITE && game_is_human_turn(),
+           "take-back while the computer is to move returns the human's move");
+    game_handle_key('u');
+    EXPECT(G.ply_count == 0 && game_is_human_turn(),
+           "take-back on the human's turn also returns the computer's reply");
+    G.human_white = false;
+    game_start(MODE_HUMAN_AI);
+    EXPECT(test_apply_moves("e2e4"), "computer opening is legal");
+    game_handle_key('u');
+    EXPECT(G.ply_count == 1 && !game_can_take_back(),
+           "the computer's opening move cannot be taken back by Blue");
+    G.human_white = true;
+    game_start(MODE_AI_AI);
+    EXPECT(test_apply_moves("e2e4"), "computer-match fixture is legal");
+    game_handle_key('u');
+    EXPECT(G.ply_count == 1, "a computer match has no take-back");
+
+    /* A resignation is final. */
+    game_start(MODE_HUMAN_HUMAN);
+    EXPECT(test_apply_moves("e2e4"), "resign fixture is legal");
+    game_handle_key('r');
+    game_handle_key('r');
+    for (int i = 0; i < 60; i++) game_tick();
+    game_handle_key('u');
+    EXPECT(G.state == GS_GAMEOVER && G.result_kind == RESULT_RESIGN,
+           "a resignation cannot be taken back");
+
     /* Skipping a battle must not play every remaining cue at once. */
     G.fast_anim = false;
     game_start(MODE_HUMAN_HUMAN);
@@ -788,8 +859,9 @@ static void print_usage(void)
            "  CHESS_BASH_ASSETS=/dir      override the asset directory\n"
            "  CHESS_BASH_RENDER_DIR=/dir  render/battle-test output directory\n"
            "  CHESS_BASH_SKIP_PROBE=1     skip the kitty-graphics probe\n\n"
-           "keys: arrows/WASD move - ENTER select - R resign - M music -\n"
-           "      F fast battles - S skip battle - N twice to menu - Q quit\n");
+           "keys: arrows/WASD move - ENTER select - U take back - R resign -\n"
+           "      M music - F fast battles - S skip battle - N twice to menu -\n"
+           "      V view the board after the game - Q quit\n");
 }
 
 static bool parse_uint_arg(const char *text, unsigned max, unsigned *value)
