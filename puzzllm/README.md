@@ -421,9 +421,13 @@ to `GPU_TERMINAL_HOME/kilix-llm/models` or `~/.local/gpu_terminal/kilix-llm/mode
 The game and bench discover installed GGUFs there. Ollama selections are
 pulled by tag. The sandbox mounts the chosen GGUF read-only.
 
-The same page offers three text diffusion models: LLaDA-MoE 7B-A1B Instruct
-(4.52 GB), LLaDA 1.5 8B (4.93 GB) and Dream-Coder v0 Instruct 7B (4.68 GB),
-all Q4_K_M from mradermacher's GGUF repositories at pinned revisions. They go
+The same page offers four text diffusion models: LLaDA-MoE 7B-A1B Instruct
+(4.52 GB), LLaDA 1.5 8B (4.93 GB), Dream-Coder v0 Instruct 7B (4.68 GB) and
+d3LLM-LLaDA 8B (4.93 GB), all Q4_K_M from mradermacher's GGUF repositories at
+pinned revisions. [d3LLM](https://github.com/hao-ai-lab/d3LLM) is LLaDA
+distilled to settle many tokens per denoising step, so it needs fewer steps.
+Its own faster decoder needs PyTorch and about 16 GB of GPU memory; here it runs
+through `llama-diffusion-cli` like the others. They go
 into `~/.local/share/puzzllm/diffusion/` (or `$PUZZLLM_DIFFUSION_MODELS`),
 where the Bench's **llama.cpp diffusion** provider and kilix-chat find them.
 `llama-diffusion-cli` is not downloaded. Build it from llama.cpp.

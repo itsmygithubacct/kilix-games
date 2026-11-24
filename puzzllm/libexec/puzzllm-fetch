@@ -86,6 +86,12 @@ diffusion_spec() {
             sha=c1b2c58e9f2a6e9cd548347e5845c3e5306862be1151329b22c5b3956d858e3c
             url=https://huggingface.co/mradermacher/Dream-Coder-v0-Instruct-7B-GGUF/resolve/e22431dd659aba45146840ac9b6b9417aff3cac5/Dream-Coder-v0-Instruct-7B.Q4_K_M.gguf
             ;;
+        d3llm-llada)
+            file=d3LLM_LLaDA.Q4_K_M.gguf
+            bytes=4925226656
+            sha=eb450d47abe05c1c1503d78751a8453c8834ef1a8d34802173914379b7cafa88
+            url=https://huggingface.co/mradermacher/d3LLM_LLaDA-GGUF/resolve/6cbf038bb867cd42bb4ff9b9ce931af23b32e3df/d3LLM_LLaDA.Q4_K_M.gguf
+            ;;
         *) die "unknown diffusion model" ;;
     esac
 }

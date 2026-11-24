@@ -334,7 +334,7 @@ int menu_page_rows(int page, bool neuronte, int *out, int cap)
     static const int reset_rows[] = { MENU_RESET_LEVEL, MENU_RESET };
     static const int download_rows[] = {
         MENU_DL_GGUF_08, MENU_DL_GGUF_4B, MENU_DL_GEMMA_E2B, MENU_DL_LLADA_MOE, MENU_DL_LLADA_15,
-        MENU_DL_DREAM_CODER, MENU_DL_OLLAMA_06, MENU_DL_OLLAMA_4B, MENU_DL_NAME
+        MENU_DL_DREAM_CODER, MENU_DL_D3LLM, MENU_DL_OLLAMA_06, MENU_DL_OLLAMA_4B, MENU_DL_NAME
     };
     static const int between_rows[] = { MENU_LEVEL_SESSION, MENU_LEVEL_CLEANUP, MENU_CLEAN_DISK };
     static const int bench_rows[] = { MENU_YESNO, MENU_FREETEXT, MENU_CODING };
@@ -428,6 +428,7 @@ void render_menu(sr_canvas *c, int selected, const char *active_model,
         [MENU_DL_LLADA_MOE] = "Download LLaDA-MoE 7B-A1B (diffusion)",
         [MENU_DL_LLADA_15] = "Download LLaDA 1.5 8B (diffusion)",
         [MENU_DL_DREAM_CODER] = "Download Dream-Coder 7B (diffusion)",
+        [MENU_DL_D3LLM] = "Download d3LLM-LLaDA 8B (fast diffusion)",
         [MENU_DL_OLLAMA_06] = "Download Ollama qwen3:0.6b",
         [MENU_DL_OLLAMA_4B] = "Download Ollama qwen3:4b-instruct-2507",
         [MENU_DL_NAME] = "Pull another Ollama model",

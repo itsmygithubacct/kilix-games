@@ -1363,6 +1363,7 @@ static const struct {
     {MENU_DL_LLADA_MOE, "diffusion", "llada-moe-7b-a1b"},
     {MENU_DL_LLADA_15, "diffusion", "llada-1.5"},
     {MENU_DL_DREAM_CODER, "diffusion", "dream-coder-7b"},
+    {MENU_DL_D3LLM, "diffusion", "d3llm-llada"},
     {MENU_DL_OLLAMA_06, "ollama", "qwen3:0.6b"},
     {MENU_DL_OLLAMA_4B, "ollama", "qwen3:4b-instruct-2507"},
 };

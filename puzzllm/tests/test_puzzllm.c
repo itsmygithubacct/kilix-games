@@ -2774,7 +2774,7 @@ static void test_downloads(void)
 
     static const struct { int item; const char *id; } diffusion[] = {
         {MENU_DL_LLADA_MOE, "llada-moe-7b-a1b"}, {MENU_DL_LLADA_15, "llada-1.5"},
-        {MENU_DL_DREAM_CODER, "dream-coder-7b"},
+        {MENU_DL_DREAM_CODER, "dream-coder-7b"}, {MENU_DL_D3LLM, "d3llm-llada"},
     };
     for (size_t i = 0; i < sizeof diffusion / sizeof diffusion[0]; i++) {
         char expected[64], body[512] = {0};

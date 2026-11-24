@@ -342,7 +342,7 @@ chmod 755 "$scratch/nocurl/curl"
 PATH="$scratch/nocurl:$PATH" PUZZLLM_DIFFUSION_MODELS=$diffusion "$fetch" diffusion qwen3.5-0.8b > "$scratch/out"; rc=$?
 [ "$rc" -eq 2 ] && grep -qx 'unknown diffusion model' "$scratch/out" &&
     pass "a chat GGUF id is not a diffusion download" || fail "diffusion chat id rc=$rc"
-for id in llada-moe-7b-a1b llada-1.5 dream-coder-7b; do
+for id in llada-moe-7b-a1b llada-1.5 dream-coder-7b d3llm-llada; do
     grep -q "^        $id)\$" "$fetch" || fail "no pinned diffusion download $id"
 done
 "$fetch" gguf nope > "$scratch/out"; rc=$?
