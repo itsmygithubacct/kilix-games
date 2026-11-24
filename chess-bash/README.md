@@ -25,6 +25,7 @@ set of chess rules.
   history, legal-move markers, check feedback, and a victory sequence
 - Music with crossfades and seven multi-variation sound-effect banks, plus fast
   and skippable battles
+- Take-back, including after checkmate, and a view of the final position
 - Blue-side rotation, terminal resizing, compact layouts, and asynchronous AI
 
 ## Requirements
@@ -86,7 +87,9 @@ STOCKFISH=/usr/games/stockfish ./chess-bash
 | Arrows / WASD | Move cursor or navigate the menu |
 | Enter / Space | Select, confirm, or skip the active battle |
 | Esc | Clear selection or cancel promotion |
+| U / Backspace | Take back a move (and the computer's reply) |
 | R | Resign (press twice); rematch after the game |
+| V | After the game, hide or show the result to see the board |
 | M | Toggle music |
 | F | Toggle fast battles |
 | S | Skip the active battle |
@@ -114,6 +117,7 @@ make test
 ./chess-bash --rules-test
 ./chess-bash --perft-test
 ./chess-bash --fallback-test
+./chess-bash --frame-test
 ./chess-bash --selftest 1337 160
 ./chess-bash --render-test 42
 ./chess-bash --sound-test
@@ -121,8 +125,8 @@ make test
 
 The test suite covers deterministic rule fixtures, standard perft positions,
 random legal games, engine lifecycle behavior, required asset loading, every
-battlefield theme, compact and rotated layouts, animation states, and staged
-installation in CI.
+battlefield theme, compact and rotated layouts, animation states, the CPU cost
+of a frame, and staged installation in CI.
 
 `--render-test` writes visual snapshots beneath `CHESS_BASH_RENDER_DIR` when it
 is set, or to the current directory otherwise. `--sound-test` plays every sound

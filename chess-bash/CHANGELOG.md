@@ -4,6 +4,25 @@ All notable user-facing changes are recorded here.
 
 ## Unreleased
 
+### Added
+
+- Take back a move with U or Backspace, including after checkmate or a draw;
+  against the computer its reply goes back too
+- After the game, V hides the result banner so the final position can be seen
+
+### Fixed
+
+- A board frame cost about twice its 30 Hz budget at 1000x640, and game time
+  advanced per frame, so play ran in slow motion; a frame now costs about an
+  eighth as much and game time follows the clock
+- Skipping a battle played every remaining sound cue at once
+- Holding R or N no longer counts as the second press that resigns or leaves
+- The title menu and battle caption no longer cover the title or the board in
+  80x24 and smaller terminals
+- Missing assets are reported before the terminal is taken over, instead of
+  starting a game with an empty board
+- `--perft` rejects a FEN whose en-passant square cannot be real
+
 ### Changed
 
 - Replaced every gameplay SFX cue with locally-generated CC0-derived audio,

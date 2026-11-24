@@ -47,6 +47,10 @@ or the current directory, including every theme, selected targets, the compact
 HUD and the rotated Blue-side view.  Missing assets and write failures produce
 a nonzero exit status.
 .TP
+.B \-\-frame-test
+Measure the CPU cost of drawing a board frame and fail when it exceeds the
+30 Hz frame budget.
+.TP
 .B \-\-sound-test
 Play every sound cue and exit.
 .TP
@@ -66,8 +70,16 @@ Select a piece or destination; confirm; skip the active battle animation.
 .B Esc
 Clear the selection; cancel the promotion chooser.
 .TP
+.B U / Backspace
+Take back a move.  Against the computer this returns to your previous turn,
+taking the computer's reply back with it; it also works after checkmate or a
+draw.  A resignation is final.
+.TP
 .B R
 Resign (press twice); on the victory screen: rematch.
+.TP
+.B V
+After the game, hide or show the result banner to see the final position.
 .TP
 .B M
 Toggle music.
