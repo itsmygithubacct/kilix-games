@@ -1654,6 +1654,21 @@ static void leave_key(void)
     snprintf(G.status, sizeof G.status, "Press N again to leave this game");
 }
 
+/* Only navigation auto-repeats.  A held R or N would otherwise count as the
+ * second press that confirms a resignation or abandons the game, and a held
+ * ENTER would select and deselect in a blur. */
+bool game_key_repeats(int key)
+{
+    switch (key) {
+    case KEY_UP: case KEY_DOWN: case KEY_LEFT: case KEY_RIGHT:
+    case 'w': case 'W': case 'a': case 'A': case 's': case 'S':
+    case 'd': case 'D': case 'x': case 'X':
+        return true;
+    default:
+        return false;
+    }
+}
+
 void game_handle_key(int key)
 {
     if (key == 'q' || key == 'Q') {

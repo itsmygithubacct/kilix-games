@@ -492,7 +492,7 @@ static int rules_test(void)
     game_handle_key('u');
     EXPECT(G.ply_count == 1, "a computer match has no take-back");
 
-    /* A resignation is final. */
+    /* A resignation is final; a held key is not a second press. */
     game_start(MODE_HUMAN_HUMAN);
     EXPECT(test_apply_moves("e2e4"), "resign fixture is legal");
     game_handle_key('r');
@@ -501,6 +501,10 @@ static int rules_test(void)
     game_handle_key('u');
     EXPECT(G.state == GS_GAMEOVER && G.result_kind == RESULT_RESIGN,
            "a resignation cannot be taken back");
+    EXPECT(!game_key_repeats('r') && !game_key_repeats('n') &&
+           !game_key_repeats(KEY_ENTER) && !game_key_repeats('u') &&
+           game_key_repeats(KEY_LEFT) && game_key_repeats('w'),
+           "only navigation keys auto-repeat");
 
     /* Skipping a battle must not play every remaining cue at once. */
     G.fast_anim = false;

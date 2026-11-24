@@ -115,6 +115,8 @@ int term_poll_key(void)
             return -1;
         }
         int key = game_key(event.key);
+        if (event.action == KITTYKB_ACTION_REPEAT && !game_key_repeats(key))
+            continue;
         if (key >= 0) return key;
     }
     return -1;

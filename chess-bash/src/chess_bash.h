@@ -216,6 +216,7 @@ void game_reset_to_title(void);
 void game_start(int mode);
 void game_tick(void);
 void game_handle_key(int key);
+bool game_key_repeats(int key);
 bool game_can_take_back(void);
 void game_generate_legal(void);
 bool game_apply_human_target(int from, int to);
