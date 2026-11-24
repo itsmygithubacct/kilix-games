@@ -1370,17 +1370,52 @@ static void draw_captured_tray(int side, float x, float y, bool align_right,
 
 static void hud_move_list(char *buf, size_t len)
 {
-    /* last few moves off the end of the UCI history */
-    const char *h = G.uci_history;
-    size_t hl = strlen(h);
-    const char *p = h + hl;
-    int words = 0;
-    while (p > h && words < 4) {
-        p--;
-        if (*p == ' ') words++;
+    /* the last three moves, numbered where Red moved */
+    buf[0] = '\0';
+    size_t used = 0;
+    for (int i = G.san_count > 3 ? G.san_count - 3 : 0; i < G.san_count; i++) {
+        int ply = G.san_first_ply + i;
+        int w = (ply & 1) == 0
+            ? snprintf(buf + used, len - used, "%s%d.%s", used ? "  " : "",
+                       ply / 2 + 1, G.san[i])
+            : snprintf(buf + used, len - used, "%s%s", used ? " " : "", G.san[i]);
+        if (w < 0 || (size_t)w >= len - used) break;
+        used += (size_t)w;
     }
-    if (p > h) p++;
-    snprintf(buf, len, "%s", p);
+}
+
+/* The score sheet: beside the board where the top-down view leaves room. */
+static void draw_move_panel(void)
+{
+    if (!top_view() || G.state == GS_TITLE || G.state == GS_INTRO) return;
+    int x = (int)(board_cx + tile_w * (4.0f + BOARD_FRAME)) + 26;
+    int pw = 196;
+    if (x + pw > W - 10) return;
+    int y = (int)(board_top + tile_h * 1.4f);
+    int ph = (int)(tile_h * 5.2f);
+    int rows = (ph - 40) / 18;
+    if (rows < 2) return;
+    fill_rect(x, y, pw, ph, 0x0b0f1a, 0.80f);
+    fill_rect(x, y, pw, 2, 0xfacc15, 0.75f);
+    draw_text((float)x + 12, (float)y + 8, "Moves", 0xfde68a, 1, 1);
+    int first_ply = G.san_first_ply;
+    int last_ply = first_ply + G.san_count;       /* one past the end */
+    int total_rows = (last_ply + 1) / 2 - first_ply / 2;
+    int start_row = total_rows > rows ? total_rows - rows : 0;
+    for (int r = start_row; r < total_rows; r++) {
+        int number = first_ply / 2 + r;           /* zero-based full move */
+        int ry = y + 32 + (r - start_row) * 18;
+        char num[16];
+        snprintf(num, sizeof num, "%d.", number + 1);
+        draw_text((float)x + 12, (float)ry, num, 0x64748b, 1, 1);
+        for (int side = 0; side < 2; side++) {
+            int idx = number * 2 + side - first_ply;
+            if (idx < 0 || idx >= G.san_count) continue;
+            bool latest = idx == G.san_count - 1;
+            draw_text((float)x + 50 + side * 72, (float)ry, G.san[idx],
+                      latest ? 0xfacc15 : side == 0 ? 0xffc9b8 : 0xa5f3fc, 1, 1);
+        }
+    }
 }
 
 static void draw_hud(void)
@@ -1422,7 +1457,7 @@ static void draw_hud(void)
     char mvs[64];
     hud_move_list(mvs, sizeof mvs);
     if (mvs[0] && W >= 720) {
-        snprintf(buf, sizeof buf, "move %d  %s", G.fullmove_number, mvs);
+        snprintf(buf, sizeof buf, "%s", mvs);
         int tw = text_width(buf, 1);
         draw_text(W - tw - 18, main_y, buf, 0x94a3b8, 1, 1);
     }
@@ -1433,6 +1468,7 @@ static void draw_hud(void)
     else
         draw_text_center(W * 0.5f, status_y, buf,
                          game_side_in_check(G.side) ? 0xfacc15 : 0xcbd5e1, 1, 1);
+    draw_move_panel();
     /* captured trays float in the empty corners under the top bar */
     draw_captured_tray(SIDE_WHITE, 26.0f, top_h + 40.0f, false, W * 0.30f);
     draw_captured_tray(SIDE_BLACK, W - 26.0f, top_h + 40.0f, true, W * 0.30f);
@@ -1461,11 +1497,11 @@ static void draw_hud(void)
                     : "Computer thinking   R resign   N leave   M music   Q quit";
     } else if (undo) {
         help = W >= 900
-            ? "ARROWS/WASD move   ENTER select   U undo   R resign   M music   F fast battles   N leave   Q quit"
+            ? "ARROWS/WASD move   ENTER select   U undo   R resign   M music   F fast   T view   N leave   Q quit"
             : "WASD move  ENTER select  U undo  R resign  N leave  Q quit";
     } else {
         help = W >= 900
-            ? "ARROWS/WASD move   ENTER select   R resign   M music   F fast battles   N leave   Q quit"
+            ? "ARROWS/WASD move   ENTER select   R resign   M music   F fast   T view   N leave   Q quit"
             : "WASD move  ENTER select  R resign  N leave  Q quit";
     }
     if (text_width(help, 1) > W - 24)

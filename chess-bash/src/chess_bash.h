@@ -87,6 +87,8 @@ enum {
     RESULT_RESIGN
 };
 
+#define SAN_HISTORY_MAX 600
+
 typedef struct {
     int from, to;
     char promo;
@@ -162,6 +164,9 @@ typedef struct {
     char uci_history[UCI_HISTORY_MAX];
     int ply_count;
     char last_move[8];
+    char san[SAN_HISTORY_MAX][12];   /* the game in algebraic notation */
+    int san_count;
+    int san_first_ply;      /* ply of san[0]; grows if a very long game scrolls */
     char status[160];
     char result[80];
     int result_kind;

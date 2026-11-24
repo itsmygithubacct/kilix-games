@@ -869,8 +869,67 @@ uint64_t game_perft(int depth)
 
 /* Make a move on the board and record it: history, captured tray and the
  * repetition window.  A finished animation and a take-back replay share it. */
+/* Standard algebraic notation for a legal move in the current position,
+ * without the check mark, which is only known once the move is made. */
+static void move_to_san(Move m, char *out, size_t len)
+{
+    char piece = G.board[m.from];
+    int type = piece_type(piece);
+    char buf[10];
+    int n = 0;
+    if (m.castle) {
+        snprintf(out, len, "%s", sq_file(m.to) > sq_file(m.from) ? "O-O" : "O-O-O");
+        return;
+    }
+    if (type == PT_PAWN) {
+        if (m.capture) buf[n++] = (char)('a' + sq_file(m.from));
+    } else {
+        buf[n++] = "?NBRQK"[type];
+        /* say which piece when another of the same kind could go there too */
+        bool other = false, same_file = false, same_rank = false;
+        game_generate_legal();
+        for (int i = 0; i < G.legal_count; i++) {
+            Move o = G.legal[i];
+            if (o.to != m.to || o.from == m.from || G.board[o.from] != piece) continue;
+            other = true;
+            if (sq_file(o.from) == sq_file(m.from)) same_file = true;
+            if (sq_rank(o.from) == sq_rank(m.from)) same_rank = true;
+        }
+        if (other) {
+            if (!same_file) buf[n++] = (char)('a' + sq_file(m.from));
+            else if (!same_rank) buf[n++] = (char)('1' + sq_rank(m.from));
+            else {
+                buf[n++] = (char)('a' + sq_file(m.from));
+                buf[n++] = (char)('1' + sq_rank(m.from));
+            }
+        }
+    }
+    if (m.capture) buf[n++] = 'x';
+    buf[n++] = (char)('a' + sq_file(m.to));
+    buf[n++] = (char)('1' + sq_rank(m.to));
+    if (m.promo) {
+        buf[n++] = '=';
+        buf[n++] = (char)toupper((unsigned char)m.promo);
+    }
+    buf[n] = '\0';
+    snprintf(out, len, "%s", buf);
+}
+
+static void record_san(const char *san, bool check, bool mate)
+{
+    if (G.san_count == SAN_HISTORY_MAX) {     /* drop the oldest full move */
+        memmove(G.san[0], G.san[2], sizeof G.san[0] * (SAN_HISTORY_MAX - 2));
+        G.san_count -= 2;
+        G.san_first_ply += 2;
+    }
+    snprintf(G.san[G.san_count++], sizeof G.san[0], "%s%s", san,
+             mate ? "#" : check ? "+" : "");
+}
+
 static void commit_move(Move m)
 {
+    char san[10];
+    move_to_san(m, san, sizeof san);
     char attacker = G.board[m.from];
     char victim = '.';
     if (m.capture)
@@ -890,6 +949,10 @@ static void commit_move(Move m)
                         piece_type(attacker) == PT_PAWN;
     apply_move_state(&G, m);
     push_position_hash(irreversible);
+
+    bool check = game_side_in_check(G.side);
+    game_generate_legal();
+    record_san(san, check, check && G.legal_count == 0);
 }
 
 static void finish_animation(void)
@@ -1059,6 +1122,8 @@ static void position_reset(void)
     G.uci_history[0] = '\0';
     G.last_move[0] = '\0';
     G.ply_count = 0;
+    G.san_count = 0;
+    G.san_first_ply = 0;
     memset(G.captured, 0, sizeof G.captured);
     G.captured_count[0] = G.captured_count[1] = 0;
     pos_hash_count = 0;

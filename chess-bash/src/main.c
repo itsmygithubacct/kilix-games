@@ -506,6 +506,24 @@ static int rules_test(void)
            game_key_repeats(KEY_LEFT) && game_key_repeats('w'),
            "only navigation keys auto-repeat");
 
+    /* Algebraic notation: file-disambiguated knights, a capture, castling,
+     * and the mate mark. */
+    game_start(MODE_HUMAN_HUMAN);
+    EXPECT(test_apply_moves("g1f3 g8f6 b1c3 b8c6 f3d4 f6d5 c3b5 c6b4 d4b3 d5b6 b5d4"),
+           "notation fixture moves are legal");
+    EXPECT(G.san_count == 11 && strcmp(G.san[0], "Nf3") == 0 &&
+           strcmp(G.san[10], "N5d4") == 0,
+           "a knight move is disambiguated by rank when files match");
+    game_start(MODE_HUMAN_HUMAN);
+    EXPECT(test_apply_moves("e2e4 d7d5 e4d5 g8f6 f1b5 c7c6 g1f3 c6b5 e1g1"),
+           "notation fixture with captures and castling is legal");
+    EXPECT(strcmp(G.san[2], "exd5") == 0 && strcmp(G.san[4], "Bb5+") == 0 &&
+           strcmp(G.san[7], "cxb5") == 0 && strcmp(G.san[8], "O-O") == 0,
+           "pawn captures, checks and castling are written in algebraic notation");
+    game_start(MODE_HUMAN_HUMAN);
+    EXPECT(test_apply_moves("f2f3 e7e5 g2g4 d8h4") && strcmp(G.san[3], "Qh4#") == 0,
+           "checkmate is marked");
+
     /* The view toggle works in every state and never touches the position. */
     {
         int before = G.view;
