@@ -89,6 +89,38 @@ static void play_thinking_music(void)
     sound_music_play(thinking_track_id, 0.42f, true);
 }
 
+/* The menu choices, one byte each, for the settings file. */
+#define SETTINGS_VERSION 1
+
+void game_settings_pack(unsigned char out[SETTINGS_BYTES])
+{
+    out[0] = SETTINGS_VERSION;
+    out[1] = (unsigned char)G.mode;
+    out[2] = G.human_white ? 1 : 0;
+    out[3] = (unsigned char)G.difficulty;
+    out[4] = (unsigned char)G.board_theme;
+    out[5] = (unsigned char)G.view;
+    out[6] = G.music_on ? 1 : 0;
+    out[7] = G.fast_anim ? 1 : 0;
+}
+
+/* Nothing changes unless every field is in range. */
+bool game_settings_apply(const unsigned char *in, size_t len)
+{
+    if (!in || len != SETTINGS_BYTES || in[0] != SETTINGS_VERSION ||
+        in[1] >= MODE_COUNT || in[2] > 1 || in[3] >= DIFF_COUNT ||
+        in[4] >= BOARD_THEME_COUNT || in[5] >= VIEW_COUNT || in[6] > 1 || in[7] > 1)
+        return false;
+    G.mode = in[1];
+    G.human_white = in[2] != 0;
+    G.difficulty = in[3];
+    G.board_theme = in[4];
+    G.view = in[5];
+    G.music_on = in[6] != 0;
+    G.fast_anim = in[7] != 0;
+    return true;
+}
+
 const char *view_name(int view)
 {
     return view == VIEW_TOP ? "Top-down" : "Isometric";
@@ -939,6 +971,7 @@ static void record_san(const char *san, bool check, bool mate)
 
 static void commit_move(Move m)
 {
+    G.hint_t = 0;
     char san[10];
     move_to_san(m, san, sizeof san);
     char attacker = G.board[m.from];
@@ -1137,6 +1170,7 @@ static void position_reset(void)
     G.ply_count = 0;
     G.san_count = 0;
     G.san_first_ply = 0;
+    G.hint_t = 0;
     memset(G.captured, 0, sizeof G.captured);
     G.captured_count[0] = G.captured_count[1] = 0;
     pos_hash_count = 0;
@@ -1436,6 +1470,28 @@ static bool fallback_ai_move(char out[8])
     return true;
 }
 
+/* H: ask the built-in search, at full strength, what it would play. */
+static void show_hint(void)
+{
+    if (G.state != GS_PLAYING || G.anim.active || !game_is_human_turn()) return;
+    int level = G.difficulty;
+    char uci[8];
+    Move m;
+    G.difficulty = DIFF_COUNT - 1;
+    bool found = fallback_ai_move(uci);
+    G.difficulty = level;
+    if (!found || !find_uci_move(uci, &m)) return;
+    char san[10];
+    move_to_san(m, san, sizeof san);
+    G.hint_from = m.from;
+    G.hint_to = m.to;
+    G.hint_t = 8.0f;
+    G.selected = -1;
+    G.cursor = m.from;
+    snprintf(G.status, sizeof G.status, "Hint: %s", san);
+    sound_play(SND_MENU_CONFIRM, 0.55f, 1.0f);
+}
+
 static void ai_fallback_turn(void)
 {
     char move[8] = {0};
@@ -1550,6 +1606,7 @@ static void skip_animation(void)
 
 void game_tick(void)
 {
+    if (G.hint_t > 0) G.hint_t -= TICK_DT;
     G.frame_count++;
     if (G.check_flash > 0)
         G.check_flash -= TICK_DT;
@@ -1788,6 +1845,10 @@ void game_handle_key(int key)
     }
     if (G.state == GS_INTRO) {
         game_reset_to_title();   /* any key skips the intro */
+        return;
+    }
+    if ((key == 'h' || key == 'H') && G.state == GS_PLAYING) {
+        show_hint();
         return;
     }
     if (key == 't' || key == 'T' || key == KEY_TAB) {

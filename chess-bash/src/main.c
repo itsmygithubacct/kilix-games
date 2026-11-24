@@ -1,4 +1,5 @@
 #include "chess_bash.h"
+#include "kilix_state.h"
 #include <errno.h>
 #include <limits.h>
 #include <math.h>
@@ -524,6 +525,39 @@ static int rules_test(void)
     EXPECT(test_apply_moves("f2f3 e7e5 g2g4 d8h4") && strcmp(G.san[3], "Qh4#") == 0,
            "checkmate is marked");
 
+    /* Settings survive a round trip and a damaged record changes nothing. */
+    {
+        unsigned char p[SETTINGS_BYTES], q[SETTINGS_BYTES];
+        G.mode = MODE_AI_AI; G.human_white = false; G.difficulty = 2;
+        G.board_theme = 4; G.view = VIEW_TOP; G.music_on = false; G.fast_anim = true;
+        game_settings_pack(p);
+        G.mode = MODE_HUMAN_HUMAN; G.human_white = true; G.difficulty = 0;
+        G.board_theme = 0; G.view = VIEW_ISO; G.music_on = true; G.fast_anim = false;
+        game_settings_pack(q);
+        EXPECT(game_settings_apply(p, sizeof p) && G.mode == MODE_AI_AI &&
+               !G.human_white && G.difficulty == 2 && G.board_theme == 4 &&
+               G.view == VIEW_TOP && !G.music_on && G.fast_anim,
+               "packed settings are restored");
+        p[4] = 200;
+        EXPECT(!game_settings_apply(p, sizeof p) && G.board_theme == 4,
+               "an out-of-range setting is refused whole");
+        EXPECT(!game_settings_apply(q, sizeof q - 1), "a short settings record is refused");
+        EXPECT(game_settings_apply(q, sizeof q), "defaults restored for the tests below");
+    }
+
+    /* A hint names a legal move, points the cursor at it, and is dropped
+     * once a move is made. */
+    game_start(MODE_HUMAN_HUMAN);
+    game_handle_key('h');
+    {
+        bool legal = false;
+        for (int i = 0; i < G.legal_count; i++)
+            if (G.legal[i].from == G.hint_from && G.legal[i].to == G.hint_to) legal = true;
+        EXPECT(G.hint_t > 0 && legal && G.cursor == G.hint_from &&
+               strncmp(G.status, "Hint: ", 6) == 0, "H suggests a legal move");
+    }
+    EXPECT(test_apply_moves("e2e4") && G.hint_t <= 0, "a move clears the hint");
+
     /* The view toggle works in every state and never touches the position. */
     {
         int before = G.view;
@@ -849,6 +883,44 @@ static bool assets_ready(void)
     return ok;
 }
 
+/* ---------- remembered settings ----------
+ * The menu choices are kept in a kilix-state record under
+ * $XDG_DATA_HOME/chess-bash/, read and written only by the interactive game. */
+
+static bool settings_open(kilixstate_store *store)
+{
+    kilixstate_options options;
+    kilixstate_options_init(&options);
+    options.app_id = "chess-bash";
+    options.filename = "settings.state";
+    options.max_payload = 64u;
+    return kilixstate_store_init(store, &options) == KILIXSTATE_OK;
+}
+
+static void settings_load(void)
+{
+    kilixstate_store store;
+    if (!settings_open(&store)) return;
+    unsigned char p[SETTINGS_BYTES];
+    size_t size = 0;
+    if (kilixstate_load(&store, p, sizeof p, &size) == KILIXSTATE_OK)
+        (void)game_settings_apply(p, size);
+    kilixstate_store_close(&store);
+}
+
+/* Written when a choice changes, so a killed terminal loses nothing. */
+static void settings_save_if_changed(unsigned char last[SETTINGS_BYTES])
+{
+    unsigned char p[SETTINGS_BYTES];
+    game_settings_pack(p);
+    if (memcmp(p, last, sizeof p) == 0) return;
+    memcpy(last, p, sizeof p);
+    kilixstate_store store;
+    if (!settings_open(&store)) return;
+    (void)kilixstate_save(&store, p, sizeof p);
+    kilixstate_store_close(&store);
+}
+
 static int run_interactive(void)
 {
     int w, h;
@@ -869,6 +941,9 @@ static int run_interactive(void)
     atexit(term_shutdown);
 
     game_init(w, h, (uint32_t)time(NULL));
+    settings_load();
+    unsigned char saved_settings[SETTINGS_BYTES];
+    game_settings_pack(saved_settings);
     render_init(w, h);
     sound_init();
     if (G.music_on)
@@ -895,6 +970,7 @@ static int run_interactive(void)
         last = now;
         for (int i = 0; i < due; i++)
             game_tick();
+        settings_save_if_changed(saved_settings);
         render_frame();
         term_present(render_fb(), G.W, G.H);
 

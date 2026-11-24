@@ -892,6 +892,18 @@ static void draw_board_marks(void)
             draw_square_overlay(make_sq(f2, r2), 0xffffff, 0.12f);
     }
 
+    if (G.hint_t > 0 && G.state == GS_PLAYING) {
+        float pulse = 0.60f + 0.40f * sinf(G.frame_count * 0.30f);
+        float fade = clampf(G.hint_t, 0, 1);
+        int sqs[2] = { G.hint_from, G.hint_to };
+        for (int i = 0; i < 2; i++) {
+            float cx, cy;
+            square_center(sqs[i], &cx, &cy);
+            draw_square_overlay(sqs[i], 0x34d399, (i ? 0.34f : 0.20f) * pulse * fade);
+            tile_outline(cx, cy, 0.94f, 0x6ee7b7, 0.95f * fade);
+        }
+    }
+
     /* Check remains visible until answered; the stronger pulse is brief. */
     if (G.state != GS_GAMEOVER && game_side_in_check(G.side)) {
         int king_sq = game_king_square(G.side);
@@ -1497,11 +1509,11 @@ static void draw_hud(void)
                     : "Computer thinking   R resign   N leave   M music   Q quit";
     } else if (undo) {
         help = W >= 900
-            ? "ARROWS/WASD move   ENTER select   U undo   R resign   M music   F fast   T view   N leave   Q quit"
+            ? "ARROWS/WASD move   ENTER select   U undo   R resign   H hint   T view   M music   N leave   Q quit"
             : "WASD move  ENTER select  U undo  R resign  N leave  Q quit";
     } else {
         help = W >= 900
-            ? "ARROWS/WASD move   ENTER select   R resign   M music   F fast   T view   N leave   Q quit"
+            ? "ARROWS/WASD move   ENTER select   R resign   H hint   T view   M music   N leave   Q quit"
             : "WASD move  ENTER select  R resign  N leave  Q quit";
     }
     if (text_width(help, 1) > W - 24)

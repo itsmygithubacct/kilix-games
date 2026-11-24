@@ -191,6 +191,10 @@ typedef struct {
     int promo_from, promo_to;
     int promo_cursor;       /* 0=Q 1=R 2=B 3=N */
 
+    /* hint: the move the built-in adviser suggests, shown for a while */
+    int hint_from, hint_to;
+    float hint_t;
+
     /* resign confirmation */
     float resign_arm;
     float leave_arm;
@@ -241,6 +245,9 @@ void game_move_to_uci(Move m, char out[8]);
 bool game_is_human_turn(void);
 bool game_view_flipped(void);
 bool game_square_light(int sq);
+#define SETTINGS_BYTES 8
+void game_settings_pack(unsigned char out[SETTINGS_BYTES]);
+bool game_settings_apply(const unsigned char *in, size_t len);
 const char *view_name(int view);
 bool game_side_in_check(int side);
 int game_king_square(int side);

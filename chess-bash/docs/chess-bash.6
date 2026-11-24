@@ -81,6 +81,9 @@ Resign (press twice); on the victory screen: rematch.
 .B V
 After the game, hide or show the result banner to see the final position.
 .TP
+.B H
+Show a hint: the move the built-in search would play, marked on the board.
+.TP
 .B T / Tab
 Switch between the isometric battlefield and the top-down board.
 .TP
@@ -131,6 +134,10 @@ Installed image and audio assets.  The default prefix is
 .TP
 .I PREFIX/share/man/man6/chess-bash.6
 Installed manual page.
+.TP
+.I $XDG_DATA_HOME/chess-bash/settings.state
+The remembered menu choices (default
+.IR ~/.local/share/chess-bash/ ).
 .SH TERMINALS
 Kilix is the primary tested terminal.  Kitty and other terminals implementing
 the Kitty graphics protocol may also work.  SSH and terminal multiplexers must

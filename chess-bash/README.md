@@ -23,6 +23,7 @@ set of chess rules.
 - Six battlefield themes, each with its own stone board
 - An isometric battlefield view and a flat top-down view, switched at any time
 - Moves in algebraic notation, with a score sheet beside the top-down board
+- A hint key, and menu choices remembered between runs
 - Directional armies, walk and battle animation, captured-piece trays, move
   history, legal-move markers, check feedback, and a victory sequence
 - Music with crossfades and seven multi-variation sound-effect banks, plus fast
@@ -93,6 +94,7 @@ STOCKFISH=/usr/games/stockfish ./chess-bash
 | R | Resign (press twice); rematch after the game |
 | V | After the game, hide or show the result to see the board |
 | T / Tab | Switch between the isometric and top-down views |
+| H | Show a hint: the move the built-in adviser would play |
 | M | Toggle music |
 | F | Toggle fast battles |
 | S | Skip the active battle |

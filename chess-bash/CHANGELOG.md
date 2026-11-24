@@ -13,6 +13,9 @@ All notable user-facing changes are recorded here.
 - Distinct sound cues for castling, promotion, illegal moves, draws, defeat and
   the menus, and an optional local audio pack under `assets/pack/` that can
   replace any bundled sound or track
+- H shows a hint from the built-in search
+- The menu choices (mode, side, difficulty, battlefield, view, music, battle
+  speed) are remembered between runs
 - Take back a move with U or Backspace, including after checkmate or a draw;
   against the computer its reply goes back too
 - After the game, V hides the result banner so the final position can be seen
