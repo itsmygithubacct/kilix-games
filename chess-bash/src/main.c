@@ -424,6 +424,20 @@ static int rules_test(void)
 
     G.human_white = true;
 
+    /* Skipping a battle must not play every remaining cue at once. */
+    G.fast_anim = false;
+    game_start(MODE_HUMAN_HUMAN);
+    EXPECT(test_apply_moves("e2e4 d7d5"), "skip fixture moves are legal");
+    EXPECT(game_apply_uci_move("e4d5"), "skip fixture capture is legal");
+    game_tick();
+    unsigned cues_before = sound_request_count();
+    game_handle_key('s');
+    anim_run_out();
+    EXPECT(G.state == GS_PLAYING && G.board[make_sq(3, 4)] == 'P',
+           "a skipped battle still completes the capture");
+    EXPECT(sound_request_count() - cues_before == 1,
+           "a skipped battle plays one cue, not all of them together");
+
     /* Game time follows elapsed time, whatever the frame rate. */
     double carry = 0;
     EXPECT(ticks_due(1000.0 / 30.0 + 0.01, &carry) == 2,

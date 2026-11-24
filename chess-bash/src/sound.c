@@ -15,6 +15,8 @@ static Sample music_tracks[MUSIC_COUNT];
 static pcmmix mixer;
 static bool mixer_started;
 static uint32_t srng = 0x51a7c0deu;
+/* cues asked for, heard or not: lets headless tests count them */
+static unsigned sound_requests;
 
 static float frand_audio(void)
 {
@@ -305,9 +307,16 @@ int sound_music_current(void)
     return -1;
 }
 
+unsigned sound_request_count(void)
+{
+    return sound_requests;
+}
+
 void sound_play(int id, float vol, float pitch)
 {
-    if (!mixer_started || id < 0 || id >= SOUND_COUNT) return;
+    if (id < 0 || id >= SOUND_COUNT) return;
+    sound_requests++;
+    if (!mixer_started) return;
     (void)pcmmix_bank_play(&mixer, &sound_bank, (uint32_t)id,
                            clampf(vol, 0, 1.5f),
                            pitch <= 0 ? 1.0f : pitch);

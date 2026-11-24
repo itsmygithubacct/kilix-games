@@ -1333,6 +1333,19 @@ static void update_animation_sounds(void)
     }
 }
 
+/* Jump to the end of the move.  The cues the animation has not reached yet
+ * would otherwise all pass their thresholds on the next tick and play on top
+ * of each other; a skipped move makes one sound, as a fast one does. */
+static void skip_animation(void)
+{
+    if (!G.anim.active) return;
+    if (!(G.anim.sound_flags & ANIM_SND_HIT))
+        sound_play(G.anim.move.capture ? SND_CAPTURE : SND_MOVE,
+                   G.anim.move.capture ? 0.82f : 0.62f, 1.0f);
+    G.anim.sound_flags = ~0u;
+    G.anim.t = 1.0f;
+}
+
 void game_tick(void)
 {
     G.frame_count++;
@@ -1588,7 +1601,7 @@ void game_handle_key(int key)
     }
     if (G.state == GS_ANIMATING) {
         if (key == 's' || key == 'S' || key == KEY_ENTER || key == ' ')
-            G.anim.t = 1.0f;
+            skip_animation();
         return;
     }
     if (G.state == GS_PROMOTING) {

@@ -260,6 +260,7 @@ void term_emergency_restore(void);
 bool sound_init(void);
 void sound_shutdown(void);
 void sound_play(int id, float vol, float pitch);
+unsigned sound_request_count(void);
 void sound_music_play(int id, float vol, bool loop);
 void sound_music_stop(float fade_seconds);
 int sound_music_current(void);
