@@ -6,12 +6,21 @@ All notable user-facing changes are recorded here.
 
 ### Added
 
+- A top-down view beside the isometric one: T or Tab switches at any time, and
+  the title menu has a View row
+- Textured stone boards with a frame for every battlefield, new title art
+- Moves are shown in algebraic notation; the top-down view has a score sheet
+- New sound effects and music generated with ElevenLabs, including new cues
+  for castling, promotion, illegal moves, draws, defeat and the menus, and a
+  second in-game track. This audio is not CC0; see `docs/asset-sources.md`
 - Take back a move with U or Backspace, including after checkmate or a draw;
   against the computer its reply goes back too
 - After the game, V hides the result banner so the final position can be seen
 
 ### Fixed
 
+- The board squares were coloured the wrong way round (a1 was light)
+- Losing to the computer no longer plays the victory fanfare
 - A board frame cost about twice its 30 Hz budget at 1000x640, and game time
   advanced per frame, so play ran in slow motion; a frame now costs about an
   eighth as much and game time follows the clock

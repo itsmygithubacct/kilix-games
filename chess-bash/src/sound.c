@@ -1,6 +1,7 @@
 #include "chess_bash.h"
 #include "pcmmix_bank.h"
 
+#include <unistd.h>
 #include <limits.h>
 #include <math.h>
 #include <stdio.h>
@@ -197,6 +198,31 @@ static bool load_wav_into(Sample *dst, const char *path)
     return true;
 }
 
+/* An optional audio pack under assets/pack/ replaces or adds to the bundled
+ * audio file by file: pack/sfx/select.wav is used in place of sfx/select.wav.
+ * The pack is not part of the source tree. */
+static const char *audio_path(const char *rel)
+{
+    char packed[160];
+    snprintf(packed, sizeof packed, "pack/%s", rel);
+    const char *path = asset_path(packed);
+    if (access(path, R_OK) == 0) return path;
+    return asset_path(rel);
+}
+
+static bool sfx_loaded[SOUND_COUNT];
+
+/* Cues that only a pack supplies borrow a bundled one, retuned. */
+static const struct { int id; float pitch; float gain; } sfx_fallback[SOUND_COUNT] = {
+    [SND_CASTLE]       = { SND_FALL, 0.80f, 0.85f },
+    [SND_PROMOTE]      = { SND_CHECK, 1.50f, 0.80f },
+    [SND_ILLEGAL]      = { SND_SELECT, 0.68f, 0.55f },
+    [SND_DRAW]         = { SND_WIN_TRUMPET, 0.82f, 0.65f },
+    [SND_DEFEAT]       = { SND_WIN_TRUMPET, 0.70f, 0.65f },
+    [SND_MENU_MOVE]    = { SND_SELECT, 0.95f, 0.60f },
+    [SND_MENU_CONFIRM] = { SND_SELECT, 1.08f, 0.80f },
+};
+
 static void load_sfx_bank(int id, const char *const *paths, int count)
 {
     char error[256];
@@ -206,9 +232,11 @@ static void load_sfx_bank(int id, const char *const *paths, int count)
     for (int variant = 0; variant < count; variant++)
         if (!pcmmix_bank_load_wav(&sound_bank, (uint32_t)id,
                                   (uint32_t)variant,
-                                  asset_path(paths[variant]), 1.0f, 1.0f,
+                                  audio_path(paths[variant]), 1.0f, 1.0f,
                                   error, sizeof error))
             break;
+        else
+            sfx_loaded[id] = true;
 }
 
 static void load_sfx_assets(void)
@@ -246,13 +274,29 @@ static void load_sfx_assets(void)
     load_sfx_bank(SND_START_TRUMPET, start, (int)(sizeof start / sizeof start[0]));
     load_sfx_bank(SND_WIN_TRUMPET, win, (int)(sizeof win / sizeof win[0]));
     load_sfx_bank(SND_CHECK, check, (int)(sizeof check / sizeof check[0]));
+
+    static const char *const castle[] = { "sfx/castle.wav", "sfx/castle_v02.wav" };
+    static const char *const promote[] = { "sfx/promote.wav", "sfx/promote_v02.wav" };
+    static const char *const illegal[] = { "sfx/illegal.wav", "sfx/illegal_v02.wav" };
+    static const char *const draw[] = { "sfx/draw.wav" };
+    static const char *const defeat[] = { "sfx/defeat.wav" };
+    static const char *const menu_move[] = { "sfx/menu_move.wav", "sfx/menu_move_v02.wav" };
+    static const char *const menu_confirm[] = { "sfx/menu_confirm.wav" };
+    load_sfx_bank(SND_CASTLE, castle, 2);
+    load_sfx_bank(SND_PROMOTE, promote, 2);
+    load_sfx_bank(SND_ILLEGAL, illegal, 2);
+    load_sfx_bank(SND_DRAW, draw, 1);
+    load_sfx_bank(SND_DEFEAT, defeat, 1);
+    load_sfx_bank(SND_MENU_MOVE, menu_move, 2);
+    load_sfx_bank(SND_MENU_CONFIRM, menu_confirm, 1);
 }
 
 static void load_music_assets(void)
 {
-    load_wav_into(&music_tracks[MUS_THINKING], asset_path("music/thinking_loop.wav"));
-    load_wav_into(&music_tracks[MUS_BATTLE], asset_path("music/battle_loop.wav"));
-    load_wav_into(&music_tracks[MUS_VICTORY], asset_path("music/victory_fanfare.wav"));
+    load_wav_into(&music_tracks[MUS_THINKING], audio_path("music/thinking_loop.wav"));
+    load_wav_into(&music_tracks[MUS_THINKING_B], audio_path("music/thinking_loop_b.wav"));
+    load_wav_into(&music_tracks[MUS_BATTLE], audio_path("music/battle_loop.wav"));
+    load_wav_into(&music_tracks[MUS_VICTORY], audio_path("music/victory_fanfare.wav"));
 }
 
 /* ---------- public API ---------- */
@@ -284,6 +328,8 @@ void sound_shutdown(void)
 
 void sound_music_play(int id, float vol, bool loop)
 {
+    if (id == MUS_THINKING_B && !music_tracks[id].data)
+        id = MUS_THINKING;   /* the second track comes only with a pack */
     if (!mixer_started || id < 0 || id >= MUSIC_COUNT ||
         !music_tracks[id].data)
         return;
@@ -317,6 +363,11 @@ void sound_play(int id, float vol, float pitch)
     if (id < 0 || id >= SOUND_COUNT) return;
     sound_requests++;
     if (!mixer_started) return;
+    if (!sfx_loaded[id] && sfx_fallback[id].gain > 0) {
+        vol *= sfx_fallback[id].gain;
+        pitch = (pitch <= 0 ? 1.0f : pitch) * sfx_fallback[id].pitch;
+        id = sfx_fallback[id].id;
+    }
     (void)pcmmix_bank_play(&mixer, &sound_bank, (uint32_t)id,
                            clampf(vol, 0, 1.5f),
                            pitch <= 0 ? 1.0f : pitch);

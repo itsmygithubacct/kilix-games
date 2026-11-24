@@ -20,7 +20,9 @@ set of chess rules.
 - Human vs Human, Human vs Computer, and Computer vs Computer modes
 - Three difficulty levels, backed by Stockfish when available and a built-in
   fallback engine otherwise
-- Six boardless battlefield themes framing a centered isometric game board
+- Six battlefield themes, each with its own stone board
+- An isometric battlefield view and a flat top-down view, switched at any time
+- Moves in algebraic notation, with a score sheet beside the top-down board
 - Directional armies, walk and battle animation, captured-piece trays, move
   history, legal-move markers, check feedback, and a victory sequence
 - Music with crossfades and seven multi-variation sound-effect banks, plus fast
@@ -90,6 +92,7 @@ STOCKFISH=/usr/games/stockfish ./chess-bash
 | U / Backspace | Take back a move (and the computer's reply) |
 | R | Resign (press twice); rematch after the game |
 | V | After the game, hide or show the result to see the board |
+| T / Tab | Switch between the isometric and top-down views |
 | M | Toggle music |
 | F | Toggle fast battles |
 | S | Skip the active battle |
@@ -138,10 +141,11 @@ isometric sprite renderer remains game-specific.
 
 ## Assets and license
 
-Chess Bash code, project-specific art, and deterministic music are released
-under the [MIT License](LICENSE) to the extent applicable. The bundled gameplay
-SFX in `assets/sfx/` are locally generated and CC0-derived, with no
-standalone-use restriction. The embedded terminal font retains its permissive
+Chess Bash code and project-specific art are released under the
+[MIT License](LICENSE) to the extent applicable. The sound effects and music in
+`assets/sfx/` and `assets/music/` were generated with ElevenLabs; they are not
+CC0 and remain subject to that service's terms for generated audio. The
+embedded terminal font retains its permissive
 upstream notice. See the public [asset provenance and licensing
 manifest](docs/asset-sources.md) for details.
 

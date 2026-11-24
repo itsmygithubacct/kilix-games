@@ -44,6 +44,10 @@ SFX_ASSETS = assets/sfx/select.wav assets/sfx/select_v02.wav \
 	assets/sfx/check.wav assets/sfx/check_v02.wav assets/sfx/check_v03.wav
 MUSIC_ASSETS = assets/music/thinking_loop.wav assets/music/battle_loop.wav \
 	assets/music/victory_fanfare.wav
+# an optional local audio pack; never part of the source tree
+PACK_SFX = $(wildcard assets/pack/sfx/*.wav)
+PACK_MUSIC = $(wildcard assets/pack/music/*.wav)
+PACK_AUDIO = $(PACK_SFX) $(PACK_MUSIC)
 ASSET_FILES = $(ROOT_IMAGES) $(BOARD_IMAGES) $(TILE_IMAGES) $(SFX_ASSETS) $(MUSIC_ASSETS)
 ASSET_DEST = $(DESTDIR)$(PREFIX)/share/chess-bash/assets
 
@@ -194,7 +198,7 @@ validate-assets: $(ASSET_FILES)
 	check_ppm assets/effects.ppm 640 384; \
 	for image in $(BOARD_IMAGES); do check_ppm "$$image" 640 360; done; \
 	for image in $(TILE_IMAGES); do check_ppm "$$image" 256 256; done; \
-	for audio in $(SFX_ASSETS) $(MUSIC_ASSETS); do check_wav "$$audio"; done
+	for audio in $(SFX_ASSETS) $(MUSIC_ASSETS) $(PACK_AUDIO); do check_wav "$$audio"; done
 
 install: $(BIN) validate-assets
 	install -Dm755 $(BIN) "$(DESTDIR)$(PREFIX)/bin/$(BIN)"
@@ -204,6 +208,14 @@ install: $(BIN) validate-assets
 	install -m644 $(BOARD_IMAGES) $(TILE_IMAGES) "$(ASSET_DEST)/boards/"
 	install -m644 $(SFX_ASSETS) "$(ASSET_DEST)/sfx/"
 	install -m644 $(MUSIC_ASSETS) "$(ASSET_DEST)/music/"
+ifneq ($(strip $(PACK_SFX)),)
+	install -d -m755 "$(ASSET_DEST)/pack/sfx"
+	install -m644 $(PACK_SFX) "$(ASSET_DEST)/pack/sfx/"
+endif
+ifneq ($(strip $(PACK_MUSIC)),)
+	install -d -m755 "$(ASSET_DEST)/pack/music"
+	install -m644 $(PACK_MUSIC) "$(ASSET_DEST)/pack/music/"
+endif
 	install -Dm644 docs/chess-bash.6 "$(DESTDIR)$(PREFIX)/share/man/man6/chess-bash.6"
 
 uninstall:

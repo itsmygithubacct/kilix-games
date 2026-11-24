@@ -819,7 +819,17 @@ static int sound_test(void)
     sound_play(SND_WIN_TRUMPET, 0.8f, 1.0f);
     sleep_ms(2600);
     sound_play(SND_CHECK, 0.8f, 1.0f);
-    sleep_ms(600);
+    sleep_ms(1500);
+    printf("sound-test: playing castle, promote, illegal, draw, defeat, menu move, menu confirm\n");
+    static const struct { int id; int ms; } more[] = {
+        { SND_CASTLE, 1400 }, { SND_PROMOTE, 1900 }, { SND_ILLEGAL, 500 },
+        { SND_DRAW, 3000 }, { SND_DEFEAT, 3500 }, { SND_MENU_MOVE, 300 },
+        { SND_MENU_CONFIRM, 800 },
+    };
+    for (size_t i = 0; i < sizeof more / sizeof more[0]; i++) {
+        sound_play(more[i].id, 0.8f, 1.0f);
+        sleep_ms(more[i].ms);
+    }
     sound_shutdown();
     return 0;
 }

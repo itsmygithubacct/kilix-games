@@ -640,7 +640,7 @@ static void setup_board_metrics(void)
     if (top_view()) {
         float room = (float)(H - hud_top_height() - 48);
         float sq = fminf((room - 58.0f) / 8.0f, W * 0.60f / 8.0f);
-        tile_w = tile_h = floorf(clampf(sq, 24.0f, 110.0f));
+        tile_w = tile_h = floorf(clampf(sq, 18.0f, 110.0f));
         board_cx = floorf(W * 0.50f);
         /* board_top is the top edge of the eighth rank */
         board_top = floorf(hud_top_height() + (room - tile_h * 8.0f) * 0.5f - 7.0f);

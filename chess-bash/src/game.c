@@ -81,6 +81,14 @@ const char *mode_name(int mode)
     }
 }
 
+/* two in-game tracks, alternating game by game */
+static int thinking_track_id = MUS_THINKING;
+
+static void play_thinking_music(void)
+{
+    sound_music_play(thinking_track_id, 0.42f, true);
+}
+
 const char *view_name(int view)
 {
     return view == VIEW_TOP ? "Top-down" : "Isometric";
@@ -688,12 +696,15 @@ static void game_over(int kind, int winner)
     }
     snprintf(G.status, sizeof G.status, "%s", G.result);
     G.state = GS_GAMEOVER;
-    if (winner >= 0) {
+    bool human_lost = G.mode == MODE_HUMAN_AI && winner >= 0 &&
+                      winner != (G.human_white ? SIDE_WHITE : SIDE_BLACK);
+    if (winner >= 0 && !human_lost) {
         sound_play(SND_WIN_TRUMPET, 0.95f, 1.0f);
         if (G.music_on)
             sound_music_play(MUS_VICTORY, 0.8f, false);
     } else {
-        sound_play(SND_WIN_TRUMPET, 0.55f, 0.82f);
+        /* a draw, or the player beaten by the computer: no fanfare */
+        sound_play(human_lost ? SND_DEFEAT : SND_DRAW, 0.85f, 1.0f);
         if (G.music_on)
             sound_music_stop(1.2f);
     }
@@ -958,6 +969,8 @@ static void commit_move(Move m)
 static void finish_animation(void)
 {
     commit_move(G.anim.move);
+    if (G.anim.move.promo)
+        sound_play(SND_PROMOTE, 0.80f, 1.0f);
     G.selected = -1;
     G.anim.active = false;
     game_generate_legal();
@@ -1165,8 +1178,9 @@ void game_start(int mode)
     G.ai_movetime_ms = diff_movetime[G.difficulty % DIFF_COUNT];
     resume_play();
     sound_play(SND_START_TRUMPET, 0.85f, 1.0f);
+    thinking_track_id = thinking_track_id == MUS_THINKING ? MUS_THINKING_B : MUS_THINKING;
     if (G.music_on)
-        sound_music_play(MUS_THINKING, 0.42f, true);
+        play_thinking_music();
 }
 
 /* How many plies a take-back keeps, or -1 when there is nothing to take
@@ -1224,7 +1238,7 @@ static void take_back(void)
     snprintf(G.status, sizeof G.status, "Move taken back - %.120s", turn);
     sound_play(SND_SELECT, 0.50f, 0.75f);
     if (was_over && G.music_on)
-        sound_music_play(MUS_THINKING, 0.42f, true);
+        play_thinking_music();
 }
 
 void game_reset_to_title(void)
@@ -1483,14 +1497,20 @@ static void play_anim_sound_at(float threshold, uint32_t flag, int id, float vol
     sound_play(id, vol, pitch);
 }
 
+/* the one sound a fast or skipped move makes */
+static int anim_single_cue(void)
+{
+    return G.anim.move.capture ? SND_CAPTURE
+         : G.anim.move.castle ? SND_CASTLE : SND_MOVE;
+}
+
 static void update_animation_sounds(void)
 {
     if (!G.anim.active) return;
     if (G.fast_anim) {
         if (!(G.anim.sound_flags & ANIM_SND_HIT)) {
             G.anim.sound_flags |= ANIM_SND_HIT;
-            sound_play(G.anim.move.capture ? SND_CAPTURE : SND_MOVE,
-                       G.anim.move.capture ? 0.82f : 0.62f, 1.0f);
+            sound_play(anim_single_cue(), G.anim.move.capture ? 0.82f : 0.62f, 1.0f);
         }
         return;
     }
@@ -1511,6 +1531,8 @@ static void update_animation_sounds(void)
         play_anim_sound_at(0.30f, ANIM_SND_STEP_2, SND_MOVE, 0.48f, 1.02f);
         play_anim_sound_at(0.54f, ANIM_SND_STEP_3, SND_MOVE, 0.50f, 0.96f);
         play_anim_sound_at(0.78f, ANIM_SND_STEP_4, SND_MOVE, 0.44f, 1.06f);
+        if (G.anim.move.castle)   /* the rook grinds into place beside the king */
+            play_anim_sound_at(0.42f, ANIM_SND_HIT, SND_CASTLE, 0.75f, 1.0f);
     }
 }
 
@@ -1521,8 +1543,7 @@ static void skip_animation(void)
 {
     if (!G.anim.active) return;
     if (!(G.anim.sound_flags & ANIM_SND_HIT))
-        sound_play(G.anim.move.capture ? SND_CAPTURE : SND_MOVE,
-                   G.anim.move.capture ? 0.82f : 0.62f, 1.0f);
+        sound_play(anim_single_cue(), G.anim.move.capture ? 0.82f : 0.62f, 1.0f);
     G.anim.sound_flags = ~0u;
     G.anim.t = 1.0f;
 }
@@ -1655,7 +1676,7 @@ static void toggle_music(void)
     if (G.state == GS_TITLE || G.state == GS_INTRO)
         sound_music_play(MUS_BATTLE, 0.38f, true);
     else if (G.state != GS_GAMEOVER)
-        sound_music_play(MUS_THINKING, 0.42f, true);
+        play_thinking_music();
 }
 
 static bool title_row_enabled(int row)
@@ -1670,7 +1691,7 @@ static void title_move_row(int dir)
     do {
         G.title_row = (G.title_row + dir + MENU_COUNT) % MENU_COUNT;
     } while (!title_row_enabled(G.title_row));
-    sound_play(SND_SELECT, 0.35f, 0.95f);
+    sound_play(SND_MENU_MOVE, 0.60f, 1.0f);
 }
 
 static void title_adjust(int dir)
@@ -1701,7 +1722,7 @@ static void title_adjust(int dir)
     default:
         break;
     }
-    sound_play(SND_SELECT, 0.45f, 1.08f);
+    sound_play(SND_MENU_CONFIRM, 0.55f, 1.0f);
 }
 
 static void resign_key(void)
@@ -1815,11 +1836,11 @@ void game_handle_key(int key)
         if (key == KEY_LEFT || key == 'a' || key == 'A' ||
             key == KEY_UP || key == 'w' || key == 'W') {
             G.promo_cursor = (G.promo_cursor + 3) % 4;
-            sound_play(SND_SELECT, 0.4f, 1.0f);
+            sound_play(SND_MENU_MOVE, 0.60f, 1.0f);
         } else if (key == KEY_RIGHT || key == 'd' || key == 'D' ||
                    key == KEY_DOWN || key == 's' || key == 'S') {
             G.promo_cursor = (G.promo_cursor + 1) % 4;
-            sound_play(SND_SELECT, 0.4f, 1.0f);
+            sound_play(SND_MENU_MOVE, 0.60f, 1.0f);
         } else if (key == KEY_ENTER || key == ' ') {
             confirm_promotion();
         } else if (key == KEY_ESC) {
@@ -1864,7 +1885,7 @@ void game_handle_key(int key)
                 select_square(G.cursor);
             } else {
                 set_cursor_status();
-                sound_play(SND_SELECT, 0.30f, 0.68f);
+                sound_play(SND_ILLEGAL, 0.60f, 1.0f);
             }
         } else {
             if (G.cursor == G.selected) {
@@ -1873,9 +1894,10 @@ void game_handle_key(int key)
                 sound_play(SND_SELECT, 0.42f, 0.70f);
                 set_turn_status();
             } else if (!game_apply_human_target(G.selected, G.cursor)) {
-                if (piece_color(G.board[G.cursor]) == G.side) {
+                if (piece_color(G.board[G.cursor]) == G.side)
                     select_square(G.cursor);
-                }
+                else
+                    sound_play(SND_ILLEGAL, 0.60f, 1.0f);
             }
         }
     }

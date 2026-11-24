@@ -10,5 +10,8 @@ battle_*.png
 *.gcno
 *.profraw
 
+# optional local audio pack
+/assets/pack/
+
 # per-game kit build (kilix-games shared SDK)
 /build/
