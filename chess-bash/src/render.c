@@ -16,8 +16,18 @@ static int loaded_theme = -1;
 static sr_canvas backdrop;
 static bool backdrop_valid;
 static bool backdrop_flipped;
+static int backdrop_view;
+static Bitmap tile_tex[2];       /* light and dark square textures of the theme */
 static float board_cx, board_top, tile_w, tile_h;
 static float shake_x, shake_y;   /* whole-scene impact shake, set per frame */
+
+static bool top_view(void) { return G.view == VIEW_TOP; }
+
+/* where a piece's feet stand, below its square's centre */
+static float feet_dy(void) { return tile_h * (top_view() ? 0.45f : 0.33f); }
+
+/* top-down squares are as tall as they are wide, so a piece must fit inside */
+static float piece_size(void) { return tile_w * (top_view() ? 1.04f : 1.0f); }
 
 uint8_t *render_fb(void)
 {
@@ -145,6 +155,30 @@ static void free_bitmap(Bitmap *b)
     memset(b, 0, sizeof *b);
 }
 
+/* Whatever the art looks like, a light square must read as light and a dark
+ * one as dark: scale each texture to a fixed mean brightness. */
+static void level_tile_texture(Bitmap *b, float target)
+{
+    if (!b->ok || b->w < 2 || b->h < 2) return;
+    double sum = 0;
+    size_t n = (size_t)b->w * (size_t)b->h;
+    for (size_t i = 0; i < n; i++) {
+        uint32_t c = b->px[i];
+        sum += 0.30 * ((c >> 16) & 255) + 0.59 * ((c >> 8) & 255) + 0.11 * (c & 255);
+    }
+    float gain = sum > 0 ? target / (float)(sum / (double)n) : 1.0f;
+    gain = clampf(gain, 0.35f, 2.5f);
+    for (size_t i = 0; i < n; i++) {
+        uint32_t c = b->px[i];
+        int r = (int)(((c >> 16) & 255) * gain), g = (int)(((c >> 8) & 255) * gain);
+        int bl = (int)((c & 255) * gain);
+        if (r > 255) r = 255;
+        if (g > 255) g = 255;
+        if (bl > 255) bl = 255;
+        b->px[i] = ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)bl;
+    }
+}
+
 void render_set_theme(int i)
 {
     i = ((i % BOARD_THEME_COUNT) + BOARD_THEME_COUNT) % BOARD_THEME_COUNT;
@@ -153,6 +187,13 @@ void render_set_theme(int i)
     char rel[128];
     snprintf(rel, sizeof rel, "boards/%s.ppm", themes[i].file);
     board_bg_img = load_ppm(asset_path(rel));
+    for (int shade = 0; shade < 2; shade++) {
+        free_bitmap(&tile_tex[shade]);
+        snprintf(rel, sizeof rel, "boards/%s-%s.ppm", themes[i].file,
+                 shade == 0 ? "light" : "dark");
+        tile_tex[shade] = load_ppm(asset_path(rel));
+        level_tile_texture(&tile_tex[shade], shade == 0 ? 178.0f : 74.0f);
+    }
     loaded_theme = i;
     backdrop_valid = false;
 }
@@ -347,8 +388,10 @@ static void draw_piece_direction_pose(char piece, float cx, float by, float size
     int type = piece_type(piece);
     int side = piece_color(piece);
     if (type < 0 || side < 0) return;
-    if (!piece_direction_atlas.ok) {
-        draw_piece_sprite_pose(piece, cx, by, size, alpha, flip, angle);
+    if (!piece_direction_atlas.ok || top_view()) {
+        /* seen from above the armies stand facing the player */
+        draw_piece_sprite_pose(piece, cx, by, size, alpha,
+                               top_view() ? false : flip, angle);
         return;
     }
     draw_piece_shadow(side, cx, by, size, alpha, angle);
@@ -594,6 +637,15 @@ static int hud_top_height(void)
 
 static void setup_board_metrics(void)
 {
+    if (top_view()) {
+        float room = (float)(H - hud_top_height() - 48);
+        float sq = fminf((room - 58.0f) / 8.0f, W * 0.60f / 8.0f);
+        tile_w = tile_h = floorf(clampf(sq, 24.0f, 110.0f));
+        board_cx = floorf(W * 0.50f);
+        /* board_top is the top edge of the eighth rank */
+        board_top = floorf(hud_top_height() + (room - tile_h * 8.0f) * 0.5f - 7.0f);
+        return;
+    }
     tile_w = fminf(W / 10.5f, (H - hud_top_height() - 48) / 6.0f);
     tile_w = clampf(tile_w, 40.0f, 116.0f);
     tile_h = tile_w * 0.48f;
@@ -609,20 +661,50 @@ static void square_center(int sq, float *cx, float *cy)
     int r = sq_rank(sq);
     int visual_f = game_view_flipped() ? 7 - f : f;
     int visual_r = game_view_flipped() ? r : 7 - r;
+    if (top_view()) {
+        *cx = board_cx + (visual_f - 3.5f) * tile_w + shake_x;
+        *cy = board_top + (visual_r + 0.5f) * tile_h + shake_y;
+        return;
+    }
     *cx = board_cx + (visual_f - visual_r) * tile_w * 0.5f + shake_x;
     *cy = board_top + (visual_f + visual_r) * tile_h * 0.5f + tile_h + shake_y;
 }
 
 static float depth_from_screen_y(float cy)
 {
+    if (top_view())   /* painter's bands are the visual rows */
+        return (cy - shake_y - board_top) / tile_h - 0.5f;
     return (cy - shake_y - board_top - tile_h) / (tile_h * 0.5f);
+}
+
+/* a square of the board, scaled about its centre: a diamond or a rectangle */
+static void tile_fill(float cx, float cy, float k, uint32_t rgb, float alpha)
+{
+    if (top_view())
+        fill_rect((int)lroundf(cx - tile_w * k * 0.5f), (int)lroundf(cy - tile_h * k * 0.5f),
+                  (int)lroundf(tile_w * k), (int)lroundf(tile_h * k), rgb, alpha);
+    else
+        fill_diamond(cx, cy, tile_w * k, tile_h * k, rgb, alpha);
+}
+
+static void tile_outline(float cx, float cy, float k, uint32_t rgb, float alpha)
+{
+    if (!top_view()) {
+        outline_diamond(cx, cy, tile_w * k, tile_h * k, rgb, alpha);
+        return;
+    }
+    float hw = tile_w * k * 0.5f - 1.0f, hh = tile_h * k * 0.5f - 1.0f;
+    draw_line(cx - hw, cy - hh, cx + hw, cy - hh, 2.0f, rgb, alpha);
+    draw_line(cx + hw, cy - hh, cx + hw, cy + hh, 2.0f, rgb, alpha);
+    draw_line(cx + hw, cy + hh, cx - hw, cy + hh, 2.0f, rgb, alpha);
+    draw_line(cx - hw, cy + hh, cx - hw, cy - hh, 2.0f, rgb, alpha);
 }
 
 static void draw_square_overlay(int sq, uint32_t rgb, float alpha)
 {
     float cx, cy;
     square_center(sq, &cx, &cy);
-    fill_diamond(cx, cy, tile_w, tile_h, rgb, alpha);
+    tile_fill(cx, cy, 1.0f, rgb, alpha);
 }
 
 static int legal_target_kind(int from, int to)
@@ -636,46 +718,158 @@ static int legal_target_kind(int from, int to)
     return kind;
 }
 
-/* shadow, squares and coordinates: everything a move cannot change */
-static void draw_board_base(void)
+/* ---------- the board ----------
+ * Drawn per pixel by mapping each one back to board coordinates, which gives
+ * textured squares, a bevelled frame and a slab with visible thickness in
+ * either view.  It is composed into the cached backdrop, so the cost is paid
+ * once, not every frame. */
+
+#define BOARD_FRAME 0.22f     /* frame width, in squares */
+
+static const uint32_t frame_colors[BOARD_THEME_COUNT] = {
+    0x4a3524, 0x343844, 0x6b4426, 0x2b4a66, 0x3a2420, 0x232c40
+};
+
+static uint32_t board_square_color(int vf, int vr, float fp, float fq)
 {
+    bool flipped = game_view_flipped();
+    int f = flipped ? 7 - vf : vf;
+    int rank = flipped ? vr : 7 - vr;
+    bool light = game_square_light(make_sq(f, rank));
+    const Bitmap *t = &tile_tex[light ? 0 : 1];
+    uint32_t c;
+    unsigned h = (unsigned)(f * 73 + rank * 151 + 7) * 2654435761u;
+    if (t->ok) {
+        /* each square shows its own window of the texture */
+        float ox = ((h >> 8) & 255) / 255.0f, oy = ((h >> 16) & 255) / 255.0f;
+        int tx = (int)((fp * 0.42f + ox * 0.58f) * (float)(t->w - 1));
+        int ty = (int)((fq * 0.42f + oy * 0.58f) * (float)(t->h - 1));
+        c = t->px[ty * t->w + tx] & 0xffffffu;
+    } else {
+        c = light ? 0xd9c4a5 : 0x5a3b33;
+        unsigned n = ((unsigned)(fp * 48.0f) * 7919u) ^ ((unsigned)(fq * 48.0f) * 104729u) ^ h;
+        n *= 2246822519u;
+        c = rgb_mix(c, (n >> 13) & 1 ? 0xffffff : 0x000000, 0.035f);
+    }
+    float edge = fminf(fminf(fp, 1.0f - fp), fminf(fq, 1.0f - fq));
+    if (edge < 0.030f) return rgb_mix(c, 0x000000, 0.38f);       /* joint */
+    if (fp < 0.085f || fq < 0.085f) return rgb_mix(c, 0xffffff, 0.12f);
+    if (fp > 0.915f || fq > 0.915f) return rgb_mix(c, 0x000000, 0.14f);
+    return c;
+}
+
+/* p runs along the visual files, q down the visual rows; both 0..8 on the
+ * squares and out to -BOARD_FRAME..8+BOARD_FRAME on the frame */
+static bool board_surface_color(float p, float q, uint32_t *out)
+{
+    const float m = BOARD_FRAME;
+    if (p < -m || q < -m || p >= 8.0f + m || q >= 8.0f + m) return false;
+    if (p >= 0.0f && q >= 0.0f && p < 8.0f && q < 8.0f) {
+        int vf = (int)p, vr = (int)q;
+        *out = board_square_color(vf, vr, p - (float)vf, q - (float)vr);
+        return true;
+    }
+    uint32_t frame = frame_colors[G.board_theme % BOARD_THEME_COUNT];
+    float outer = fminf(fminf(p + m, q + m), fminf(8.0f + m - p, 8.0f + m - q));
+    float inner = fmaxf(fmaxf(-p, -q), fmaxf(p - 8.0f, q - 8.0f));
+    if (inner < 0.035f) frame = rgb_mix(frame, 0x000000, 0.45f);        /* inner lip */
+    else if (outer < 0.045f) frame = rgb_mix(frame, 0xffffff, 0.22f);   /* outer edge */
+    else if (p < 0.0f || q < 0.0f) frame = rgb_mix(frame, 0xffffff, 0.08f);
+    else frame = rgb_mix(frame, 0x000000, 0.10f);
+    *out = frame;
+    return true;
+}
+
+static void draw_board_shadow(void)
+{
+    if (top_view()) {
+        float half = tile_w * (4.0f + BOARD_FRAME);
+        for (int layer = 0; layer < 6; layer++)
+            fill_rect((int)(board_cx - half + shake_x) - layer * 2 + 6,
+                      (int)(board_top - tile_h * BOARD_FRAME + shake_y) - layer * 2 + 10,
+                      (int)(half * 2.0f) + layer * 4, (int)(half * 2.0f) + layer * 4,
+                      0x000000, 0.045f);
+        return;
+    }
     for (int layer = 0; layer < 7; layer++) {
         float a = 0.025f * (7 - layer);
-        fill_diamond(board_cx + shake_x, board_top + shake_y + tile_h * 4.55f + layer * 2.0f,
-                     tile_w * 8.65f + layer * 5.0f,
-                     tile_h * 8.45f + layer * 2.0f, 0x000000, a);
+        fill_diamond(board_cx + shake_x,
+                     board_top + shake_y + tile_h * 5.05f + layer * 2.0f,
+                     tile_w * 8.95f + layer * 5.0f,
+                     tile_h * 8.75f + layer * 2.0f, 0x000000, a);
     }
+}
 
-    for (int vr = 0; vr < 8; vr++) {
-        for (int f = 0; f < 8; f++) {
-            int rank = 7 - vr;
-            int sq = make_sq(f, rank);
-            float cx, cy;
-            square_center(sq, &cx, &cy);
-            bool light = ((f + rank) & 1) == 0;
-            uint32_t base = light ? 0xd8c1a6 : 0x55362f;
-            uint32_t shade = light ? 0xf5e2bf : 0x2c1b22;
-            fill_diamond(cx, cy, tile_w, tile_h, rgb_mix(base, shade, 0.20f), 0.62f);
-            if (((f * 17 + rank * 31) & 7) == 0)
-                fill_diamond(cx, cy, tile_w * 0.62f, tile_h * 0.62f,
-                             light ? 0xffffff : 0x000000, light ? 0.035f : 0.045f);
+static void draw_board_base(void)
+{
+    const float m = BOARD_FRAME;
+    draw_board_shadow();
+
+    if (top_view()) {
+        int x0 = (int)floorf(board_cx - tile_w * (4.0f + m) + shake_x);
+        int y0 = (int)floorf(board_top - tile_h * m + shake_y);
+        int span = (int)ceilf(tile_w * (8.0f + 2.0f * m));
+        for (int y = y0; y < y0 + span; y++) {
+            float q = ((float)y + 0.5f - shake_y - board_top) / tile_h;
+            for (int x = x0; x < x0 + span; x++) {
+                float p = ((float)x + 0.5f - shake_x - board_cx) / tile_w + 4.0f;
+                uint32_t c;
+                if (board_surface_color(p, q, &c)) px_set(x, y, c);
+            }
+        }
+    } else {
+        /* the slab hangs below the two near edges of the frame */
+        float thick = fmaxf(6.0f, tile_h * 0.42f);
+        float drop = thick / tile_h;    /* moving up one slab moves p and q this far */
+        uint32_t side = frame_colors[G.board_theme % BOARD_THEME_COUNT];
+        int x0 = (int)floorf(board_cx - tile_w * (4.0f + m) + shake_x) - 2;
+        int x1 = (int)ceilf(board_cx + tile_w * (4.0f + m) + shake_x) + 2;
+        int y0 = (int)floorf(board_top + tile_h * (0.5f - m) + shake_y) - 2;
+        int y1 = (int)ceilf(board_top + tile_h * (8.5f + m) + thick + shake_y) + 2;
+        for (int y = y0; y <= y1; y++) {
+            float bsum = ((float)y + 0.5f - shake_y - board_top) / (tile_h * 0.5f) - 1.0f;
+            for (int x = x0; x <= x1; x++) {
+                float adiff = ((float)x + 0.5f - shake_x - board_cx) / (tile_w * 0.5f);
+                float p = (adiff + bsum) * 0.5f, q = (bsum - adiff) * 0.5f;
+                uint32_t c;
+                if (board_surface_color(p, q, &c)) {
+                    px_set(x, y, c);
+                    continue;
+                }
+                float over = fmaxf(p, q) - (8.0f + m);
+                if (over <= 0.0f || over > drop) continue;
+                float ep = p - over, eq = q - over;   /* where this column leaves the top */
+                if (ep < -m || eq < -m) continue;
+                bool left_face = q >= p;              /* the face under the near-left edge */
+                float t = over / drop;
+                uint32_t c2 = rgb_mix(side, 0x000000, left_face ? 0.30f : 0.52f);
+                c2 = rgb_mix(c2, 0x000000, 0.25f * t);
+                if (t < 0.10f) c2 = rgb_mix(c2, 0xffffff, 0.16f);
+                px_set(x, y, c2);
+            }
         }
     }
 
-    /* coordinates along the near edges */
+    /* coordinates */
     int near_rank = game_view_flipped() ? 7 : 0;
     int rank_edge_file = game_view_flipped() ? 7 : 0;
     for (int f = 0; f < 8; f++) {
         float cx, cy;
         square_center(make_sq(f, near_rank), &cx, &cy);
         char lab[2] = { (char)('a' + f), 0 };
-        draw_text(cx + tile_w * 0.34f, cy + tile_h * 0.30f, lab, 0xe2d4bb, 0.55f, 1);
+        if (top_view())
+            draw_text(cx - 4.0f, cy + tile_h * (0.5f + m) + 3.0f, lab, 0xe2d4bb, 0.85f, 1);
+        else
+            draw_text(cx - tile_w * 0.36f, cy + tile_h * 0.50f, lab, 0xe2d4bb, 0.80f, 1);
     }
     for (int r = 0; r < 8; r++) {
         float cx, cy;
         square_center(make_sq(rank_edge_file, r), &cx, &cy);
         char lab[2] = { (char)('1' + r), 0 };
-        draw_text(cx - tile_w * 0.46f, cy + tile_h * 0.14f, lab, 0xe2d4bb, 0.55f, 1);
+        if (top_view())
+            draw_text(cx - tile_w * (0.5f + m) - 13.0f, cy - 8.0f, lab, 0xe2d4bb, 0.85f, 1);
+        else
+            draw_text(cx - tile_w * 0.74f, cy - tile_h * 0.06f, lab, 0xe2d4bb, 0.80f, 1);
     }
 }
 
@@ -686,7 +880,7 @@ static void draw_board_marks(void)
         draw_square_overlay(G.selected, 0xfbbf24, 0.28f);
         float scx, scy;
         square_center(G.selected, &scx, &scy);
-        outline_diamond(scx, scy, tile_w, tile_h, 0xfbbf24, 0.95f);
+        tile_outline(scx, scy, 1.0f, 0xfbbf24, 0.95f);
     }
 
     if (G.last_move[0]) {
@@ -707,8 +901,7 @@ static void draw_board_marks(void)
         float pulse = G.check_flash > 0
             ? 0.55f + 0.45f * sinf(G.frame_count * 0.55f) : 0.45f;
         draw_square_overlay(king_sq, 0xef4444, 0.18f + 0.20f * pulse);
-        outline_diamond(cx, cy, tile_w * 0.90f, tile_h * 0.90f,
-                        0xfca5a5, 0.95f);
+        tile_outline(cx, cy, 0.90f, 0xfca5a5, 0.95f);
     }
 }
 
@@ -724,10 +917,8 @@ static void draw_legal_markers(void)
             /* Capture targets use an outline, readable without relying on
              * the same color cue as quiet moves.  Markers are drawn over the
              * army sprites so tall foreground pieces cannot hide them. */
-            outline_diamond(cx, cy, tile_w * 0.92f, tile_h * 0.92f,
-                            0x180405, 1.0f);
-            outline_diamond(cx, cy, tile_w * 0.84f, tile_h * 0.84f,
-                            0xfb7185, 1.0f);
+            tile_outline(cx, cy, 0.92f, 0x180405, 1.0f);
+            tile_outline(cx, cy, 0.84f, 0xfb7185, 1.0f);
         } else {
             uint32_t color = kind & 4 ? 0x60a5fa : 0x4ade80;
             fill_circle(cx, cy, fmaxf(5.0f, tile_h * 0.16f), 0x07120b, 0.92f);
@@ -782,11 +973,11 @@ static void compute_capture_anim(void)
     square_center(m.from, &sx, &sy);
     square_center(m.to, &tx, &ty);
     square_center(G.anim.victim_sq, &vx, &vy);
-    sy += tile_h * 0.33f;
-    ty += tile_h * 0.33f;
-    vy += tile_h * 0.33f;
+    sy += feet_dy();
+    ty += feet_dy();
+    vy += feet_dy();
     float t = clampf(G.anim.t, 0, 1);
-    float size = tile_w * 1.02f;
+    float size = piece_size() * 1.02f;
 
     float dx = vx - sx;
     float dy = vy - sy;
@@ -938,10 +1129,10 @@ static void compute_march_anim(void)
     float sx, sy, tx, ty;
     square_center(m.from, &sx, &sy);
     square_center(m.to, &tx, &ty);
-    sy += tile_h * 0.33f;
-    ty += tile_h * 0.33f;
+    sy += feet_dy();
+    ty += feet_dy();
     float t = clampf(G.anim.t, 0, 1);
-    float size = tile_w * 1.02f;
+    float size = piece_size() * 1.02f;
 
     float move_t = ease_smooth(t);
     float ax = sx + (tx - sx) * move_t;
@@ -949,7 +1140,7 @@ static void compute_march_anim(void)
 
     /* knights leap in an arc over anything in the way */
     if (G.anim.attacker_type == PT_KNIGHT)
-        ay -= sinf(clampf(t, 0, 1) * 3.14159265f) * tile_h * 1.35f;
+        ay -= sinf(clampf(t, 0, 1) * 3.14159265f) * tile_w * 0.65f;
 
     int dist = abs(sq_file(m.to) - sq_file(m.from));
     int drank = abs(sq_rank(m.to) - sq_rank(m.from));
@@ -1003,8 +1194,8 @@ static void compute_march_anim(void)
         float rsx, rsy, rtx, rty;
         square_center(G.anim.rook_from, &rsx, &rsy);
         square_center(G.anim.rook_to, &rtx, &rty);
-        rsy += tile_h * 0.33f;
-        rty += tile_h * 0.33f;
+        rsy += feet_dy();
+        rty += feet_dy();
         float rt = ease_smooth(clampf((t - 0.45f) / 0.5f, 0, 1));
         AnimSprite *rook = &anim_sprites[2];
         rook->used = true;
@@ -1046,14 +1237,14 @@ static void compute_animation(void)
             (G.result_kind == RESULT_CHECKMATE || G.result_kind == RESULT_RESIGN)) {
             float cx, cy;
             square_center(G.loser_king_sq, &cx, &cy);
-            cy += tile_h * 0.33f;
+            cy += feet_dy();
             float fall = ease_smooth(clampf(G.over_t / 0.9f, 0, 1));
             AnimSprite *king = &anim_sprites[0];
             king->used = true;
             king->piece = G.winner_side == SIDE_WHITE ? 'k' : 'K';
             king->x = cx + fall * tile_w * 0.30f;
             king->y = cy + fall * tile_h * 0.20f;
-            king->size = tile_w * 1.02f;
+            king->size = piece_size() * 1.02f;
             king->alpha = 1.0f;
             king->angle = fall * 1.48f;
             king->atlas = 0;
@@ -1072,11 +1263,12 @@ static void compute_animation(void)
 /* painter's sweep: static pieces and animated sprites interleaved by depth */
 static void draw_scene_pieces(void)
 {
-    float size = tile_w * 0.98f;
+    float size = piece_size() * 0.98f;
     bool drawn[MAX_ANIM_SPRITES] = { false };
 
     bool flipped = game_view_flipped();
-    for (int diag = 0; diag <= 14; diag++) {
+    bool top = top_view();
+    for (int diag = 0; diag <= (top ? 7 : 14); diag++) {
         for (int i = 0; i < MAX_ANIM_SPRITES; i++) {
             if (anim_sprites[i].used && !drawn[i] &&
                 anim_sprites[i].depth < (float)diag) {
@@ -1085,7 +1277,8 @@ static void draw_scene_pieces(void)
             }
         }
         for (int vr = 0; vr < 8; vr++) {
-            int vf = diag - vr;
+            if (top && vr != diag) continue;
+            for (int vf = top ? 0 : diag - vr; vf <= (top ? 7 : diag - vr); vf++) {
             if (vf < 0 || vf >= 8) continue;
             int f = flipped ? 7 - vf : vf;
             int rank = flipped ? vr : 7 - vr;
@@ -1094,7 +1287,8 @@ static void draw_scene_pieces(void)
             if (p == '.' || skip_board_piece(sq)) continue;
             float cx, cy;
             square_center(sq, &cx, &cy);
-            draw_piece_static(p, cx, cy + tile_h * 0.33f, size, 1.0f);
+            draw_piece_static(p, cx, cy + feet_dy(), size, 1.0f);
+            }
         }
     }
     for (int i = 0; i < MAX_ANIM_SPRITES; i++)
@@ -1130,9 +1324,10 @@ static void draw_board_cursor(void)
     uint32_t side_col = G.side == SIDE_WHITE ? 0xff4d3d : 0x38d9ff;
     float pulse = 0.72f + 0.28f * sinf(G.frame_count * 0.16f);
 
-    outline_diamond(cx, cy, tile_w * 1.05f, tile_h * 1.05f, 0x050505, 1.0f);
-    outline_diamond(cx, cy, tile_w * 0.96f, tile_h * 0.96f, side_col, 0.95f);
-    fill_diamond(cx, cy, tile_w * 0.62f, tile_h * 0.62f, side_col, 0.12f * pulse);
+    tile_outline(cx, cy, top_view() ? 1.0f : 1.05f, 0x050505, 1.0f);
+    tile_outline(cx, cy, top_view() ? 0.92f : 0.96f, side_col, 0.95f);
+    tile_fill(cx, cy, 0.62f, side_col, 0.12f * pulse);
+    if (top_view()) return;   /* the frame is the pointer; an arrow would hide the piece */
 
     float px = cx + tile_w * 0.28f;
     float py = cy - tile_h * 1.34f;
@@ -1498,6 +1693,10 @@ static void draw_title(void)
             label = "Battlefield";
             snprintf(val, sizeof val, "%s", board_theme_name(G.board_theme));
             break;
+        case MENU_VIEW:
+            label = "View";
+            snprintf(val, sizeof val, "%s", view_name(G.view));
+            break;
         case MENU_MUSIC:
             label = "Music";
             snprintf(val, sizeof val, "%s", G.music_on ? "On" : "Off");
@@ -1592,6 +1791,14 @@ bool render_validate_assets(char *error, size_t error_len)
         bool ok = expect_bitmap(&theme, rel, 640, 360, error, error_len);
         free_bitmap(&theme);
         if (!ok) return false;
+        for (int shade = 0; shade < 2; shade++) {
+            snprintf(rel, sizeof rel, "boards/%s-%s.ppm", themes[i].file,
+                     shade == 0 ? "light" : "dark");
+            theme = load_ppm(asset_path(rel));
+            ok = expect_bitmap(&theme, rel, 256, 256, error, error_len);
+            free_bitmap(&theme);
+            if (!ok) return false;
+        }
     }
     return true;
 }
@@ -1618,6 +1825,8 @@ void render_shutdown(void)
     backdrop_valid = false;
     free_bitmap(&title_img);
     free_bitmap(&board_bg_img);
+    free_bitmap(&tile_tex[0]);
+    free_bitmap(&tile_tex[1]);
     free_bitmap(&piece_atlas);
     free_bitmap(&piece_direction_atlas);
     free_bitmap(&fight_atlas);
@@ -1650,7 +1859,7 @@ static void draw_backdrop(void)
         return;
     }
     bool flipped = game_view_flipped();
-    if (!backdrop_valid || backdrop_flipped != flipped ||
+    if (!backdrop_valid || backdrop_flipped != flipped || backdrop_view != G.view ||
         backdrop.w != W || backdrop.h != H) {
         draw_battlefield();
         draw_board_base();
@@ -1662,6 +1871,7 @@ static void draw_backdrop(void)
         }
         memcpy(backdrop.px, canvas.px, (size_t)W * (size_t)H * sizeof *canvas.px);
         backdrop_flipped = flipped;
+        backdrop_view = G.view;
         backdrop_valid = true;
         return;
     }

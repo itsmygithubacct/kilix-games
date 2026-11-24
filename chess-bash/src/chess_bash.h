@@ -27,6 +27,7 @@ enum {
 };
 
 enum { SIDE_WHITE, SIDE_BLACK };
+enum { VIEW_ISO, VIEW_TOP, VIEW_COUNT };
 enum { PT_PAWN, PT_KNIGHT, PT_BISHOP, PT_ROOK, PT_QUEEN, PT_KING, PT_COUNT };
 
 enum {
@@ -69,6 +70,7 @@ enum {
     MENU_SIDE,
     MENU_DIFF,
     MENU_BOARD,
+    MENU_VIEW,
     MENU_MUSIC,
     MENU_SPEED,
     MENU_START,
@@ -143,6 +145,7 @@ typedef struct {
     bool music_on;
     int difficulty;         /* index into difficulty table */
     int board_theme;
+    int view;               /* VIEW_ISO or VIEW_TOP */
 
     /* title menu */
     int title_row;
@@ -224,6 +227,8 @@ bool game_apply_uci_move(const char *uci);
 void game_move_to_uci(Move m, char out[8]);
 bool game_is_human_turn(void);
 bool game_view_flipped(void);
+bool game_square_light(int sq);
+const char *view_name(int view);
 bool game_side_in_check(int side);
 int game_king_square(int side);
 bool game_load_fen(const char *fen);

@@ -29,6 +29,7 @@ BOARD_IMAGES = assets/boards/ivy-courtyard.ppm \
 	assets/boards/marble-terminal.ppm assets/boards/desert-ruins.ppm \
 	assets/boards/ice-cathedral.ppm assets/boards/volcanic-forge.ppm \
 	assets/boards/orbital-space.ppm
+TILE_IMAGES = $(BOARD_IMAGES:.ppm=-light.ppm) $(BOARD_IMAGES:.ppm=-dark.ppm)
 SFX_ASSETS = assets/sfx/select.wav assets/sfx/select_v02.wav \
 	assets/sfx/select_v03.wav assets/sfx/move_step.wav \
 	assets/sfx/move_step_v02.wav assets/sfx/move_step_v03.wav \
@@ -43,7 +44,7 @@ SFX_ASSETS = assets/sfx/select.wav assets/sfx/select_v02.wav \
 	assets/sfx/check.wav assets/sfx/check_v02.wav assets/sfx/check_v03.wav
 MUSIC_ASSETS = assets/music/thinking_loop.wav assets/music/battle_loop.wav \
 	assets/music/victory_fanfare.wav
-ASSET_FILES = $(ROOT_IMAGES) $(BOARD_IMAGES) $(SFX_ASSETS) $(MUSIC_ASSETS)
+ASSET_FILES = $(ROOT_IMAGES) $(BOARD_IMAGES) $(TILE_IMAGES) $(SFX_ASSETS) $(MUSIC_ASSETS)
 ASSET_DEST = $(DESTDIR)$(PREFIX)/share/chess-bash/assets
 
 all: $(BIN)
@@ -79,7 +80,7 @@ test: $(BIN) $(ENGINE_LIFECYCLE_TEST) validate-assets test-cli
 	(cd "$$render_dir" && CHESS_BASH_RENDER_DIR="$$render_dir" \
 		"$(CURDIR)/$(BIN)" --render-test 42); \
 	set -- "$$render_dir"/render_*.ppm; \
-	[ "$$#" -eq 21 ]; \
+	[ "$$#" -eq 23 ]; \
 	for image do [ -s "$$image" ]; done
 
 test-cli: $(BIN)
@@ -192,6 +193,7 @@ validate-assets: $(ASSET_FILES)
 	check_ppm assets/pieces_fight.ppm 768 1024; \
 	check_ppm assets/effects.ppm 640 384; \
 	for image in $(BOARD_IMAGES); do check_ppm "$$image" 640 360; done; \
+	for image in $(TILE_IMAGES); do check_ppm "$$image" 256 256; done; \
 	for audio in $(SFX_ASSETS) $(MUSIC_ASSETS); do check_wav "$$audio"; done
 
 install: $(BIN) validate-assets
@@ -199,7 +201,7 @@ install: $(BIN) validate-assets
 	install -d -m755 "$(ASSET_DEST)" "$(ASSET_DEST)/boards" \
 		"$(ASSET_DEST)/sfx" "$(ASSET_DEST)/music"
 	install -m644 $(ROOT_IMAGES) "$(ASSET_DEST)/"
-	install -m644 $(BOARD_IMAGES) "$(ASSET_DEST)/boards/"
+	install -m644 $(BOARD_IMAGES) $(TILE_IMAGES) "$(ASSET_DEST)/boards/"
 	install -m644 $(SFX_ASSETS) "$(ASSET_DEST)/sfx/"
 	install -m644 $(MUSIC_ASSETS) "$(ASSET_DEST)/music/"
 	install -Dm644 docs/chess-bash.6 "$(DESTDIR)$(PREFIX)/share/man/man6/chess-bash.6"

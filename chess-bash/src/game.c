@@ -81,6 +81,18 @@ const char *mode_name(int mode)
     }
 }
 
+const char *view_name(int view)
+{
+    return view == VIEW_TOP ? "Top-down" : "Isometric";
+}
+
+/* h1 and a8 are light: "white on the right".  The queens start on their own
+ * colour, so d1 is light and d8 is dark. */
+bool game_square_light(int sq)
+{
+    return ((sq_file(sq) + sq_rank(sq)) & 1) == 1;
+}
+
 const char *difficulty_name(int diff)
 {
     switch (diff) {
@@ -1612,6 +1624,9 @@ static void title_adjust(int dir)
         G.board_theme = (G.board_theme + dir + BOARD_THEME_COUNT) % BOARD_THEME_COUNT;
         render_set_theme(G.board_theme);
         break;
+    case MENU_VIEW:
+        G.view = (G.view + dir + VIEW_COUNT) % VIEW_COUNT;
+        break;
     case MENU_MUSIC:
         toggle_music();
         break;
@@ -1687,6 +1702,10 @@ void game_handle_key(int key)
     }
     if (G.state == GS_INTRO) {
         game_reset_to_title();   /* any key skips the intro */
+        return;
+    }
+    if (key == 't' || key == 'T' || key == KEY_TAB) {
+        G.view = (G.view + 1) % VIEW_COUNT;   /* isometric <-> top-down */
         return;
     }
     if (G.state == GS_TITLE) {

@@ -506,6 +506,20 @@ static int rules_test(void)
            game_key_repeats(KEY_LEFT) && game_key_repeats('w'),
            "only navigation keys auto-repeat");
 
+    /* The view toggle works in every state and never touches the position. */
+    {
+        int before = G.view;
+        int state = G.state;
+        game_handle_key('t');
+        EXPECT(G.view != before && G.state == state, "T switches the view only");
+        game_handle_key(KEY_TAB);
+        EXPECT(G.view == before, "Tab switches the view back");
+        EXPECT(!game_key_repeats('t'), "the view key does not auto-repeat");
+        EXPECT(game_square_light(make_sq(7, 0)) && !game_square_light(make_sq(0, 0)) &&
+               game_square_light(make_sq(3, 0)) && !game_square_light(make_sq(3, 7)),
+               "h1 is light and each queen starts on her own colour");
+    }
+
     /* Skipping a battle must not play every remaining cue at once. */
     G.fast_anim = false;
     game_start(MODE_HUMAN_HUMAN);
@@ -595,6 +609,10 @@ static int render_test(unsigned seed)
     game_handle_key(KEY_ENTER);   /* e2 selected: distinct move/capture cues */
     render_frame();
     DUMP_RENDER("render_selected.ppm");
+    G.view = VIEW_TOP;
+    render_frame();
+    DUMP_RENDER("render_selected_top.ppm");
+    G.view = VIEW_ISO;
 
     G.W = 640;
     G.H = 414;                    /* typical 80x24 terminal geometry */
@@ -627,6 +645,10 @@ static int render_test(unsigned seed)
     anim_run_until(0.52f);
     render_frame();
     DUMP_RENDER("render_battle_strike.ppm");
+    G.view = VIEW_TOP;
+    render_frame();
+    DUMP_RENDER("render_battle_strike_top.ppm");
+    G.view = VIEW_ISO;
     anim_run_until(0.70f);
     render_frame();
     DUMP_RENDER("render_battle_fall.ppm");
@@ -703,7 +725,7 @@ done:
     render_shutdown();
     game_shutdown();
     if (ok)
-        printf("wrote 21 render-test PPMs to %s\n", render_output_dir);
+        printf("wrote 23 render-test PPMs to %s\n", render_output_dir);
 #undef APPLY_RENDER_MOVE
 #undef DUMP_RENDER
     return ok ? 0 : 1;
