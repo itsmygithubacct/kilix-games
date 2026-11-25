@@ -816,6 +816,30 @@ static void discover_ollama(game *g)
     menu->load_failed = !menu->loading;
 }
 
+/* The draft-and-judge harness is picked one part at a time: each choice is a
+ * longer name, and the helper lists the names one pick further on. A name
+ * with its judge ("/J:") is complete and is selected like any other model. */
+static bool harness_incomplete(const char *name)
+{
+    return !strncmp(name, "draft_judge_harness", 19) && !strstr(name, "/J:");
+}
+
+static void harness_picker(game *g, const char *partial)
+{
+    game_menu *menu = &g->menu;
+    char helper[4096], name[OLLAMA_NAME_CAP];
+    char *argv[] = {helper, "harness", name, NULL};
+    snprintf(name, sizeof name, "%s", partial);
+    pty_stop(&menu->discovery);
+    clear_models(menu);
+    menu->catalog_provider = 0;
+    menu->model_selected = 0;
+    menu->line_length = 0;
+    snprintf(helper, sizeof helper, "%s/libexec/puzzllm-ollama", g->root);
+    menu->loading = g->spawn && pty_spawn(&menu->discovery, argv, NULL, OLLAMA_NAME_CAP + 8, 24);
+    menu->load_failed = g->spawn && !menu->loading;
+}
+
 static void cancel_auto_request(game *g)
 {
     if (g->auto_requested) {
@@ -1627,7 +1651,9 @@ static void model_menu_key(game *g, const key_event *ev)
                 hosted_picker(g, menu->model_submenu, true);
             }
         } else if (ollama) {
-            if (menu->count > 0)
+            if (menu->count > 0 && harness_incomplete(menu->models[menu->model_selected].name))
+                harness_picker(g, menu->models[menu->model_selected].name);
+            else if (menu->count > 0)
                 select_local_model(g, &menu->models[menu->model_selected]);
         } else if (menu->gguf_count > 0) {
             char path[sizeof g->llama_model];

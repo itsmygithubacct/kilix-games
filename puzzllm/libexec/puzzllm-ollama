@@ -3,9 +3,11 @@
 
 import http.client
 import http.server
+import io
 import json
 import os
 import re
+import shutil
 import signal
 import socket
 import socketserver
@@ -24,6 +26,117 @@ CHAT = "/v1/chat/completions"
 MIN_CONTEXT = 16384
 DEFAULT_CONTEXT = 32768
 NAME = re.compile(r"[a-zA-Z0-9_][a-zA-Z0-9_.:/-]{0,254}")
+
+# Draft-and-judge choices: the first model writes the reply, the d3 decision
+# model rates it, and a low rating buys more drafts for the judge to pick from.
+# Ollama swaps the two on a GPU that cannot hold both. Offered when both are installed.
+HYBRIDS = {"qwen3.5-4b_draft_d3-4b_judge_ollama": ("qwen3.5:4b", "d3:4b")}
+DRAFTS = 4                 # sampled drafts written when the first is not accepted
+DRAFT_ACCEPT = 0.9         # a first draft rated at least this is returned as is
+DRAFT_TEMPERATURE = 0.8
+JUDGE_QUESTION = "Is this reply a correct and complete next step for the request?"
+JUDGE_TEXT = 5000          # characters of the request and of each reply the judge reads
+
+
+# The draft-and-judge harness: `kilix-llm stack` keeps the workers and the judge
+# loaded together and writes the drafts at once. The menu builds its name one
+# part at a time (see harness_options):
+#   draft_judge_harness/W:<worker>:<slots>[/W:...]/D:<drafts>/J:<judge>
+HARNESS = "draft_judge_harness"
+HARNESS_SLOTS = 8
+HARNESS_DRAFTS = 16
+
+
+def kilix_llm():
+    """The kilix-llm launcher: PUZZLLM_KILIX_LLM, then PATH, then Kilix's own install."""
+    named = os.environ.get("PUZZLLM_KILIX_LLM") or shutil.which("kilix-llm")
+    home = os.path.expanduser("~/.local/gpu_terminal/kilix-llm/kilix-llm")
+    for path in (named, home):
+        if path and os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+    return None
+
+
+def harness_choices():
+    """{"workers": [...], "judges": [...]} from `kilix-llm stack choices`, or None without it."""
+    launcher = kilix_llm()
+    if not launcher:
+        return None
+    try:
+        child = subprocess.run([launcher, "stack", "choices", "--json"], stdin=subprocess.DEVNULL,
+                               capture_output=True, text=True, timeout=60, check=False)
+        found = json.loads(child.stdout)
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+    if child.returncode != 0 or not isinstance(found, dict) or not found.get("workers") or not found.get("judges"):
+        return None
+    return found
+
+
+def parse_harness(name):
+    """(workers [(model, slots or None)], drafts or None, judge or None) of a harness name."""
+    head, *parts = name.split("/")
+    if head != HARNESS:
+        raise ValueError("not a draft-and-judge harness name")
+    workers, drafts, judge = [], None, None
+    for part in parts:
+        kind, _, value = part.partition(":")
+        if kind == "W" and value and drafts is None and judge is None:
+            model, _, slots = value.partition(":")
+            if slots and not (slots.isdigit() and 1 <= int(slots) <= HARNESS_SLOTS):
+                raise ValueError("a worker takes 1 to %d slots" % HARNESS_SLOTS)
+            workers.append((model, int(slots) if slots else None))
+        elif kind == "D" and value.isdigit() and 1 <= int(value) <= HARNESS_DRAFTS and workers and judge is None:
+            drafts = int(value)
+        elif kind == "J" and value and drafts is not None:
+            judge = value
+        else:
+            raise ValueError("invalid draft-and-judge harness name")
+    if any(slots is None for _, slots in workers[:-1]) or len({m for m, _ in workers}) < len(workers):
+        raise ValueError("invalid draft-and-judge harness name")
+    return workers, drafts, judge
+
+
+def harness_options(name, found):
+    """The names one pick further on from `name`: a worker, its slots, more workers or the
+    number of drafts, then the judge. A name with a judge is complete and has none."""
+    workers, drafts, judge = parse_harness(name)
+    if judge is not None:
+        return []
+    if drafts is not None:
+        return [f"{name}/J:{model}" for model in found["judges"]]
+    if not workers:
+        return [f"{name}/W:{model}" for model in found["workers"]]
+    if workers[-1][1] is None:
+        return [f"{name}:{slots}" for slots in range(1, HARNESS_SLOTS + 1)]
+    slots = sum(count for _, count in workers)
+    counts = sorted({min(HARNESS_DRAFTS, slots * times) for times in (1, 2, 3, 4)})
+    used = {model for model, _ in workers}
+    return ([f"{name}/D:{count}" for count in counts]
+            + [f"{name}/W:{model}" for model in found["workers"] if model not in used])
+
+
+def harness_argv(name, sock, journal):
+    workers, drafts, judge = parse_harness(name)
+    if judge is None:
+        raise ValueError("the draft-and-judge harness needs its workers, drafts and judge picked")
+    launcher = kilix_llm()
+    if not launcher:
+        raise ValueError("kilix-llm is not installed; the draft-and-judge harness needs it")
+    argv = [launcher, "stack", "serve", "--socket", sock, "--name", name, "--journal", journal,
+            "--ctx", os.environ.get("PUZZLLM_CTX") or "32768", "--drafts", str(drafts), "--judge", judge]
+    for model, slots in workers:
+        argv += ["--worker", f"{model}:{slots}"]
+    if os.environ.get("PUZZLLM_COMPUTE") == "cpu":
+        argv += ["--backend", "cpu"]
+    if os.environ.get("PUZZLLM_THINK") == "1":
+        argv.append("--think")
+    return argv
+
+
+def generator_of(model):
+    """The Ollama model that writes replies for a menu choice."""
+    return HYBRIDS[model][0] if model in HYBRIDS else model
 
 
 def ollama_connection(timeout):
@@ -58,7 +171,13 @@ def installed_models():
         connection.close()
 
 
+def offered_models():
+    names = installed_models()
+    return names + [choice for choice, parts in HYBRIDS.items() if all(part in names for part in parts)]
+
+
 def model_metadata(model):
+    model = generator_of(model)
     connection = ollama_connection(2)
     try:
         connection.request("POST", "/api/show", json.dumps({"model": model}),
@@ -112,6 +231,7 @@ def check_context(metadata):
 
 
 def runner_status(model):
+    model = generator_of(model)
     connection = ollama_connection(2)
     try:
         connection.request("GET", "/api/ps")
@@ -245,6 +365,59 @@ def token_usage(native):
     return {"prompt_tokens": inputs, "completion_tokens": outputs, "total_tokens": inputs + outputs}
 
 
+def ollama_json(path, body, timeout):
+    """POST to the local Ollama and return its JSON reply, or None."""
+    connection = ollama_connection(timeout)
+    try:
+        connection.request("POST", path, json.dumps(body), {"Content-Type": "application/json"})
+        with connection.getresponse() as response:
+            if response.status == 200:
+                return json.load(response)
+    except (OSError, ValueError, http.client.HTTPException):
+        pass
+    finally:
+        connection.close()
+    return None
+
+
+def clipped(text):
+    """Keep the start and the end of a long text; the judge reads 4,096 tokens."""
+    if len(text) <= JUDGE_TEXT:
+        return text
+    return text[:JUDGE_TEXT // 2] + "\n[...]\n" + text[-JUDGE_TEXT // 2:]
+
+
+def judged_request(messages):
+    """What the reply answers: the latest user message and anything a tool returned since."""
+    last_user = max((index for index, message in enumerate(messages) if message["role"] == "user"), default=0)
+    parts = [messages[last_user]["content"]] if messages else []
+    parts += ["Tool result:\n" + message["content"] for message in messages[last_user + 1:]
+              if message["role"] == "tool"][-1:]
+    return clipped("\n\n".join(parts))
+
+
+def judged_reply(record):
+    message = record.get("message") or {}
+    lines = [message.get("content") or ""]
+    for call in message.get("tool_calls") or []:
+        function = call["function"]
+        lines.append(f"Tool call: {function['name']} {json.dumps(function.get('arguments') or {})}")
+    return clipped("\n".join(line for line in lines if line))
+
+
+def judge_ratings(judge, messages, records):
+    """The judge's probability that each draft is right, or None if it cannot be asked."""
+    questions = {f"d{index}": {"type": "noul", "instructions": JUDGE_QUESTION + "\n\n" + judged_reply(record)}
+                 for index, record in enumerate(records)}
+    reply = ollama_json("/v1/systemone", {"model": judge, "state": {"request": judged_request(messages)},
+                                          "questions": questions}, 600)
+    try:
+        ratings = [reply["answers"][name]["noul"] for name in questions]
+        return ratings if all(isinstance(rating, (int, float)) for rating in ratings) else None
+    except (TypeError, KeyError):
+        return None
+
+
 class ChatHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
@@ -281,11 +454,18 @@ class ChatHandler(http.server.BaseHTTPRequestHandler):
             return
 
         try:
-            if self.server.model not in installed_models():
+            if self.server.model not in offered_models():
                 self.send_error(409, "Selected local model is unavailable")
                 return
         except (OSError, ValueError, TypeError, KeyError, http.client.HTTPException):
             self.send_error(502, "Local Ollama is unavailable")
+            return
+        payload["model"] = generator_of(self.server.model)
+        if self.server.model in HYBRIDS:
+            try:
+                self.draft_and_judge(request, payload)
+            except (OSError, ValueError, KeyError, TypeError, http.client.HTTPException):
+                pass
             return
 
         connection = ollama_connection(300)
@@ -309,18 +489,9 @@ class ChatHandler(http.server.BaseHTTPRequestHandler):
             if not first:
                 self.send_error(502, "Ollama returned no completion")
                 return
-            runner = runner_status(self.server.model)
-            actual = runner.get("context_length")
-            if isinstance(actual, int) and 0 < actual < self.server.context:
-                self.send_error(409, f"Ollama loaded {actual:,} context tokens. "
-                                     f"PuzzLLM requested {self.server.context:,}.")
-                return
-            vram = runner.get("size_vram")
-            if self.server.compute == "gpu" and vram == 0:
-                self.send_error(409, "Ollama loaded the model on CPU. Select CPU or check Ollama GPU access.")
-                return
-            if self.server.compute == "cpu" and isinstance(vram, int) and vram > 0:
-                self.send_error(409, "Ollama used GPU memory for a CPU request.")
+            problem = self.runner_problem()
+            if problem:
+                self.send_error(409, problem)
                 return
             if payload["stream"]:
                 self.output_stream(request, first, response)
@@ -331,18 +502,92 @@ class ChatHandler(http.server.BaseHTTPRequestHandler):
         finally:
             connection.close()
 
-    def output_stream(self, request, first, response):
+    def runner_problem(self):
+        """Why the loaded generator cannot be used, or None."""
+        runner = runner_status(self.server.model)
+        actual = runner.get("context_length")
+        if isinstance(actual, int) and 0 < actual < self.server.context:
+            return (f"Ollama loaded {actual:,} context tokens. "
+                    f"PuzzLLM requested {self.server.context:,}.")
+        vram = runner.get("size_vram")
+        if self.server.compute == "gpu" and vram == 0:
+            return "Ollama loaded the model on CPU. Select CPU or check Ollama GPU access."
+        if self.server.compute == "cpu" and isinstance(vram, int) and vram > 0:
+            return "Ollama used GPU memory for a CPU request."
+        return None
+
+    def draft_and_judge(self, request, payload):
+        """Reply with the draft the judge rates highest; without a judge, with the first draft."""
+        _, judge = HYBRIDS[self.server.model]
+        streaming = payload["stream"]
+        started = time.time()
+        base = None
+
+        def draft(temperature, seed):
+            options = {**payload["options"], "temperature": temperature, "seed": seed}
+            record = ollama_json("/api/chat", {**payload, "stream": False, "options": options}, 600)
+            if base and record is not None:
+                # A comment line keeps the client's connection open between drafts.
+                self.wfile.write(b": draft\n\n")
+                self.wfile.flush()
+            return record
+
+        first = draft(0, 0)
+        if first is None or "error" in first:
+            self.send_error(502, "Ollama returned no completion")
+            return
+        problem = self.runner_problem()
+        if problem:
+            self.send_error(409, problem)
+            return
+        if streaming:
+            base = self.begin_stream(request)
+            self.wfile.flush()
+        records = [first]
+        ratings = judge_ratings(judge, payload["messages"], records)
+        if ratings is not None and ratings[0] < DRAFT_ACCEPT and self.server.drafts > 0:
+            seen = {judged_reply(first)}
+            for seed in range(1, self.server.drafts + 1):
+                record = draft(DRAFT_TEMPERATURE, seed)
+                if record is None or "error" in record:
+                    continue
+                if record.get("done_reason") != "length" and judged_reply(record) not in seen:
+                    seen.add(judged_reply(record))
+                    records.append(record)
+                else:  # a repeat or a cut-off reply still cost tokens
+                    for key in ("prompt_eval_count", "eval_count"):
+                        first[key] = first.get(key, 0) + record.get(key, 0)
+            more = judge_ratings(judge, payload["messages"], records[1:]) if len(records) > 1 else []
+            ratings = ratings + more if more is not None else ratings
+        picked = max(range(len(ratings)), key=lambda index: ratings[index]) if ratings else 0
+        chosen = dict(records[picked])
+        for key in ("prompt_eval_count", "eval_count"):  # report what the turn really cost
+            chosen[key] = sum(record.get(key, 0) for record in records)
+        self.server.note({"drafts": len(records), "ratings": ratings, "picked": picked,
+                          "seconds": round(time.time() - started, 1)})
+        if streaming:
+            self.output_stream(request, json.dumps(chosen).encode(), io.BytesIO(), base)
+        else:
+            self.output_completion(request, chosen)
+
+    def begin_stream(self, request):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.end_headers()
-        request_id = "chatcmpl_" + uuid.uuid4().hex
-        base = {"id": request_id, "object": "chat.completion.chunk",
+        base = {"id": "chatcmpl_" + uuid.uuid4().hex, "object": "chat.completion.chunk",
                 "created": int(time.time()), "model": request["model"]}
+        self.wfile.write(b"data: " + json.dumps(
+            {**base, "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}]}
+        ).encode() + b"\n\n")
+        return base
+
+    def output_stream(self, request, first, response, base=None):
+        base = base or self.begin_stream(request)
+        request_id = base["id"]
 
         def send(data):
             self.wfile.write(b"data: " + json.dumps(data).encode() + b"\n\n")
 
-        send({**base, "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}]})
         index = 0
         line = first
         while line:
@@ -381,10 +626,22 @@ class ChatHandler(http.server.BaseHTTPRequestHandler):
 class HostServer(socketserver.ThreadingUnixStreamServer):
     daemon_threads = True
 
+    drafts = DRAFTS
+    journal = None
+
     def get_request(self):
         client, address = super().get_request()
         client.settimeout(30)
         return client, address
+
+    def note(self, entry):
+        """Append one draft-and-judge turn to the journal in the game state."""
+        if self.journal:
+            try:
+                with open(self.journal, "a", encoding="utf-8") as output:
+                    output.write(json.dumps({"time": int(time.time()), "model": self.model, **entry}) + "\n")
+            except OSError:
+                pass
 
 
 def workspace_write_schema(state, original):
@@ -418,8 +675,46 @@ def workspace_write_schema(state, original):
     return original
 
 
+def run_harness(state, model, argv):
+    """Start `kilix-llm stack serve` on the socket the sandbox mounts, then the agent."""
+    with tempfile.TemporaryDirectory(prefix="ollama-", dir=os.path.abspath(state)) as directory:
+        sock = os.path.join(directory, "socket")
+        log_path = os.path.join(os.path.abspath(state), "draft-judge-harness.log")
+        with open(log_path, "ab") as log:
+            stack = subprocess.Popen(
+                harness_argv(model, sock, os.path.join(os.path.abspath(state), "draft-judge.jsonl")),
+                stdin=subprocess.DEVNULL, stdout=log, stderr=log)
+        child = None
+
+        def terminate(*_):
+            for process in (child, stack):
+                if process is not None and process.poll() is None:
+                    process.terminate()
+
+        signal.signal(signal.SIGTERM, terminate)
+        signal.signal(signal.SIGHUP, terminate)
+        try:
+            print("Draft and judge: loading the workers and the judge.", file=sys.stderr, flush=True)
+            while not os.path.exists(sock):
+                if stack.poll() is not None:
+                    with open(log_path, encoding="utf-8", errors="replace") as log:
+                        last = (log.read().strip().splitlines() or ["no output"])[-1]
+                    raise ValueError(f"the draft-and-judge harness did not start: {last}")
+                time.sleep(0.2)
+            child = subprocess.Popen([sock if arg == "@OLLAMA_SOCKET@" else arg for arg in argv])
+            return child.wait()
+        finally:
+            terminate()
+            try:
+                stack.wait(timeout=20)
+            except subprocess.TimeoutExpired:
+                stack.kill()
+
+
 def run_host(state, model, argv):
-    if model not in installed_models():
+    if model.startswith(HARNESS):
+        return run_harness(state, model, argv)
+    if model not in offered_models():
         raise ValueError("the selected model is no longer installed")
     metadata = model_metadata(model)
     context = check_context(metadata)
@@ -437,6 +732,12 @@ def run_host(state, model, argv):
             server.think = enabled if os.environ.get("PUZZLLM_THINK") == "1" else disabled
             server.context = context
             server.compute = os.environ.get("PUZZLLM_COMPUTE") or "auto"
+            if model in HYBRIDS:
+                server.journal = os.path.join(os.path.abspath(state), "draft-judge.jsonl")
+                try:
+                    server.drafts = max(0, min(16, int(os.environ.get("PUZZLLM_DRAFTS") or DRAFTS)))
+                except ValueError as error:
+                    raise ValueError("PUZZLLM_DRAFTS must be a number of drafts") from error
             schema_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "puzzllm-write-tool.json")
             with open(schema_path, encoding="utf-8") as schema_file:
                 server.write_schema = workspace_write_schema(state, json.load(schema_file))
@@ -496,12 +797,20 @@ class GuestServer(socketserver.ThreadingTCPServer):
 def main():
     mode, *args = sys.argv[1:]
     if mode == "list":
-        for name in installed_models():
+        for name in offered_models():
             print(name)
     elif mode == "list-details":
-        for name in installed_models():
+        for name in offered_models():
             controls, _, _ = thinking_controls(model_metadata(name))
             print(controls + name, flush=True)
+        if harness_choices():
+            print("0" + HARNESS, flush=True)
+    elif mode == "harness":
+        found = harness_choices()
+        if not found:
+            raise ValueError("kilix-llm stack is not available")
+        for name in harness_options(args[0], found):
+            print("0" + name, flush=True)
     elif mode == "host":
         return run_host(args[0], args[1], args[2:])
     elif mode == "guest":

@@ -156,6 +156,11 @@ test-defects: $(BIN) $(TEST_BIN)
 test-kilix-display:
 	@python3 -B tests/test_kilix_bridge.py
 
+# The draft-and-judge Ollama choice, against a stand-in Ollama.
+test-draft-judge:
+	@python3 -B tests/test_draft_judge.py
+	python3 tests/test_draft_judge_harness.py
+
 test-yesno:
 	@mkdir -p $(SCRATCH)/yesno
 	@TMPDIR=$(SCRATCH)/yesno PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover \
@@ -166,7 +171,7 @@ test-challenges: $(BIN)
 	@TMPDIR=$(SCRATCH)/challenges python3 -B tests/test-challenges.py
 	@TMPDIR=$(SCRATCH)/challenges python3 -B tests/test-incidents.py
 
-test: test-unit test-cli test-sandbox test-kilix-display test-yesno test-challenges test-defects
+test: test-unit test-cli test-sandbox test-kilix-display test-draft-judge test-yesno test-challenges test-defects
 
 # Not part of `make test`: needs omp, a llama-server and the Qwen 3.5
 # weights on this machine, and runs the real model.

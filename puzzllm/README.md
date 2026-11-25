@@ -468,6 +468,36 @@ unavailable for models without reported thinking support. Changing it
 restarts the agent. For models that always reason, Ollama uses their minimum
 effort when the switch is off. Codex manages its own reasoning settings.
 
+**Draft and judge.** With both `qwen3.5:4b` and `d3:4b` installed, the
+Ollama list also offers `qwen3.5-4b_draft_d3-4b_judge_ollama`. Qwen writes each
+reply, and the d3 decision model rates it as a next step for the request. A
+reply rated 0.9 or higher is used as it is. Otherwise Qwen writes four more
+drafts at temperature 0.8 and the highest-rated one is used, the first draft
+winning a tie. `PUZZLLM_DRAFTS` changes the number of extra drafts (0 to 16).
+Ollama swaps the two models on a GPU that cannot hold both, so a judged turn
+is slower than a plain one. Token counts cover every draft. The judge reads
+the latest user message, the latest tool result and each reply, up to 5,000
+characters of each. If the judge cannot be reached, the first draft is used.
+Each turn's ratings and pick are appended to `draft-judge.jsonl` in the game
+state. Thinking, context and compute settings apply to Qwen.
+
+**Draft and judge harness.** With `kilix-llm stack` installed, the Ollama
+list also offers `draft_judge_harness`. Choosing it opens four picks in turn:
+a worker model, how many copies of it write at once (1 to 8), then either
+another worker model or the number of drafts for each reply, and last the
+judge. Workers are the whole models in kilix-llm's catalogue that are
+downloaded, and `codex` and `claude` when those commands are installed; the
+judge may also be a d3 decision model from the catalogue. The finished choice
+is one name, for example
+`draft_judge_harness/W:qwen3.5-0.8b:4/D:4/J:d3-2b`, and `PUZZLLM_OLLAMA_MODEL`
+accepts the same name. Unlike the `_ollama` choice above, the workers and the
+judge stay loaded together and the drafts are written at the same time, so
+every model must fit in memory at once; `kilix-llm stack fit` reports how many
+copies fit on this machine. Each worker slot has `PUZZLLM_CTX` tokens of
+context. Ratings and picks go to `draft-judge.jsonl` in the game state, and
+the harness's own messages to `draft-judge-harness.log`. Ollama is not used
+by this choice, and `PUZZLLM_KILIX_LLM` names a `kilix-llm` outside PATH.
+
 Ollama must be running locally. PuzzLLM reads the local model list using
 Python 3. It uses port 11434 by default and respects a loopback
 `OLLAMA_HOST`. Ollama models vary in their support for chat and tool calls.
